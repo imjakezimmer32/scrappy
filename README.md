@@ -200,6 +200,6 @@ never steals focus from your editor.
 | `CURSOR_AGENT_RUN_TIMEOUT_MS` | `0` (off) | Stop a run after this many ms |
 | `CURSOR_AGENT_STALE_MS` | `900000` (15 min) | Treat saved "running" as stuck after this |
 | `COG_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Cog walks over |
-| `COG_WAKE_WORD` | `on` | Passive "hey Cog" listener when voice is configured |
+| `COG_WAKE_WORD` | `on` | Enable "hey there Cog" listener when voice is configured |
 
 Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.
