@@ -100,19 +100,23 @@ Set in `.env.local`:
 
 ```
 VOICE_BACKEND=local
-OLLAMA_MODEL=qwen2.5:14b
+OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_THINK_MODEL=deepseek-r1:14b
+OLLAMA_THINK_MODE=auto
 ```
 
-Compare brains anytime:
+Dual-brain mode: the **7B** handles quick chat; a thinking model kicks in for hard asks.
+See `docs/local-models.md`.
+
+Compare fast brains anytime:
 
 ```bash
+npm run model:qwen7
 npm run model:qwen14
 npm run model:gemma9
 ```
 
-Or right-click the Workbuddy tray icon → **Switch local brain**.
-
-See `docs/local-models.md` for thinking-model options (DeepSeek R1, etc.).
+Or right-click the Workbuddy tray icon → **Switch fast brain** / **Switch think brain**.
 
 One-time install:
 

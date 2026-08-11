@@ -37,7 +37,9 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # fast chat brain
+OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
+OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 HOST = os.environ.get("COG_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COG_VOICE_PORT", "8790"))
@@ -48,6 +50,17 @@ SAMPLE_RATE_OUT = 24000
 SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "700"))
 MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "280"))
 ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.012"))
+
+THINK_TRIGGERS = re.compile(
+    r"\b("
+    r"think(?:\s+hard(?:er)?)?|reason(?:ing)?|plan(?:\s+out)?|figure\s+out|"
+    r"debug|analyze|analyse|architecture|design\s+(?:a|the|this)|"
+    r"step[- ]by[- ]step|carefully|deep\s+dive|compare\s+options|"
+    r"what(?:'s| is)\s+wrong|why\s+(?:is|does|did|would)|how\s+should\s+i|"
+    r"trade-?offs?|implement(?:ation)?"
+    r")\b",
+    re.I,
+)
 
 app = FastAPI(title="Cog Local Voice")
 _whisper = None
@@ -167,15 +180,93 @@ def split_speakable(buffer: str) -> tuple[list[str], str]:
     return parts, rest
 
 
-async def ollama_stream(messages: list[dict[str, str]]):
+def strip_thinking(text: str) -> str:
+    """Remove chain-of-thought blocks so Cog doesn't speak his homework."""
+    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.I)
+    cleaned = re.sub(r"<thinking>[\s\S]*?</thinking>", "", cleaned, flags=re.I)
+    # DeepSeek-style leftover headers.
+    cleaned = re.sub(r"(?im)^\s*(thinking|reasoning)\s*:\s*", "", cleaned)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+class ThinkFilter:
+    """Streaming filter that holds back <think>…</think> from TTS."""
+
+    def __init__(self) -> None:
+        self.buf = ""
+        self.in_think = False
+
+    def feed(self, chunk: str) -> str:
+        self.buf += chunk or ""
+        out = []
+        while self.buf:
+            if self.in_think:
+                end = re.search(r"</think>|</thinking>", self.buf, re.I)
+                if not end:
+                    # Keep a short tail in case a tag is split across chunks.
+                    if len(self.buf) > 32:
+                        self.buf = self.buf[-32:]
+                    break
+                self.buf = self.buf[end.end() :]
+                self.in_think = False
+                continue
+            start = re.search(r"<think>|<thinking>", self.buf, re.I)
+            if not start:
+                # Hold a little back so a split opening tag isn't spoken.
+                hold = 10
+                if len(self.buf) > hold:
+                    out.append(self.buf[:-hold])
+                    self.buf = self.buf[-hold:]
+                break
+            out.append(self.buf[: start.start()])
+            self.buf = self.buf[start.end() :]
+            self.in_think = True
+        return "".join(out)
+
+    def flush(self) -> str:
+        if self.in_think:
+            self.buf = ""
+            self.in_think = False
+            return ""
+        leftover = self.buf
+        self.buf = ""
+        return leftover
+
+
+def needs_thinking(user_text: str) -> bool:
+    """Route hard asks to the thinking model; keep casual chat on the fast brain."""
+    if OLLAMA_THINK_MODE in ("off", "false", "0"):
+        return False
+    if OLLAMA_THINK_MODE in ("always", "on", "true", "1"):
+        return True
+    text = (user_text or "").strip()
+    if not text:
+        return False
+    if WAKE_ONLY.match(text):
+        return False
+    if THINK_TRIGGERS.search(text):
+        return True
+    # Longer, multi-clause asks are usually planning/debugging.
+    if len(text) >= 140 and ("?" in text or "," in text):
+        return True
+    return False
+
+
+async def ollama_stream(messages: list[dict[str, str]], model: str, *, think: bool):
     url = f"{OLLAMA_URL}/api/chat"
-    payload = {
-        "model": OLLAMA_MODEL,
+    payload: dict[str, Any] = {
+        "model": model,
         "messages": messages,
         "stream": True,
-        "options": {"temperature": 0.7, "num_predict": 220},
+        "options": {
+            "temperature": 0.5 if think else 0.7,
+            "num_predict": 700 if think else 220,
+        },
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    # Qwen3 / Ollama thinking API (ignored harmlessly by models that lack it).
+    if think:
+        payload["think"] = True
+    async with httpx.AsyncClient(timeout=180.0) as client:
         async with client.stream("POST", url, json=payload) as resp:
             if resp.status_code != 200:
                 body = await resp.aread()
@@ -185,6 +276,7 @@ async def ollama_stream(messages: list[dict[str, str]]):
                     continue
                 data = json.loads(line)
                 msg = data.get("message") or {}
+                # Prefer spoken answer content; skip dedicated thinking fields.
                 chunk = msg.get("content") or ""
                 if chunk:
                     yield chunk
@@ -326,27 +418,57 @@ class Session:
             self.busy = False
 
     async def reply_from_history(self) -> None:
+        last_user = ""
+        for msg in reversed(self.history):
+            if msg.get("role") == "user":
+                last_user = msg.get("content") or ""
+                break
+
+        use_think = needs_thinking(last_user)
+        model = OLLAMA_THINK_MODEL if use_think else OLLAMA_MODEL
+        log(f"route -> {'think' if use_think else 'fast'} ({model})")
+        await self.send(
+            {
+                "type": "status",
+                "state": "thinking" if use_think else "speaking",
+                "route": "think" if use_think else "fast",
+                "model": model,
+            }
+        )
+
         full = ""
         pending = ""
-        await self.send({"type": "status", "state": "speaking"})
-        async for chunk in ollama_stream(self.build_messages()):
-            full += chunk
-            pending += chunk
+        filt = ThinkFilter()
+        if not use_think:
+            await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
+
+        async for chunk in ollama_stream(self.build_messages(), model, think=use_think):
+            visible = filt.feed(chunk)
+            if not visible:
+                continue
+            if use_think and not full and not pending:
+                await self.send({"type": "status", "state": "speaking", "route": "think", "model": model})
+            full += visible
+            pending += visible
             sentences, pending = split_speakable(pending)
             for sentence in sentences:
                 await self.speak(sentence)
 
+        visible = filt.flush()
+        if visible:
+            full += visible
+            pending += visible
         tail = pending.strip()
         if tail:
             await self.speak(tail)
 
-        reply = full.strip()
+        reply = strip_thinking(full).strip()
         if reply:
             self.history.append({"role": "assistant", "content": reply})
             # Trim spoken chat only (context lives separately).
             if len(self.history) > 20:
                 self.history = self.history[-20:]
-            await self.send({"type": "agent_response", "text": reply})
+            await self.send({"type": "agent_response", "text": reply, "route": "think" if use_think else "fast"})
         await self.send({"type": "status", "state": "listening"})
 
     async def speak(self, text: str) -> None:
@@ -394,6 +516,8 @@ async def health():
         "ok": True,
         "ollama": ollama_ok,
         "model": OLLAMA_MODEL,
+        "thinkModel": OLLAMA_THINK_MODEL,
+        "thinkMode": OLLAMA_THINK_MODE,
         "whisper": WHISPER_MODEL,
         "persona": PERSONA_PATH.name,
     }

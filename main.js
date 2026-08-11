@@ -154,6 +154,25 @@ function ollamaModel() {
   return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
 }
 
+function ollamaThinkModel() {
+  const file = readEnvFile();
+  return process.env.OLLAMA_THINK_MODEL || file.OLLAMA_THINK_MODEL || "deepseek-r1:14b";
+}
+
+function ollamaThinkMode() {
+  const file = readEnvFile();
+  return (process.env.OLLAMA_THINK_MODE || file.OLLAMA_THINK_MODE || "auto").toLowerCase();
+}
+
+function localVoiceEnv() {
+  return {
+    OLLAMA_MODEL: ollamaModel(),
+    OLLAMA_THINK_MODEL: ollamaThinkModel(),
+    OLLAMA_THINK_MODE: ollamaThinkMode(),
+    COG_PERSONA: path.join(__dirname, "personality.md"),
+  };
+}
+
 function writeEnvKey(key, value) {
   const file = path.join(__dirname, ".env.local");
   let lines = [];
@@ -176,19 +195,40 @@ function setLocalModel(model) {
   writeEnvKey("VOICE_BACKEND", "local");
   writeEnvKey("OLLAMA_MODEL", name);
   localVoice.stop();
-  const started = localVoice.start({
-    OLLAMA_MODEL: name,
-    COG_PERSONA: path.join(__dirname, "personality.md"),
-  });
+  const started = localVoice.start(localVoiceEnv());
   rebuildTray();
   return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
 }
 
+function setThinkModel(model) {
+  const name = String(model || "").trim();
+  if (!name) return { ok: false, error: "empty" };
+  writeEnvKey("OLLAMA_THINK_MODEL", name);
+  localVoice.stop();
+  const started = localVoice.start(localVoiceEnv());
+  rebuildTray();
+  return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
+}
+
+function setThinkMode(mode) {
+  const value = String(mode || "auto").toLowerCase();
+  writeEnvKey("OLLAMA_THINK_MODE", value);
+  localVoice.stop();
+  const started = localVoice.start(localVoiceEnv());
+  rebuildTray();
+  return started.ok ? { ok: true, mode: value } : { ok: false, error: started.error || "local_voice_failed" };
+}
+
 const LOCAL_MODEL_CHOICES = [
+  { label: "Qwen 2.5 7B (fast replies)", id: "qwen2.5:7b" },
   { label: "Qwen 2.5 14B (smarter chat)", id: "qwen2.5:14b" },
   { label: "Gemma 2 9B (natural chat)", id: "gemma2:9b" },
-  { label: "Qwen 2.5 7B (faster)", id: "qwen2.5:7b" },
-  { label: "DeepSeek R1 14B (thinking)", id: "deepseek-r1:14b" },
+];
+
+const THINK_MODEL_CHOICES = [
+  { label: "DeepSeek R1 14B", id: "deepseek-r1:14b" },
+  { label: "Qwen3 14B", id: "qwen3:14b" },
+  { label: "DeepSeek R1 32B", id: "deepseek-r1:32b" },
 ];
 
 
@@ -210,10 +250,7 @@ async function resolveVoiceSession() {
     pref === "local" || (pref === "auto" && localInstalled);
 
   if (wantLocal) {
-    const started = localVoice.start({
-      OLLAMA_MODEL: ollamaModel(),
-      COG_PERSONA: path.join(__dirname, "personality.md"),
-    });
+    const started = localVoice.start(localVoiceEnv());
     if (!started.ok && pref === "local") {
       return { ok: false, error: started.error || "local_voice_failed" };
     }
@@ -334,6 +371,8 @@ function createWindow() {
 function rebuildTray() {
   if (!tray) return;
   const current = ollamaModel();
+  const think = ollamaThinkModel();
+  const mode = ollamaThinkMode();
   const menu = Menu.buildFromTemplate([
     {
       label: "Show Cog",
@@ -365,24 +404,61 @@ function rebuildTray() {
     },
     { type: "separator" },
     {
-      label: `Local brain: ${current}`,
+      label: `Fast brain: ${current}`,
       enabled: false,
     },
     {
-      label: "Switch local brain",
+      label: "Switch fast brain",
       submenu: LOCAL_MODEL_CHOICES.map((choice) => ({
         label: choice.label,
         type: "radio",
         checked: current === choice.id,
         click: () => {
           const result = setLocalModel(choice.id);
-          if (!result.ok) {
-            console.warn("[local-voice] model switch failed:", result.error);
-          } else {
-            console.log("[local-voice] switched to", choice.id);
-          }
+          if (!result.ok) console.warn("[local-voice] fast model switch failed:", result.error);
+          else console.log("[local-voice] fast brain ->", choice.id);
         },
       })),
+    },
+    {
+      label: `Think brain: ${think} (${mode})`,
+      enabled: false,
+    },
+    {
+      label: "Switch think brain",
+      submenu: THINK_MODEL_CHOICES.map((choice) => ({
+        label: choice.label,
+        type: "radio",
+        checked: think === choice.id,
+        click: () => {
+          const result = setThinkModel(choice.id);
+          if (!result.ok) console.warn("[local-voice] think model switch failed:", result.error);
+          else console.log("[local-voice] think brain ->", choice.id);
+        },
+      })),
+    },
+    {
+      label: "Thinking mode",
+      submenu: [
+        {
+          label: "Auto (recommended)",
+          type: "radio",
+          checked: mode === "auto",
+          click: () => setThinkMode("auto"),
+        },
+        {
+          label: "Always think",
+          type: "radio",
+          checked: mode === "always",
+          click: () => setThinkMode("always"),
+        },
+        {
+          label: "Off (fast only)",
+          type: "radio",
+          checked: mode === "off",
+          click: () => setThinkMode("off"),
+        },
+      ],
     },
     { type: "separator" },
     {
@@ -1008,10 +1084,7 @@ if (!gotTheLock) {
     // Prefer local AMD voice when configured; still start wake word either way.
     const pref = voiceBackendPref();
     if (pref === "local" || pref === "auto") {
-      localVoice.start({
-        OLLAMA_MODEL: ollamaModel(),
-        COG_PERSONA: path.join(__dirname, "personality.md"),
-      });
+      localVoice.start(localVoiceEnv());
     }
 
     wakeListener.init({
