@@ -5,6 +5,7 @@
   const testBtn = document.getElementById('test');
 
   let alerting = false;
+  let settling = false;
   let growTimer = null;
   let scale = 0.55;
   const calmScale = 0.55;
@@ -43,6 +44,7 @@
   }
 
   function beginAlert(payload = {}) {
+    settling = false;
     alerting = true;
     stage.classList.add('is-alerting');
     setScale(Math.max(scale, 0.85));
@@ -50,13 +52,14 @@
     startGrowLoop();
   }
 
-  async function dismiss() {
+  function dismiss() {
+    if (settling) return;
     if (!alerting && scale <= calmScale + 0.01) return;
+    settling = true;
     alerting = false;
     stopGrowLoop();
     stage.classList.remove('is-alerting');
     setStatus('Nice. Back to waiting…');
-    // Smooth settle
     const start = scale;
     const t0 = performance.now();
     const dur = 420;
@@ -65,10 +68,11 @@
       const eased = 1 - Math.pow(1 - t, 3);
       setScale(start + (calmScale - start) * eased);
       if (t < 1) requestAnimationFrame(tick);
+      else settling = false;
     }
     requestAnimationFrame(tick);
     try {
-      await window.workbuddy.ack();
+      window.workbuddy.ack();
     } catch (_) {}
   }
 
@@ -92,7 +96,25 @@
   if (window.workbuddy) {
     window.workbuddy.onGrow((payload) => beginAlert(payload || {}));
     window.workbuddy.onAck(() => {
-      if (alerting) dismiss();
+      // Main process may broadcast ack; only settle UI if still alerting.
+      if (alerting) {
+        settling = true;
+        alerting = false;
+        stopGrowLoop();
+        stage.classList.remove('is-alerting');
+        setStatus('Nice. Back to waiting…');
+        const start = scale;
+        const t0 = performance.now();
+        const dur = 420;
+        function tick(now) {
+          const t = Math.min(1, (now - t0) / dur);
+          const eased = 1 - Math.pow(1 - t, 3);
+          setScale(start + (calmScale - start) * eased);
+          if (t < 1) requestAnimationFrame(tick);
+          else settling = false;
+        }
+        requestAnimationFrame(tick);
+      }
     });
   }
 
