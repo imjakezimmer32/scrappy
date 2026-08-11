@@ -167,8 +167,13 @@ function startLevels() {
 async function start(opts) {
   const wantMic = !opts || opts.mic !== false;
   if (active) {
-    if (wantMic && !micStream) return { ok: true, needsRestart: true };
-    return { ok: true, already: true };
+    // Text-only sessions leave the socket open without a mic. Restart so
+    // voice clicks actually hear Jake.
+    if (wantMic && !micStream) {
+      stop();
+    } else {
+      return { ok: true, already: true };
+    }
   }
   usingMic = wantMic;
   allowSpeech = false;

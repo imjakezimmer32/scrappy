@@ -87,6 +87,9 @@ let flying = false;
 let grabLX = 0;
 let grabLY = 0;
 let dragMoved = false;
+let pressX = 0;
+let pressY = 0;
+const DRAG_THRESHOLD_PX = 8;
 
 const bounds = () => Math.max(0, stage.clientWidth - CHAR_W);
 const clamp = (v) => Math.max(0, Math.min(bounds(), v));
@@ -1251,6 +1254,8 @@ el.addEventListener("pointerdown", (e) => {
   forgetAnnoyance();
 
   pointer = { x: e.clientX, y: e.clientY };
+  pressX = e.clientX;
+  pressY = e.clientY;
   if (!flying) enterPhysics();
   held = true;
   flying = false;
@@ -1280,7 +1285,11 @@ el.addEventListener("pointerdown", (e) => {
 window.addEventListener("pointermove", (e) => {
   pointer = { x: e.clientX, y: e.clientY };
   if (held) {
-    dragMoved = true;
+    const dx = e.clientX - pressX;
+    const dy = e.clientY - pressY;
+    if (dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+      dragMoved = true;
+    }
     return;
   }
   refreshInteractive();
