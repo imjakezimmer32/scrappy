@@ -282,6 +282,12 @@ function recallTools() {
       ["id"]
     ),
     clientTool(
+      "cursor_stop_agent",
+      "Stop/cancel a running Cursor agent by id. Use when Jake says stop, cancel, or kill an agent. Get ids from cursor_list_agents or cursor_start_agent. Gracefully ends the current run; Jake can continue the agent later with cursor_continue_agent.",
+      { id: str("Agent id to stop") },
+      ["id"]
+    ),
+    clientTool(
       "cursor_list_chats",
       "List Jake's recent Cursor chats (titles + ids) across his projects — not only agents Cog started. Use when he asks what he's been working on in Cursor.",
       {

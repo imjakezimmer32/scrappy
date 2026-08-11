@@ -599,6 +599,11 @@ ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
         return { ok: true, agents: cursorAgents.listAgents(asInt(a.limit) || 10) };
       case "open":
         return cursorAgents.openAgentInBrowser(a.id || a.agent_id);
+      case "stop":
+        return await cursorAgents.stopAgent({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
       default:
         return { ok: false, error: "unknown_action" };
     }

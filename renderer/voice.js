@@ -464,6 +464,7 @@ async function handleClientToolCall(msg) {
         cursor_list_agents: "list",
         cursor_agent_status: "status",
         cursor_open_agent: "open",
+        cursor_stop_agent: "stop",
       };
       const action = map[toolName];
       if (!action) {

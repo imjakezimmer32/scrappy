@@ -17,6 +17,9 @@ const REGISTRY_PATH = path.join(
 
 const MAX_AGENTS = 40;
 
+/** In-memory handles for background runs Cog started this session (fast stop). */
+const activeRuns = new Map();
+
 function ensureDir(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -93,6 +96,37 @@ function githubRemoteUrl(cwd) {
   } catch {
     return null;
   }
+}
+
+function isCloudAgentId(id) {
+  return String(id || "").startsWith("bc-");
+}
+
+function resolveRuntime(agentId, known) {
+  if (known && known.runtime) return known.runtime;
+  return isCloudAgentId(agentId) ? "cloud" : "local";
+}
+
+function buildListRunsOptions(agentId, known, apiKey) {
+  const runtime = resolveRuntime(agentId, known);
+  if (runtime === "cloud") {
+    return { runtime: "cloud", apiKey, limit: 5 };
+  }
+  return { runtime: "local", cwd: (known && known.cwd) || resolveCwd(), limit: 5 };
+}
+
+function buildGetRunOptions(agentId, known, apiKey) {
+  const runtime = resolveRuntime(agentId, known);
+  if (runtime === "cloud") {
+    return { runtime: "cloud", agentId, apiKey };
+  }
+  return { runtime: "local", cwd: (known && known.cwd) || resolveCwd() };
+}
+
+function terminalRunStatus(result) {
+  if (result && result.status === "error") return "error";
+  if (result && result.status === "cancelled") return "cancelled";
+  return "finished";
 }
 
 function buildPrompt(kind, goal) {
@@ -200,6 +234,12 @@ async function startAgent({
   (async () => {
     try {
       const run = await agent.send(buildPrompt(kind, text));
+      activeRuns.set(agentId, { run, agent });
+      upsertAgent({
+        id: agentId,
+        runId: run.id,
+        updatedAt: new Date().toISOString(),
+      });
       const result = await run.wait();
       const summary =
         (result && (result.result || result.status)) ||
@@ -207,7 +247,7 @@ async function startAgent({
         "finished";
       upsertAgent({
         id: agentId,
-        status: result && result.status === "error" ? "error" : "finished",
+        status: terminalRunStatus(result),
         updatedAt: new Date().toISOString(),
         result: typeof summary === "string" ? summary.slice(0, 12000) : String(summary).slice(0, 12000),
         error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
@@ -220,6 +260,7 @@ async function startAgent({
         error: err && err.message ? err.message : String(err),
       });
     } finally {
+      activeRuns.delete(agentId);
       try {
         if (agent && typeof agent[Symbol.asyncDispose] === "function") {
           await agent[Symbol.asyncDispose]();
@@ -284,7 +325,7 @@ async function continueAgent({ id, message, apiKey }) {
       "finished";
     const entry = upsertAgent({
       id: agentId,
-      status: result && result.status === "error" ? "error" : "finished",
+      status: terminalRunStatus(result),
       updatedAt: new Date().toISOString(),
       result: String(summary).slice(0, 12000),
       error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
@@ -328,6 +369,140 @@ function agentStatus(id) {
   return { ok: true, agent: entry };
 }
 
+/**
+ * Stop/cancel a running Cursor agent by id.
+ * Uses in-memory handle when available, otherwise Agent.listRuns + cancel.
+ */
+async function stopAgent({ id, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) {
+    return {
+      ok: false,
+      error: "missing_api_key",
+      hint: "Add CURSOR_API_KEY to workbuddy/.env.local.",
+    };
+  }
+
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+
+  const known = getAgent(agentId);
+  const held = activeRuns.get(agentId);
+
+  if (held && held.run) {
+    try {
+      if (held.run.status === "running") {
+        await held.run.cancel();
+      }
+      upsertAgent({
+        id: agentId,
+        status: "cancelled",
+        runId: held.run.id,
+        updatedAt: new Date().toISOString(),
+      });
+      return {
+        ok: true,
+        id: agentId,
+        runId: held.run.id,
+        status: "cancelled",
+        message: "Agent run cancelled.",
+      };
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      if (/not cancellable|already|terminal|409/i.test(msg)) {
+        return {
+          ok: true,
+          id: agentId,
+          runId: held.run.id,
+          status: "already_stopped",
+          message: msg,
+        };
+      }
+      // Fall through to listRuns lookup.
+    }
+  }
+
+  const { Agent } = await loadSdk();
+
+  try {
+    const runs = await Agent.listRuns(agentId, buildListRunsOptions(agentId, known, key));
+    const items = runs.items || [];
+    const activeRun = items.find((run) => run.status === "running");
+
+    if (!activeRun && known && known.runId) {
+      try {
+        const run = await Agent.getRun(known.runId, buildGetRunOptions(agentId, known, key));
+        if (run.status === "running") {
+          await run.cancel();
+          upsertAgent({
+            id: agentId,
+            status: "cancelled",
+            runId: known.runId,
+            updatedAt: new Date().toISOString(),
+          });
+          return {
+            ok: true,
+            id: agentId,
+            runId: known.runId,
+            status: "cancelled",
+            message: "Agent run cancelled.",
+          };
+        }
+      } catch {
+        // ignore and continue
+      }
+    }
+
+    if (!activeRun) {
+      const registryStatus = known && known.status;
+      if (registryStatus && registryStatus !== "running") {
+        return {
+          ok: true,
+          id: agentId,
+          status: "already_stopped",
+          message: `Agent is already ${registryStatus}.`,
+        };
+      }
+      return {
+        ok: true,
+        id: agentId,
+        status: "not_running",
+        message: "No active run found for this agent.",
+      };
+    }
+
+    await activeRun.cancel();
+    upsertAgent({
+      id: agentId,
+      status: "cancelled",
+      runId: activeRun.id,
+      updatedAt: new Date().toISOString(),
+    });
+    return {
+      ok: true,
+      id: agentId,
+      runId: activeRun.id,
+      status: "cancelled",
+      message: "Agent run cancelled.",
+    };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (/not cancellable|already|terminal|409|not found/i.test(msg)) {
+      return {
+        ok: true,
+        id: agentId,
+        status: "already_stopped",
+        message: msg,
+      };
+    }
+    return {
+      ok: false,
+      error: msg || "stop_failed",
+      id: agentId,
+    };
+  }
+}
+
 function openAgentInBrowser(id) {
   const entry = getAgent(id);
   const url =
@@ -346,6 +521,7 @@ function openAgentInBrowser(id) {
 module.exports = {
   startAgent,
   continueAgent,
+  stopAgent,
   agentStatus,
   listAgents,
   openAgentInBrowser,
