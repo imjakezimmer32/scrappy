@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld("workbuddy", {
   cursorAgent(action, args) {
     return ipcRenderer.invoke("workbuddy:cursor-agent", action, args || {});
   },
+  cursorChats(action, args) {
+    return ipcRenderer.invoke("workbuddy:cursor-chats", action, args || {});
+  },
   voiceStatus() {
     return ipcRenderer.invoke("workbuddy:voice-status");
   },

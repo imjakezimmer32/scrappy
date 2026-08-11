@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
+const cursorChats = require("./cursor-chats");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -603,6 +604,40 @@ ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
     }
   } catch (err) {
     console.error("Cursor agent action failed:", action, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+});
+
+// Read Jake's other Cursor chats (local conversation index + transcripts).
+ipcMain.handle("workbuddy:cursor-chats", async (_event, action, args) => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_CURSOR_CHATS || file.COG_CURSOR_CHATS || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") {
+    return { ok: false, error: "disabled" };
+  }
+  const a = args && typeof args === "object" ? args : {};
+  try {
+    switch (String(action || "").trim()) {
+      case "list":
+        return cursorChats.listChats({
+          limit: asInt(a.limit) || 15,
+          includeArchived: asBool(a.include_archived || a.includeArchived),
+        });
+      case "search":
+        return cursorChats.searchChats({
+          query: a.query || a.q || a.text,
+          limit: asInt(a.limit) || 10,
+        });
+      case "get":
+        return cursorChats.getChat({
+          id: a.id || a.chat_id,
+          maxChars: asInt(a.max_chars || a.maxChars) || 8000,
+        });
+      default:
+        return { ok: false, error: "unknown_action" };
+    }
+  } catch (err) {
+    console.error("Cursor chats action failed:", action, err.message);
     return { ok: false, error: err.message || "failed" };
   }
 });

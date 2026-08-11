@@ -281,6 +281,33 @@ function recallTools() {
       { id: str("Agent id") },
       ["id"]
     ),
+    clientTool(
+      "cursor_list_chats",
+      "List Jake's recent Cursor chats (titles + ids) across his projects — not only agents Cog started. Use when he asks what he's been working on in Cursor.",
+      {
+        limit: integer("How many chats (default 15)"),
+        include_archived: bool("Include archived chats"),
+      },
+      []
+    ),
+    clientTool(
+      "cursor_search_chats",
+      "Search Jake's Cursor chat history by keywords. Returns matching titles and short snippets.",
+      {
+        query: str("What to search for"),
+        limit: integer("Max results (default 10)"),
+      },
+      ["query"]
+    ),
+    clientTool(
+      "cursor_get_chat",
+      "Read one Cursor chat by id (from list/search). Returns a text summary of the conversation.",
+      {
+        id: str("Chat id"),
+        max_chars: integer("Max characters to return (default 8000)"),
+      },
+      ["id"]
+    ),
   ];
 }
 

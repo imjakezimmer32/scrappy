@@ -434,6 +434,26 @@ async function handleClientToolCall(msg) {
     // Cursor planning/research agents Cog can start and continue.
     if (String(toolName).startsWith("cursor_")) {
       const bridge = window.workbuddy;
+      const chatTools = {
+        cursor_list_chats: "list",
+        cursor_search_chats: "search",
+        cursor_get_chat: "get",
+      };
+      if (chatTools[toolName]) {
+        if (!bridge || !bridge.cursorChats) {
+          reply("Cursor chats bridge unavailable", true);
+          return;
+        }
+        const out = await bridge.cursorChats(chatTools[toolName], parameters);
+        if (!out || !out.ok) {
+          reply(JSON.stringify(out || { error: "chats_failed" }), true);
+          return;
+        }
+        reply(JSON.stringify(out), false);
+        emit("tool", { name: toolName, ok: true });
+        return;
+      }
+
       if (!bridge || !bridge.cursorAgent) {
         reply("Cursor agent bridge unavailable", true);
         return;
