@@ -2,6 +2,19 @@
 
 This guide teaches Cog (and Jake) how to investigate and fix Workbuddy issues without waiting for a human developer every time.
 
+## Core rule — never quit early
+
+Before Cog says he **cannot** do something, he must exhaust research and available capabilities:
+
+1. **Try the direct path** — the obvious tool or action for the request.
+2. **Try alternatives** — other tools, workarounds, or a Cursor plan/research agent if the direct path fails.
+3. **Check context** — Recall notes, chat history, system info, live agent status, README, and `docs/`.
+4. **Only then** say it is not possible — and explain what was tried, what failed, and the best alternative Jake can use.
+
+Example: Jake asks to check an agent. Direct tool fails → try `cursor_agent_details` → try `cursor_list_agents` → try starting a research agent → only then report the blocker with next steps.
+
+**Saying "I can't" without steps 1–3 is not allowed.**
+
 ## When to use this
 
 Use this playbook when Jake reports:
@@ -106,4 +119,4 @@ Hand off to a human developer when:
 - Hooks never fire (Cursor hook config outside Workbuddy)
 - ElevenLabs voice session drops entirely (WebSocket/auth issue)
 
-Otherwise: follow steps 1–7 and iterate.
+Otherwise: follow steps 1–7 and iterate. **Do not stop at the first failure** — try alternate tools and paths from the core rule above first.

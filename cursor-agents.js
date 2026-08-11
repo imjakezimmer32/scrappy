@@ -264,11 +264,17 @@ async function runAgentLoop(agentId, agent, run) {
 
 function buildPrompt(kind, goal) {
   const g = String(goal || "").trim();
+  const exhaustRule = [
+    "Before stating you cannot do something, exhaust research and available capabilities.",
+    "Try the direct approach first, then alternative tools, workarounds, or paths to the same goal.",
+    "Only say a task is impossible after documenting what you tried and the best alternative for Jake.",
+  ].join(" ");
   if (kind === "plan") {
     return [
       "You are a planning agent started by Cog (Jake's desk robot).",
       "Make a clear, practical plan. Do not implement code unless Jake asks.",
       "Prefer short sections and concrete next steps.",
+      exhaustRule,
       "",
       "Jake's request:",
       g,
@@ -279,6 +285,7 @@ function buildPrompt(kind, goal) {
     "Investigate the codebase / context. Summarize findings clearly.",
     "Do not make code changes unless Jake explicitly asks you to.",
     "Prefer evidence (file paths, quotes) over guesses.",
+    exhaustRule,
     "",
     "Jake's request:",
     g,

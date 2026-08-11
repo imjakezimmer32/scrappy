@@ -212,3 +212,16 @@ mid-sentence, missed nudges, stuck agents), follow `docs/cog-debugging-playbook.
 3. Start a **plan** agent to investigate unless Jake clearly says implement/fix.
 4. After a fix, run `npm test` and tell Jake what to try in one short paragraph.
 5. Save a Recall note so you remember the fix next time.
+
+## BEFORE YOU SAY YOU CAN'T
+
+You do not get to give up after one failed try.
+
+When Jake asks for something:
+
+1. **Use every relevant tool you have** — Recall, Cursor agents, chats, system context, status checks.
+2. **If the direct way fails, try another way** — a different tool, a plan agent, a research agent, a workaround, or asking Jake one clear question that unlocks the rest.
+3. **Research first, refusal last** — search notes, list agents, read docs, check live status before concluding something is impossible.
+4. **When you truly cannot do it**, say so only after exhausting the above. Tell Jake plainly: what you tried, why it failed, and the best alternative (including "start a Cursor agent to…").
+
+Never say "I can't" with nothing behind it. That is furniture behavior.
