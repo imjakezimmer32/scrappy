@@ -641,6 +641,55 @@ async function speakLine(bucket, situation, ms, face, hint) {
 
 let inCall = false;
 let voiceReady = false;
+let wakeEnabled = false;
+let wakeActive = false;
+let wakeHintShown = false;
+
+const WAKE_RESUME_MS = 700;
+
+function pauseWakeWord() {
+  if (window.CogWake && wakeActive) window.CogWake.pause();
+}
+
+function scheduleWakeResume() {
+  if (!wakeEnabled || !voiceReady || !window.CogWake) return;
+  setTimeout(() => {
+    if (!inCall && wakeActive) window.CogWake.resume();
+  }, WAKE_RESUME_MS);
+}
+
+function initWakeWord() {
+  if (!window.CogWake || !window.CogWake.isSupported()) return;
+
+  window.CogWake.init({
+    onWake() {
+      if (inCall || inHand()) return;
+      cancelAll();
+      wakeUp().then(() => startCall());
+    },
+    onListenStart() {
+      wakeActive = true;
+    },
+    onListenStop() {
+      wakeActive = false;
+    },
+    onError(code) {
+      if (code === "mic_denied" && !inCall) {
+        bubbleText("Say hey Cog anytime — I need mic permission first.", 5000, "click me to talk");
+      }
+    },
+  });
+}
+
+async function tryStartWakeWord() {
+  if (!voiceReady || !wakeEnabled || !window.CogWake) return;
+  if (!window.CogWake.isSupported()) return;
+  const out = window.CogWake.start();
+  if (out && out.ok && !inCall && !alerting && !wakeHintShown) {
+    wakeHintShown = true;
+    bubbleText("Say hey Cog to talk.", 3200, "");
+  }
+}
 
 const VOICE_TROUBLE = {
   no_api_key: ["Voice isn't wired up yet.", "add your key to .env.local"],
@@ -673,6 +722,7 @@ async function startCall() {
   stopWatching();
   forgetAnnoyance();
   target = null;
+  pauseWakeWord();
   await wakeUp();
   lastPoke = Date.now();
   // Light up straight away — waiting for the socket would leave a second of
@@ -688,11 +738,13 @@ async function startCall() {
     inCall = false;
     setState("idle");
     say(trouble[0], 4200, "squint", trouble[1]);
+    scheduleWakeResume();
   }
 }
 
 function endCall() {
   window.CogVoice.stop();
+  scheduleWakeResume();
 }
 
 // Feed him machine telemetry + Recall memory as background context (never
@@ -796,6 +848,7 @@ window.CogVoice.init({
     setState("idle");
     setFace("focused");
     lastPoke = Date.now();
+    scheduleWakeResume();
   },
   speakStart() {
     setState("speak");
@@ -1368,13 +1421,24 @@ if (bridge.voiceStatus) {
     .voiceStatus()
     .then((s) => {
       voiceReady = Boolean(s && s.configured);
+      wakeEnabled = Boolean(s && s.wakeWord);
+      if (voiceReady && wakeEnabled) {
+        initWakeWord();
+        tryStartWakeWord();
+      }
     })
     .catch(() => {
       voiceReady = false;
+      wakeEnabled = false;
     });
 }
 
 if (bridge.onChatOpen) bridge.onChatOpen(() => (chatting ? closeChat() : openChat()));
+if (bridge.onVoiceStart) {
+  bridge.onVoiceStart(() => {
+    if (!inCall) startCall();
+  });
+}
 
 bridge.onGrow((payload) => startAlert(payload));
 bridge.onAck(() => {

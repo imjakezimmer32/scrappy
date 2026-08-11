@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("workbuddy", {
   onChatOpen(callback) {
     ipcRenderer.on("workbuddy:chat-open", () => callback());
   },
+  onVoiceStart(callback) {
+    ipcRenderer.on("workbuddy:voice-start", () => callback());
+  },
   chatFocus(on) {
     ipcRenderer.send("workbuddy:chat-focus", Boolean(on));
   },

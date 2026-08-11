@@ -124,9 +124,13 @@ Optional in the same file: `ELEVENLABS_VOICE_ID` picks the voice and
   This never touches the microphone.
 - **Tray, Talk to Cog (voice)** starts a full voice conversation with
   turn-taking and barge-in. Click him to hang up.
+- **Say "hey Cog"** (when voice is set up) to start talking hands-free —
+  Workbuddy listens passively in the background until it hears the wake phrase.
+  Disable with `COG_WAKE_WORD=off` in `.env.local`.
 
 Opening the mic on a stray click would be obnoxious, so voice is a deliberate
-choice rather than the default.
+choice rather than the default — except the wake phrase, which only opens the
+full mic after you say hey Cog.
 
 His nudge and check-in lines stay in `renderer/lines.js`. ElevenLabs has no
 cheap one-shot text endpoint, and spinning up an agent session to generate a
@@ -188,5 +192,6 @@ never steals focus from your editor.
 | `CURSOR_AGENT_RUN_TIMEOUT_MS` | `0` (off) | Stop a run after this many ms |
 | `CURSOR_AGENT_STALE_MS` | `900000` (15 min) | Treat saved "running" as stuck after this |
 | `COG_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Cog walks over |
+| `COG_WAKE_WORD` | `on` | Passive "hey Cog" listener when voice is configured |
 
 Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.

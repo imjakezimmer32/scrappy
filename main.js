@@ -136,6 +136,12 @@ function readEnvFile() {
   return out;
 }
 
+function wakeWordEnabled() {
+  const file = readEnvFile();
+  const setting = (process.env.COG_WAKE_WORD || file.COG_WAKE_WORD || "on").toLowerCase();
+  return !(setting === "off" || setting === "false" || setting === "0");
+}
+
 function voiceConfig() {
   const file = readEnvFile();
   return {
@@ -239,6 +245,13 @@ function createTray() {
       click: () => {
         showBuddy();
         if (mainWindow) mainWindow.webContents.send("workbuddy:chat-open");
+      },
+    },
+    {
+      label: "Talk to Cog (voice)",
+      click: () => {
+        showBuddy();
+        if (mainWindow) mainWindow.webContents.send("workbuddy:voice-start");
       },
     },
     {
@@ -783,6 +796,7 @@ ipcMain.handle("workbuddy:voice-status", () => {
     hasKey: Boolean(apiKey),
     hasAgent: Boolean(agentId),
     hasPersonality: personalityPresent(),
+    wakeWord: wakeWordEnabled(),
   };
 });
 
