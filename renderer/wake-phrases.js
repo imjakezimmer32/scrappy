@@ -1,11 +1,9 @@
-// Shared wake-phrase matching for "hey cog" (browser + node tests).
+// Shared wake-phrase matching for Cog (browser + node tests).
 
 const WAKE_PHRASES = [
-  /\bhey[\s,]+cog\b/i,
-  /\bhey[\s,]+chief\b/i,
-  /\bhi[\s,]+cog\b/i,
-  /\bok[\s,]+cog\b/i,
-  /\ba[\s,]+cog\b/i,
+  /\bhey[\s,]+there[\s,]+cog\b/i,
+  /\bokay[\s,]+then[\s,]+cog\b/i,
+  /\bwake[\s,]+up[\s,]+cog\b/i,
 ];
 
 function matchesWakePhrase(text) {

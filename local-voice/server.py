@@ -76,7 +76,7 @@ def load_persona() -> str:
 
 
 WAKE_ONLY = re.compile(
-    r"^\s*(hey|hi|okay|ok|yo)\s+(cog|chief|workbuddy|work buddy)[!?.,\s]*$",
+    r"^\s*(hey\s+there|okay\s+then|wake\s+up)\s+cog[!?.,\s]*$",
     re.I,
 )
 

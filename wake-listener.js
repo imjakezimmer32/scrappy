@@ -5,14 +5,13 @@ const { spawn } = require("child_process");
 const path = require("path");
 
 const PHRASES = [
-  "hey cog",
-  "hey chief",
-  "okay cog",
-  "ok cog",
-  "yo cog",
-  "hi cog",
-  "hey workbuddy",
+  // Longer phrases resist cough/throat-clear false wakes.
+  "hey there cog",
+  "okay then cog",
+  "wake up cog",
 ];
+
+const MIN_CONFIDENCE = 0.8;
 
 let child = null;
 let paused = false;
@@ -50,7 +49,7 @@ Write-Output "WAKE_READY"
 while ($true) {
   try {
     $result = $engine.Recognize([TimeSpan]::FromSeconds(8))
-    if ($null -ne $result -and $result.Confidence -ge 0.55) {
+    if ($null -ne $result -and $result.Confidence -ge ${MIN_CONFIDENCE}) {
       Write-Output ("WAKE:" + $result.Text.ToLowerInvariant() + ":" + $result.Confidence.ToString('0.00'))
       [Console]::Out.Flush()
       Start-Sleep -Milliseconds 1200

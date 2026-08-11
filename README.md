@@ -131,13 +131,14 @@ For local mode, Cog reads `personality.md` directly.
   This never touches the microphone.
 - **Tray, Talk to Cog (voice)** starts a full voice conversation with
   turn-taking and barge-in. Click him to hang up.
-- **Say "hey Cog"** (when voice is set up) to start talking hands-free —
+- **Say "hey there Cog"** (when voice is set up) to start talking hands-free —
   Workbuddy listens passively in the background until it hears the wake phrase.
+  Also works: **"okay then Cog"** or **"wake up Cog"**.
   Disable with `COG_WAKE_WORD=off` in `.env.local`.
 
 Opening the mic on a stray click would be obnoxious, so voice is a deliberate
 choice rather than the default — except the wake phrase, which only opens the
-full mic after you say hey Cog.
+full mic after you say hey there Cog.
 
 His nudge and check-in lines stay in `renderer/lines.js`. ElevenLabs has no
 cheap one-shot text endpoint, and spinning up an agent session to generate a
