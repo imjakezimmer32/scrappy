@@ -1,0 +1,17 @@
+{
+  "name": "workbuddy",
+  "version": "1.0.0",
+  "description": "Local attention buddy that grows when a Cursor agent finishes",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-startup.ps1",
+    "uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-startup.ps1",
+    "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1"
+  },
+  "author": "Jake",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}
