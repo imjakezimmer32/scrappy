@@ -652,6 +652,7 @@ const VOICE_TROUBLE = {
   socket_failed: ["Couldn't reach ElevenLabs.", "check your connection"],
   network: ["Couldn't reach ElevenLabs.", "check your connection"],
   elevenlabs_401: ["ElevenLabs turned me down.", "the API key looks wrong"],
+  quota_exceeded: ["I'm out of voice credits this month.", "ElevenLabs Starter hit 90k — resets Aug 17, or upgrade the plan"],
   no_signed_url: ["ElevenLabs didn't hand back a session.", ""],
 };
 
@@ -838,8 +839,11 @@ window.CogVoice.init({
   // nothing played — he just stays listening.
   suppressed() {},
   ignored() {},
-  error() {
+  error(code) {
     inCall = false;
+    const trouble = VOICE_TROUBLE[code] || ["Something went wrong.", ""];
+    say(trouble[0], 5200, "squint", trouble[1]);
+    if (window.CogWake && voiceReady) window.CogWake.start();
   },
 });
 

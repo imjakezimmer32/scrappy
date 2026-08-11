@@ -314,6 +314,10 @@ async function start(opts) {
       case "client_tool_call":
         handleClientToolCall(msg);
         break;
+      case "quota_exceeded":
+        emit("error", "quota_exceeded");
+        stop();
+        break;
       default:
         break;
     }

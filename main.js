@@ -166,11 +166,34 @@ async function fetchSignedUrl() {
   if (!agentId) return { ok: false, error: "no_agent_id" };
 
   try {
+    // Fail early with a clear message when the monthly character budget is empty.
+    // Signed URLs can still mint, but the agent will not speak.
+    const subRes = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
+      headers: { "xi-api-key": apiKey },
+    });
+    if (subRes.ok) {
+      const sub = await subRes.json();
+      const used = Number(sub.character_count) || 0;
+      const limit = Number(sub.character_limit) || 0;
+      if (limit > 0 && used >= limit) {
+        const resetUnix = Number(sub.next_character_count_reset_unix) || 0;
+        return {
+          ok: false,
+          error: "quota_exceeded",
+          resetAt: resetUnix ? new Date(resetUnix * 1000).toISOString() : null,
+          used,
+          limit,
+        };
+      }
+    }
+
     const res = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
       { headers: { "xi-api-key": apiKey } }
     );
     if (!res.ok) {
+      if (res.status === 401) return { ok: false, error: "elevenlabs_401" };
+      if (res.status === 402 || res.status === 429) return { ok: false, error: "quota_exceeded" };
       return { ok: false, error: `elevenlabs_${res.status}` };
     }
     const data = await res.json();
