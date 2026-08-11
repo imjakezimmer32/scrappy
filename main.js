@@ -165,11 +165,15 @@ function ollamaThinkMode() {
 }
 
 function localVoiceEnv() {
+  ensureToken();
   return {
     OLLAMA_MODEL: ollamaModel(),
     OLLAMA_THINK_MODEL: ollamaThinkModel(),
     OLLAMA_THINK_MODE: ollamaThinkMode(),
     COG_PERSONA: path.join(__dirname, "personality.md"),
+    // Local Python voice talks back to Electron for Recall tools/memory.
+    WORKBUDDY_URL: `http://${HOST}:${PORT}`,
+    WORKBUDDY_TOKEN: localToken || "",
   };
 }
 
@@ -658,6 +662,83 @@ function startServer() {
       return;
     }
 
+    // Local AMD voice → Electron memory bridge (Recall brief + tools + save).
+    if (req.method === "GET" && url.pathname === "/local/memory-brief") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      const brief = await buildRecallBrief();
+      res.writeHead(brief.ok ? 200 : 200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(brief));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/local/system-context") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      const file = readEnvFile();
+      const setting = (process.env.COG_SYSTEM_CONTEXT || file.COG_SYSTEM_CONTEXT || "on").toLowerCase();
+      if (setting === "off" || setting === "false" || setting === "0") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "disabled" }));
+        return;
+      }
+      try {
+        const text = await systemInfo.snapshot();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, text: String(text || "").slice(0, 2500) }));
+      } catch (err) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message || "failed" }));
+      }
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/local/tool") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      let body = {};
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
+        return;
+      }
+      const result = await runRecallTool(body.tool || body.name, body.args || body.arguments || {});
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/local/save-session") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      let body = {};
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
+        return;
+      }
+      const result = await saveCogChatSession(body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "not_found" }));
   });
@@ -714,7 +795,7 @@ ipcMain.handle("workbuddy:recall-context", async () => {
 
 // Full startup memory pack: relationship notes + live speech + task COUNTS
 // (never dump hundreds of action rows — that truncates and Cog invents wrong totals).
-ipcMain.handle("workbuddy:recall-brief", async () => {
+async function buildRecallBrief() {
   const file = readEnvFile();
   const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
@@ -748,7 +829,50 @@ ipcMain.handle("workbuddy:recall-brief", async () => {
     console.error("Recall brief failed:", err.message);
     return { ok: false, error: "failed" };
   }
-});
+}
+
+ipcMain.handle("workbuddy:recall-brief", async () => buildRecallBrief());
+
+async function runRecallTool(name, args) {
+  const file = readEnvFile();
+  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") {
+    return { ok: false, error: "disabled" };
+  }
+  const tool = String(name || "").trim();
+  if (!tool.startsWith("recall_")) {
+    return { ok: false, error: "invalid_tool" };
+  }
+  try {
+    const normalized = normalizeRecallArgs(tool, args && typeof args === "object" ? args : {});
+    const result = await recall.call(tool, normalized);
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      text: result.text || "",
+      data: result.data,
+      isError: Boolean(result.isError),
+    };
+  } catch (err) {
+    console.error("Recall tool failed:", tool, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+}
+
+async function saveCogChatSession(body = {}) {
+  const transcript = String(body.transcript || body.summary || "").trim();
+  if (!transcript) return { ok: false, error: "empty" };
+  const title =
+    String(body.title || "").trim() ||
+    `Cog chat ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+  const summary = String(body.summary || transcript).slice(0, 3500);
+  return runRecallTool("recall_save_note", {
+    title,
+    summary,
+    tags: ["cog", "conversation", "relationship"],
+    project: "WorkBuddy",
+  });
+}
 
 function clip(text, max) {
   const s = String(text || "");
@@ -774,32 +898,8 @@ function formatActionsBrief(data) {
     .join("\n");
 }
 
-// Generic Recall MCP tool call for ElevenLabs client tools.
-ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
-  const file = readEnvFile();
-  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
-  if (setting === "off" || setting === "false" || setting === "0") {
-    return { ok: false, error: "disabled" };
-  }
-  const tool = String(name || "").trim();
-  if (!tool.startsWith("recall_")) {
-    return { ok: false, error: "invalid_tool" };
-  }
-  try {
-    const normalized = normalizeRecallArgs(tool, args && typeof args === "object" ? args : {});
-    const result = await recall.call(tool, normalized);
-    if (!result.ok) return result;
-    return {
-      ok: true,
-      text: result.text || "",
-      data: result.data,
-      isError: Boolean(result.isError),
-    };
-  } catch (err) {
-    console.error("Recall tool failed:", tool, err.message);
-    return { ok: false, error: err.message || "failed" };
-  }
-});
+// Generic Recall MCP tool call for ElevenLabs client tools + local-voice HTTP.
+ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runRecallTool(name, args));
 
 // Cursor planning/research agents — start, continue, list, status, open.
 ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {

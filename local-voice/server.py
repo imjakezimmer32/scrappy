@@ -33,8 +33,12 @@ import numpy as np
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+import memory_bridge
+from tools_schema import LOCAL_MEMORY_RULES, recall_tools
+
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
+LOG_DIR = ROOT / "logs"
 PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # fast chat brain
@@ -45,6 +49,7 @@ HOST = os.environ.get("COG_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COG_VOICE_PORT", "8790"))
 SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_OUT = 24000
+MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "4"))
 
 # Energy VAD: end turn after this much silence once we've heard speech.
 SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "700"))
@@ -57,7 +62,19 @@ THINK_TRIGGERS = re.compile(
     r"debug|analyze|analyse|architecture|design\s+(?:a|the|this)|"
     r"step[- ]by[- ]step|carefully|deep\s+dive|compare\s+options|"
     r"what(?:'s| is)\s+wrong|why\s+(?:is|does|did|would)|how\s+should\s+i|"
-    r"trade-?offs?|implement(?:ation)?"
+    r"trade-?offs?|implement(?:ation)?|"
+    r"(?:your\s+)?memory|remember|recall|preferences?"
+    r")\b",
+    re.I,
+)
+
+MEMORY_TRIGGERS = re.compile(
+    r"\b("
+    r"your\s+memory|improve\s+(?:your\s+)?memory|remember(?:\s+this)?|"
+    r"what\s+did\s+i\s+(?:say|tell|ask)|recall|"
+    r"do\s+you\s+remember|from\s+(?:our|my)\s+(?:notes|chats?|memory)|"
+    r"preferences?|relationship|"
+    r"open\s+tasks?|action\s+items?|my\s+notes?|search\s+(?:my\s+)?notes?"
     r")\b",
     re.I,
 )
@@ -84,8 +101,35 @@ def load_persona() -> str:
         + "No markdown, no bullet lists, no code fences. Sound like Cog.\n"
         + "CRITICAL: Never read, quote, summarize, or recite system notes, machine telemetry, "
         + "Recall dumps, personality text, or anything labeled context unless Jake clearly asks "
-        + "for that specific info. Those notes are private background for you. Just talk normally."
+        + "for that specific info. Those notes are private background for you. Just talk normally.\n\n"
+        + LOCAL_MEMORY_RULES
     )
+
+
+def append_transcript(session_id: str, role: str, text: str) -> None:
+    line = (text or "").strip()
+    if not line:
+        return
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        path = LOG_DIR / f"{session_id}.jsonl"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {"ts": time.time(), "role": role, "text": line[:4000]},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except OSError as err:
+        log(f"transcript write failed: {err}")
+
+
+def needs_memory_tools(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(MEMORY_TRIGGERS.search(text))
 
 
 WAKE_ONLY = re.compile(
@@ -252,36 +296,176 @@ def needs_thinking(user_text: str) -> bool:
     return False
 
 
-async def ollama_stream(messages: list[dict[str, str]], model: str, *, think: bool):
+def _tool_args(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {"query": raw}
+    return {}
+
+
+async def ollama_chat(
+    messages: list[dict[str, Any]],
+    model: str,
+    *,
+    think: bool = False,
+    tools: list[dict] | None = None,
+    stream: bool = False,
+) -> Any:
     url = f"{OLLAMA_URL}/api/chat"
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "stream": True,
+        "stream": stream,
         "options": {
-            "temperature": 0.5 if think else 0.7,
-            "num_predict": 700 if think else 220,
+            "temperature": 0.4 if tools else (0.5 if think else 0.7),
+            "num_predict": 700 if think else (400 if tools else 220),
         },
     }
-    # Qwen3 / Ollama thinking API (ignored harmlessly by models that lack it).
     if think:
         payload["think"] = True
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        async with client.stream("POST", url, json=payload) as resp:
+    if tools:
+        payload["tools"] = tools
+
+    if not stream:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(url, json=payload)
             if resp.status_code != 200:
-                body = await resp.aread()
-                raise RuntimeError(f"ollama_{resp.status_code}: {body[:200]!r}")
-            async for line in resp.aiter_lines():
-                if not line:
-                    continue
-                data = json.loads(line)
-                msg = data.get("message") or {}
-                # Prefer spoken answer content; skip dedicated thinking fields.
-                chunk = msg.get("content") or ""
-                if chunk:
-                    yield chunk
-                if data.get("done"):
-                    break
+                raise RuntimeError(f"ollama_{resp.status_code}: {resp.text[:200]!r}")
+            data = resp.json()
+            return data.get("message") or {}
+
+    async def _gen():
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            async with client.stream("POST", url, json=payload) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    raise RuntimeError(f"ollama_{resp.status_code}: {body[:200]!r}")
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    msg = data.get("message") or {}
+                    chunk = msg.get("content") or ""
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
+
+    return _gen()
+
+
+async def ollama_stream(messages: list[dict[str, Any]], model: str, *, think: bool):
+    gen = await ollama_chat(messages, model, think=think, stream=True)
+    async for chunk in gen:
+        yield chunk
+
+
+async def run_tool_loop(
+    messages: list[dict[str, Any]],
+    model: str,
+    *,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Let Ollama call Recall tools, then return the enriched message list."""
+    tools = recall_tools()
+    working = list(messages)
+    if force:
+        working.append(
+            {
+                "role": "user",
+                "content": (
+                    "(System nudge: Jake is asking about YOUR memory / Recall. "
+                    "Call recall_search or recall_ask or recall_recent before answering. "
+                    "Do not give human mnemonic/sleep tips.)"
+                ),
+            }
+        )
+
+    for round_i in range(MAX_TOOL_ROUNDS):
+        msg = await ollama_chat(working, model, tools=tools, stream=False)
+        tool_calls = msg.get("tool_calls") or []
+        content = (msg.get("content") or "").strip()
+
+        if not tool_calls:
+            if force and round_i == 0 and not content:
+                # Model ignored tools — seed a direct search ourselves.
+                seed = await memory_bridge.call_tool(
+                    "recall_search",
+                    {
+                        "query": "Cog memory preferences relationship decisions",
+                        "project": "WorkBuddy",
+                        "limit": 8,
+                    },
+                )
+                working.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "recall_search",
+                                    "arguments": {
+                                        "query": "Cog memory preferences relationship decisions",
+                                        "project": "WorkBuddy",
+                                        "limit": 8,
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                )
+                working.append(
+                    {
+                        "role": "tool",
+                        "content": json.dumps(seed, ensure_ascii=False)[:8000],
+                    }
+                )
+                continue
+            if content:
+                working.append({"role": "assistant", "content": content})
+            break
+
+        # Keep the assistant tool-call turn, then append tool results.
+        working.append(
+            {
+                "role": "assistant",
+                "content": content,
+                "tool_calls": tool_calls,
+            }
+        )
+        for call in tool_calls:
+            fn = call.get("function") or {}
+            name = str(fn.get("name") or "").strip()
+            args = _tool_args(fn.get("arguments"))
+            log(f"tool -> {name} {json.dumps(args)[:160]}")
+            if not name.startswith("recall_"):
+                result: dict[str, Any] = {"ok": False, "error": "invalid_tool"}
+            else:
+                result = await memory_bridge.call_tool(name, args)
+            working.append(
+                {
+                    "role": "tool",
+                    "content": json.dumps(
+                        {
+                            "ok": result.get("ok"),
+                            "text": (result.get("text") or "")[:6000],
+                            "error": result.get("error"),
+                            "data": result.get("data"),
+                        },
+                        ensure_ascii=False,
+                        default=str,
+                    )[:8000],
+                }
+            )
+    return working
 
 
 def synthesize(text: str) -> np.ndarray:
@@ -294,19 +478,42 @@ def synthesize(text: str) -> np.ndarray:
 class Session:
     def __init__(self, ws: WebSocket):
         self.ws = ws
+        self.session_id = f"cog-{int(time.time())}-{os.getpid()}"
         self.history: list[dict[str, str]] = []
         self.side_context: list[str] = []
+        self.memory_brief = ""
         self.audio_buf = np.zeros(0, dtype=np.float32)
         self.speech_ms = 0.0
         self.silence_ms = 0.0
         self.in_speech = False
         self.busy = False
         self.closed = False
+        self._brief_loaded = False
 
     async def send(self, payload: dict[str, Any]) -> None:
         if self.closed:
             return
         await self.ws.send_json(payload)
+
+    async def ensure_memory_brief(self) -> None:
+        if self._brief_loaded:
+            return
+        self._brief_loaded = True
+        try:
+            brief = await memory_bridge.memory_brief()
+            if brief.get("ok") and brief.get("text"):
+                self.memory_brief = str(brief["text"])[:10000]
+                log(f"memory brief loaded ({len(self.memory_brief)} chars)")
+            else:
+                log(f"memory brief unavailable: {brief.get('error') or brief}")
+        except Exception as err:  # noqa: BLE001
+            log(f"memory brief failed: {err}")
+        try:
+            snap = await memory_bridge.system_context()
+            if snap.get("ok") and snap.get("text"):
+                self.add_context(f"Machine: {str(snap['text'])[:800]}")
+        except Exception as err:  # noqa: BLE001
+            log(f"system context skip: {err}")
 
     def add_context(self, text: str) -> None:
         line = (text or "").strip()
@@ -317,8 +524,15 @@ class Session:
         if len(self.side_context) > 4:
             self.side_context = self.side_context[-4:]
 
-    def build_messages(self) -> list[dict[str, str]]:
+    def build_messages(self) -> list[dict[str, Any]]:
         system = _persona
+        if self.memory_brief:
+            system += (
+                "\n\n## WORKING MEMORY FROM RECALL (private — do not read aloud)\n"
+                "This is YOUR memory of Jake. Use it like a friend uses things they know. "
+                "If he asks about memory/preferences and this feels thin, call Recall tools.\n"
+                f"{self.memory_brief}"
+            )
         if self.side_context:
             brief = "\n".join(f"- {c}" for c in self.side_context)
             system += (
@@ -326,10 +540,27 @@ class Session:
                 "Use only if Jake asks about his machine, notes, or current work.\n"
                 f"{brief}"
             )
-        # Persona stays one system message; chat is user/assistant only.
-        messages = [{"role": "system", "content": system}]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         messages.extend(self.history[-16:])
         return messages
+
+    def transcript_text(self) -> str:
+        lines = []
+        for msg in self.history:
+            role = "Jake" if msg.get("role") == "user" else "Cog"
+            lines.append(f"{role}: {msg.get('content') or ''}")
+        return "\n".join(lines)
+
+    async def persist_session(self) -> None:
+        user_turns = sum(1 for m in self.history if m.get("role") == "user")
+        if user_turns < 2:
+            return
+        try:
+            title = f"Cog chat {time.strftime('%Y-%m-%d %H:%M')}"
+            result = await memory_bridge.save_session(self.transcript_text(), title=title)
+            log(f"session save: {result.get('ok')} {result.get('error') or ''}".strip())
+        except Exception as err:  # noqa: BLE001
+            log(f"session save failed: {err}")
 
     async def on_audio(self, b64: str) -> None:
         if self.busy:
@@ -372,11 +603,13 @@ class Session:
                 await self.send({"type": "status", "state": "listening"})
                 return
             await self.send({"type": "user_transcript", "text": text})
+            append_transcript(self.session_id, "jake", text)
             # Wake-only phrases should not dump memory/context — just greet.
             if WAKE_ONLY.match(text):
                 greet = "Yeah? I'm here."
                 self.history.append({"role": "user", "content": text})
                 self.history.append({"role": "assistant", "content": greet})
+                append_transcript(self.session_id, "cog", greet)
                 await self.send({"type": "status", "state": "speaking"})
                 await self.speak(greet)
                 await self.send({"type": "agent_response", "text": greet})
@@ -399,10 +632,12 @@ class Session:
         try:
             await self.send({"type": "status", "state": "thinking"})
             await self.send({"type": "user_transcript", "text": line})
+            append_transcript(self.session_id, "jake", line)
             if WAKE_ONLY.match(line):
                 greet = "Yeah? I'm here."
                 self.history.append({"role": "user", "content": line})
                 self.history.append({"role": "assistant", "content": greet})
+                append_transcript(self.session_id, "cog", greet)
                 await self.send({"type": "status", "state": "speaking"})
                 await self.speak(greet)
                 await self.send({"type": "agent_response", "text": greet})
@@ -418,6 +653,8 @@ class Session:
             self.busy = False
 
     async def reply_from_history(self) -> None:
+        await self.ensure_memory_brief()
+
         last_user = ""
         for msg in reversed(self.history):
             if msg.get("role") == "user":
@@ -425,16 +662,38 @@ class Session:
                 break
 
         use_think = needs_thinking(last_user)
+        force_memory = needs_memory_tools(last_user)
         model = OLLAMA_THINK_MODEL if use_think else OLLAMA_MODEL
-        log(f"route -> {'think' if use_think else 'fast'} ({model})")
+        log(
+            f"route -> {'think' if use_think else 'fast'} ({model})"
+            + (" +memory-tools" if force_memory else "")
+        )
         await self.send(
             {
                 "type": "status",
-                "state": "thinking" if use_think else "speaking",
+                "state": "thinking",
                 "route": "think" if use_think else "fast",
                 "model": model,
             }
         )
+
+        # Only spend a tool round when Jake is asking about memory/notes/tasks.
+        messages = self.build_messages()
+        if force_memory:
+            try:
+                messages = await run_tool_loop(messages, OLLAMA_MODEL, force=True)
+            except Exception as err:  # noqa: BLE001
+                log(f"tool loop failed (continuing without): {err}")
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Reply out loud to Jake now in Cog's voice. "
+                        "Short spoken answer only. Do not recite notes or tool JSON. "
+                        "If he asked about YOUR memory, talk about Recall/notes — not human mnemonics."
+                    ),
+                }
+            )
 
         full = ""
         pending = ""
@@ -442,7 +701,7 @@ class Session:
         if not use_think:
             await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
 
-        async for chunk in ollama_stream(self.build_messages(), model, think=use_think):
+        async for chunk in ollama_stream(messages, model, think=use_think):
             visible = filt.feed(chunk)
             if not visible:
                 continue
@@ -465,10 +724,16 @@ class Session:
         reply = strip_thinking(full).strip()
         if reply:
             self.history.append({"role": "assistant", "content": reply})
-            # Trim spoken chat only (context lives separately).
+            append_transcript(self.session_id, "cog", reply)
             if len(self.history) > 20:
                 self.history = self.history[-20:]
-            await self.send({"type": "agent_response", "text": reply, "route": "think" if use_think else "fast"})
+            await self.send(
+                {
+                    "type": "agent_response",
+                    "text": reply,
+                    "route": "think" if use_think else "fast",
+                }
+            )
         await self.send({"type": "status", "state": "listening"})
 
     async def speak(self, text: str) -> None:
@@ -527,8 +792,18 @@ async def health():
 async def voice_socket(ws: WebSocket):
     await ws.accept()
     session = Session(ws)
-    await session.send({"type": "ready", "backend": "local-amd", "model": OLLAMA_MODEL})
+    await session.send(
+        {
+            "type": "ready",
+            "backend": "local-amd",
+            "model": OLLAMA_MODEL,
+            "session_id": session.session_id,
+            "memory": True,
+        }
+    )
     await session.send({"type": "status", "state": "listening"})
+    # Prefetch Recall so the first real turn already has working memory.
+    asyncio.create_task(session.ensure_memory_brief())
     try:
         while True:
             raw = await ws.receive_text()
@@ -550,6 +825,7 @@ async def voice_socket(ws: WebSocket):
         pass
     finally:
         session.closed = True
+        await session.persist_session()
 
 
 def warm_models() -> None:

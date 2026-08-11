@@ -31,5 +31,16 @@ Examples: "think about…", "plan…", "debug…", "figure out…", "architectur
 
 Casual "hey there Cog / how's it going" stays on the fast brain.
 
+## Memory (Recall bridge)
+
+Local voice talks to WorkBuddy on `http://127.0.0.1:8787` with your local token:
+
+- Loads a **working memory brief** at call start (WorkBuddy notes, preferences, live speech, task counts)
+- When you ask about memory / notes / tasks, Ollama can call `recall_*` tools
+- Chats auto-save back into Recall under project **WorkBuddy**
+- Transcripts land in `local-voice/logs/`
+
+So “improve your memory” means Cog’s Recall memory — not human mnemonic tips.
+
 ## Switch from the tray
 Right-click Workbuddy tray → **Switch fast brain** / **Switch think brain** / **Thinking mode**.

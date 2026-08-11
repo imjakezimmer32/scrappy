@@ -731,6 +731,8 @@ async function pushSystemContext(first) {
 }
 
 async function pushRecallBrief() {
+  // Local voice loads a full Recall brief itself over the Electron bridge.
+  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") return;
   if (bridge.recallBrief) {
     const r = await bridge.recallBrief();
     if (r && r.ok && r.text) {

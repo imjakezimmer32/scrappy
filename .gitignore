@@ -6,3 +6,5 @@ out/
 local-token.txt
 .env.local
 .env
+local-voice/logs/
+local-voice/.venv/
