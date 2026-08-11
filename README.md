@@ -87,36 +87,43 @@ his day.
 
 ## His brain and his voice
 
-Both come from one ElevenLabs agent. Typing and speaking share the same
-conversation — typed lines go down the same WebSocket as microphone audio and
-run through the same response flow, so he answers out loud either way and
-remembers what was said in the other mode.
+Default voice is the **local AMD-friendly stack** (Unmute-shaped):
 
-His personality is `personality.md` at the project root. `npm run setup-voice`
-uploads it as the agent's system prompt, so that file is the single source of
-truth: edit it and re-run to mint a new agent, or edit the prompt in the
-ElevenLabs dashboard.
+- **Ears:** Whisper (CPU)
+- **Brain:** Ollama (`qwen2.5:7b` by default — uses your GPU when Ollama can)
+- **Mouth:** Kokoro ONNX TTS
 
-### Setup
+This is free and unlimited. It is not as polished as ElevenLabs, but it keeps
+working when cloud credits run out.
 
-1. Create `.env.local` next to `package.json`:
+Set in `.env.local`:
 
-   ```
-   ELEVENLABS_API_KEY=your_key_here
-   ```
+```
+VOICE_BACKEND=local
+OLLAMA_MODEL=qwen2.5:7b
+```
 
-   It is gitignored.
+One-time install:
 
-2. Create the agent:
+```bash
+npm run setup-local-voice
+```
 
-   ```bash
-   npm run setup-voice
-   ```
+Then restart Workbuddy. Cog boots the local voice server on `127.0.0.1:8790`.
 
-3. Restart Workbuddy.
+### Optional: ElevenLabs
 
-Optional in the same file: `ELEVENLABS_VOICE_ID` picks the voice and
-`ELEVENLABS_LLM` picks the model behind him, defaulting to `claude-sonnet-4-5`.
+You can still use ElevenLabs when you have credits:
+
+```
+VOICE_BACKEND=elevenlabs
+ELEVENLABS_API_KEY=your_key_here
+```
+
+Or `VOICE_BACKEND=auto` to prefer local when installed and fall back to ElevenLabs.
+
+`npm run setup-voice` uploads `personality.md` to an ElevenLabs agent.
+For local mode, Cog reads `personality.md` directly.
 
 ### Using it
 

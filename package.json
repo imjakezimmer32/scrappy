@@ -9,7 +9,8 @@
     "install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-startup.ps1",
     "uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-startup.ps1",
     "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1",
-    "setup-voice": "node ./scripts/setup-voice.js"
+    "setup-voice": "node ./scripts/setup-voice.js",
+    "setup-local-voice": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-local-voice.ps1"
   },
   "author": "Jake",
   "license": "MIT",

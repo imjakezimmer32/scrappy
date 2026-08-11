@@ -8,6 +8,7 @@ const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
 const cursorChats = require("./cursor-chats");
 const wakeListener = require("./wake-listener");
+const localVoice = require("./local-voice-launcher");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -143,12 +144,58 @@ function wakeWordEnabled() {
   return !(setting === "off" || setting === "false" || setting === "0");
 }
 
+function voiceBackendPref() {
+  const file = readEnvFile();
+  return (process.env.VOICE_BACKEND || file.VOICE_BACKEND || "auto").toLowerCase();
+}
+
+function ollamaModel() {
+  const file = readEnvFile();
+  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
+}
+
 function voiceConfig() {
   const file = readEnvFile();
   return {
     apiKey: process.env.ELEVENLABS_API_KEY || file.ELEVENLABS_API_KEY || "",
     agentId: process.env.ELEVENLABS_AGENT_ID || file.ELEVENLABS_AGENT_ID || "",
   };
+}
+
+async function resolveVoiceSession() {
+  const pref = voiceBackendPref();
+  const localInstalled = require("fs").existsSync(
+    path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
+  );
+
+  const wantLocal =
+    pref === "local" || (pref === "auto" && localInstalled);
+
+  if (wantLocal) {
+    const started = localVoice.start({
+      OLLAMA_MODEL: ollamaModel(),
+      COG_PERSONA: path.join(__dirname, "personality.md"),
+    });
+    if (!started.ok && pref === "local") {
+      return { ok: false, error: started.error || "local_voice_failed" };
+    }
+    if (started.ok) {
+      const ready = await localVoice.waitReady(120000);
+      if (ready.ok) {
+        return { ok: true, url: localVoice.wsUrl(), backend: "local" };
+      }
+      if (pref === "local") {
+        return { ok: false, error: "local_voice_timeout" };
+      }
+    }
+  }
+
+  if (pref === "local") {
+    return { ok: false, error: "local_voice_failed" };
+  }
+
+  // ElevenLabs path (explicit or auto fallback).
+  return fetchSignedUrl();
 }
 
 // ---------- personality ----------
@@ -198,7 +245,7 @@ async function fetchSignedUrl() {
     }
     const data = await res.json();
     if (!data.signed_url) return { ok: false, error: "no_signed_url" };
-    return { ok: true, url: data.signed_url };
+    return { ok: true, url: data.signed_url, backend: "elevenlabs" };
   } catch (err) {
     console.error("Signed URL request failed:", err.message);
     return { ok: false, error: "network" };
@@ -811,12 +858,29 @@ function normalizeRecallArgs(tool, args) {
   return out;
 }
 
-ipcMain.handle("workbuddy:voice-signed-url", () => fetchSignedUrl());
+ipcMain.handle("workbuddy:voice-signed-url", () => resolveVoiceSession());
 
-ipcMain.handle("workbuddy:voice-status", () => {
+ipcMain.handle("workbuddy:voice-status", async () => {
   const { apiKey, agentId } = voiceConfig();
+  const pref = voiceBackendPref();
+  const localHealth = await localVoice.health();
+  const localInstalled = fs.existsSync(
+    path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
+  );
+  const localReady = Boolean(localHealth && localHealth.ok);
+  const elevenReady = Boolean(apiKey && agentId);
+  const configured =
+    pref === "local"
+      ? localInstalled
+      : pref === "elevenlabs"
+        ? elevenReady
+        : localInstalled || elevenReady;
   return {
-    configured: Boolean(apiKey && agentId),
+    configured,
+    backend: pref,
+    localInstalled,
+    localReady,
+    ollamaModel: ollamaModel(),
     hasKey: Boolean(apiKey),
     hasAgent: Boolean(agentId),
     hasPersonality: personalityPresent(),
@@ -876,6 +940,15 @@ if (!gotTheLock) {
     createTray();
     startServer();
 
+    // Prefer local AMD voice when configured; still start wake word either way.
+    const pref = voiceBackendPref();
+    if (pref === "local" || pref === "auto") {
+      localVoice.start({
+        OLLAMA_MODEL: ollamaModel(),
+        COG_PERSONA: path.join(__dirname, "personality.md"),
+      });
+    }
+
     wakeListener.init({
       onWake(phrase) {
         if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -884,7 +957,10 @@ if (!gotTheLock) {
     });
     const envFile = readEnvFile();
     const { apiKey, agentId } = voiceConfig();
-    if (apiKey && agentId && wakeWordEnabled()) {
+    const localInstalled = fs.existsSync(
+      path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
+    );
+    if (wakeWordEnabled() && (localInstalled || (apiKey && agentId))) {
       wakeListener.start();
     }
     const cursorKey = cursorAgents.readApiKey(envFile);
@@ -913,6 +989,7 @@ if (!gotTheLock) {
     app.isQuitting = true;
     if (topKeeper) clearInterval(topKeeper);
     wakeListener.stop();
+    localVoice.stop();
     cursorAgents.stopStatusPolling();
     recall.stop();
     if (server) {

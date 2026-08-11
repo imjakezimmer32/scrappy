@@ -26,6 +26,7 @@ let active = false;
 let speaking = false;
 let levelTimer = null;
 let usingMic = true;
+let voiceBackend = "elevenlabs"; // or "local"
 
 // ---------- the gate ----------
 //
@@ -108,14 +109,15 @@ function scheduleSpeakEnd() {
   }, SPEAK_END_GRACE_MS);
 }
 
-function playChunk(b64) {
+function playChunk(b64, sampleRate) {
   if (!audio) return;
   clearSpeakEndTimer();
   const bytes = decodeBase64(b64);
   const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
   if (!pcm.length) return;
 
-  const buffer = audio.createBuffer(1, pcm.length, RATE);
+  const rate = sampleRate || RATE;
+  const buffer = audio.createBuffer(1, pcm.length, rate);
   const channel = buffer.getChannelData(0);
   for (let i = 0; i < pcm.length; i += 1) channel[i] = pcm[i] / 32768;
 
@@ -212,6 +214,7 @@ async function start(opts) {
     emit("error", auth && auth.error ? auth.error : "voice_not_configured");
     return { ok: false, error: auth && auth.error };
   }
+  voiceBackend = auth.backend === "local" ? "local" : "elevenlabs";
 
   try {
     if (!wantMic) throw new Error("skip-mic");
@@ -231,9 +234,9 @@ async function start(opts) {
     micStream = null;
   }
 
-  // Asking for a 16kHz context makes Chromium resample the mic for us, which
-  // is exactly the rate the agent wants in both directions.
-  audio = new AudioContext({ sampleRate: RATE });
+  // Local TTS is 24kHz; ElevenLabs conversational audio is 16kHz.
+  const contextRate = voiceBackend === "local" ? 24000 : RATE;
+  audio = new AudioContext({ sampleRate: contextRate });
   if (audio.state === "suspended") await audio.resume();
 
   outGain = audio.createGain();
@@ -253,7 +256,9 @@ async function start(opts) {
   await new Promise((resolve, reject) => {
     ws = new WebSocket(auth.url);
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "conversation_initiation_client_data" }));
+      if (voiceBackend === "elevenlabs") {
+        ws.send(JSON.stringify({ type: "conversation_initiation_client_data" }));
+      }
       resolve();
     };
     ws.onerror = () => reject(new Error("socket_failed"));
@@ -267,6 +272,11 @@ async function start(opts) {
     try {
       msg = JSON.parse(event.data);
     } catch {
+      return;
+    }
+
+    if (voiceBackend === "local") {
+      handleLocalMessage(msg);
       return;
     }
 
@@ -328,20 +338,24 @@ async function start(opts) {
   // ScriptProcessor rather than an AudioWorklet: it needs no separate module
   // fetch (which is fragile under file://) and 16kHz mono is nothing to chew.
   if (micStream) {
+    // Always downsample mic to 16k PCM for both backends.
     processor = audio.createScriptProcessor(CHUNK, 1, 1);
     processor.onaudioprocess = (e) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const input = e.inputBuffer.getChannelData(0);
-      const pcm = new Int16Array(input.length);
-      for (let i = 0; i < input.length; i += 1) {
-        const s = Math.max(-1, Math.min(1, input[i]));
+      const ratio = audio.sampleRate / RATE;
+      const outLen = Math.max(1, Math.floor(input.length / ratio));
+      const pcm = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i += 1) {
+        const s = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
         pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
-      ws.send(
-        JSON.stringify({
-          user_audio_chunk: encodeBase64(new Uint8Array(pcm.buffer)),
-        })
-      );
+      const b64 = encodeBase64(new Uint8Array(pcm.buffer));
+      if (voiceBackend === "local") {
+        ws.send(JSON.stringify({ type: "audio", pcm16_b64: b64 }));
+      } else {
+        ws.send(JSON.stringify({ user_audio_chunk: b64 }));
+      }
     };
     micNode.connect(processor);
     // Chromium won't pump a ScriptProcessor that isn't connected to anything.
@@ -355,6 +369,37 @@ async function start(opts) {
   startLevels();
   emit("open");
   return { ok: true };
+}
+
+function handleLocalMessage(msg) {
+  switch (msg.type) {
+    case "ready":
+      break;
+    case "status":
+      break;
+    case "user_transcript":
+      if (isMeaningful(msg.text)) {
+        allowSpeech = true;
+        emit("heard", msg.text);
+      } else {
+        emit("ignored", msg.text);
+      }
+      break;
+    case "agent_response":
+      allowSpeech = true;
+      clearSpeakEndTimer();
+      emit("said", msg.text || "");
+      break;
+    case "audio":
+      allowSpeech = true;
+      if (msg.pcm16_b64) playChunk(msg.pcm16_b64, msg.sample_rate || 24000);
+      break;
+    case "error":
+      emit("error", msg.error || "local_voice_failed");
+      break;
+    default:
+      break;
+  }
 }
 
 function stop() {
@@ -383,6 +428,13 @@ function stop() {
   micNode = null;
 
   if (ws) {
+    try {
+      if (voiceBackend === "local" && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "end" }));
+      }
+    } catch {
+      // ignore
+    }
     ws.onclose = null;
     try {
       ws.close();
@@ -414,7 +466,11 @@ async function sendText(text) {
 
   allowSpeech = true;
   suppressTurn = false;
-  ws.send(JSON.stringify({ type: "user_message", text: line }));
+  if (voiceBackend === "local") {
+    ws.send(JSON.stringify({ type: "text", text: line }));
+  } else {
+    ws.send(JSON.stringify({ type: "user_message", text: line }));
+  }
   return { ok: true };
 }
 
@@ -423,7 +479,11 @@ async function sendText(text) {
 function sendContext(text) {
   const line = String(text || "").trim();
   if (!line || !ws || ws.readyState !== WebSocket.OPEN) return false;
-  ws.send(JSON.stringify({ type: "contextual_update", text: line }));
+  if (voiceBackend === "local") {
+    ws.send(JSON.stringify({ type: "context", text: line }));
+  } else {
+    ws.send(JSON.stringify({ type: "contextual_update", text: line }));
+  }
   return true;
 }
 
