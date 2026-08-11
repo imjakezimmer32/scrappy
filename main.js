@@ -154,6 +154,44 @@ function ollamaModel() {
   return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
 }
 
+function writeEnvKey(key, value) {
+  const file = path.join(__dirname, ".env.local");
+  let lines = [];
+  try {
+    if (fs.existsSync(file)) lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  } catch {
+    lines = [];
+  }
+  const re = new RegExp(`^\\s*${key}\\s*=`);
+  const next = lines.filter((line) => line.trim() && !re.test(line));
+  next.push(`${key}=${value}`);
+  // Avoid UTF-8 BOM so keys like ELEVENLABS_API_KEY stay readable.
+  fs.writeFileSync(file, `${next.join("\n").replace(/\n*$/, "\n")}`, "utf8");
+  process.env[key] = value;
+}
+
+function setLocalModel(model) {
+  const name = String(model || "").trim();
+  if (!name) return { ok: false, error: "empty" };
+  writeEnvKey("VOICE_BACKEND", "local");
+  writeEnvKey("OLLAMA_MODEL", name);
+  localVoice.stop();
+  const started = localVoice.start({
+    OLLAMA_MODEL: name,
+    COG_PERSONA: path.join(__dirname, "personality.md"),
+  });
+  rebuildTray();
+  return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
+}
+
+const LOCAL_MODEL_CHOICES = [
+  { label: "Qwen 2.5 14B (smarter chat)", id: "qwen2.5:14b" },
+  { label: "Gemma 2 9B (natural chat)", id: "gemma2:9b" },
+  { label: "Qwen 2.5 7B (faster)", id: "qwen2.5:7b" },
+  { label: "DeepSeek R1 14B (thinking)", id: "deepseek-r1:14b" },
+];
+
+
 function voiceConfig() {
   const file = readEnvFile();
   return {
@@ -293,13 +331,9 @@ function createWindow() {
   });
 }
 
-function createTray() {
-  // Tiny amber dot icon (16x16 PNG)
-  const icon = nativeImage.createFromDataURL(
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPUlEQVQ4T2NkYGD4z0ABYBzVMKoBAzQA5v8MDAyM/ylIMzIyMjL8Z2Bg+E+BZgbG0QyAacB/BiYGRsYoGgAA3zQEAa0x0oUAAAAASUVORK5CYII="
-  );
-  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  tray.setToolTip("Workbuddy");
+function rebuildTray() {
+  if (!tray) return;
+  const current = ollamaModel();
   const menu = Menu.buildFromTemplate([
     {
       label: "Show Cog",
@@ -331,6 +365,27 @@ function createTray() {
     },
     { type: "separator" },
     {
+      label: `Local brain: ${current}`,
+      enabled: false,
+    },
+    {
+      label: "Switch local brain",
+      submenu: LOCAL_MODEL_CHOICES.map((choice) => ({
+        label: choice.label,
+        type: "radio",
+        checked: current === choice.id,
+        click: () => {
+          const result = setLocalModel(choice.id);
+          if (!result.ok) {
+            console.warn("[local-voice] model switch failed:", result.error);
+          } else {
+            console.log("[local-voice] switched to", choice.id);
+          }
+        },
+      })),
+    },
+    { type: "separator" },
+    {
       label: "Quit",
       click: () => {
         app.isQuitting = true;
@@ -339,6 +394,16 @@ function createTray() {
     },
   ]);
   tray.setContextMenu(menu);
+}
+
+function createTray() {
+  // Tiny amber dot icon (16x16 PNG)
+  const icon = nativeImage.createFromDataURL(
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPUlEQVQ4T2NkYGD4z0ABYBzVMKoBAzQA5v8MDAyM/ylIMzIyMjL8Z2Bg+E+BZgbG0QyAacB/BiYGRsYoGgAA3zQEAa0x0oUAAAAASUVORK5CYII="
+  );
+  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+  tray.setToolTip("Workbuddy");
+  rebuildTray();
   tray.on("click", () => showBuddy());
 }
 

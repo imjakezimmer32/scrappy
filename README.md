@@ -100,8 +100,19 @@ Set in `.env.local`:
 
 ```
 VOICE_BACKEND=local
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_MODEL=qwen2.5:14b
 ```
+
+Compare brains anytime:
+
+```bash
+npm run model:qwen14
+npm run model:gemma9
+```
+
+Or right-click the Workbuddy tray icon → **Switch local brain**.
+
+See `docs/local-models.md` for thinking-model options (DeepSeek R1, etc.).
 
 One-time install:
 

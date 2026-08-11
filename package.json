@@ -10,7 +10,12 @@
     "uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-startup.ps1",
     "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1",
     "setup-voice": "node ./scripts/setup-voice.js",
-    "setup-local-voice": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-local-voice.ps1"
+    "setup-local-voice": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup-local-voice.ps1",
+    "model:qwen14": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 qwen2.5:14b",
+    "model:gemma9": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 gemma2:9b",
+    "model:qwen7": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 qwen2.5:7b",
+    "model:r1-14": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 deepseek-r1:14b"
+
   },
   "author": "Jake",
   "license": "MIT",
