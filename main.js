@@ -7,6 +7,7 @@ const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
 const cursorChats = require("./cursor-chats");
+const wakeListener = require("./wake-listener");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -765,7 +766,17 @@ ipcMain.handle("workbuddy:voice-status", () => {
     hasKey: Boolean(apiKey),
     hasAgent: Boolean(agentId),
     hasPersonality: personalityPresent(),
+    wakeSupported: process.platform === "win32",
+    wakePhrases: wakeListener.phrases,
   };
+});
+
+ipcMain.on("workbuddy:wake-pause", () => {
+  wakeListener.pause();
+});
+
+ipcMain.on("workbuddy:wake-resume", () => {
+  wakeListener.resume();
 });
 
 // The overlay is deliberately non-focusable so clicking Cog never pulls focus
@@ -810,6 +821,18 @@ if (!gotTheLock) {
     createTray();
     startServer();
 
+    // Offline "Hey Cog" listener (Windows System.Speech). Pauses while a
+    // voice call owns the mic so it doesn't fight ElevenLabs.
+    wakeListener.init({
+      onWake(phrase) {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send("workbuddy:wake", { phrase });
+      },
+    });
+    if (voiceConfig().apiKey && voiceConfig().agentId) {
+      wakeListener.start();
+    }
+
     // Taskbar autohide, resolution changes, docking — keep the overlay
     // pinned to the current work area.
     keepOnTop();
@@ -827,6 +850,7 @@ if (!gotTheLock) {
   app.on("before-quit", () => {
     app.isQuitting = true;
     if (topKeeper) clearInterval(topKeeper);
+    wakeListener.stop();
     recall.stop();
     if (server) {
       try {

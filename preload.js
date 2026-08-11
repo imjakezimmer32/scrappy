@@ -52,4 +52,13 @@ contextBridge.exposeInMainWorld("workbuddy", {
   voiceStatus() {
     return ipcRenderer.invoke("workbuddy:voice-status");
   },
+  onWake(callback) {
+    ipcRenderer.on("workbuddy:wake", (_event, payload) => callback(payload));
+  },
+  wakePause() {
+    ipcRenderer.send("workbuddy:wake-pause");
+  },
+  wakeResume() {
+    ipcRenderer.send("workbuddy:wake-resume");
+  },
 });

@@ -676,6 +676,9 @@ async function startCall() {
   stopWatching();
   forgetAnnoyance();
   target = null;
+  if (window.CogWake) window.CogWake.stop();
+  // Give Windows a beat to release the wake-word mic before ElevenLabs grabs it.
+  await new Promise((r) => setTimeout(r, 350));
   await wakeUp();
   lastPoke = Date.now();
   // Light up straight away — waiting for the socket would leave a second of
@@ -691,6 +694,7 @@ async function startCall() {
     inCall = false;
     setState("idle");
     say(trouble[0], 4200, "squint", trouble[1]);
+    if (window.CogWake && voiceReady) window.CogWake.start();
   }
 }
 
@@ -784,6 +788,7 @@ function stopContextFeed(save = true) {
 window.CogVoice.init({
   open() {
     inCall = true;
+    if (window.CogWake) window.CogWake.stop();
     cancelAll();
     target = null;
     setState("listen");
@@ -799,6 +804,8 @@ window.CogVoice.init({
     setState("idle");
     setFace("focused");
     lastPoke = Date.now();
+    // Resume wake listening after hang-up.
+    if (window.CogWake && voiceReady) window.CogWake.start();
   },
   speakStart() {
     setState("speak");
@@ -1372,11 +1379,27 @@ window.__cog = {
   state: () => ({ x, lift, cx, cy, held, flying, screen: screenAt(x + COM_X) }),
 };
 
+if (window.CogWake) {
+  window.CogWake.init({
+    onWake(phrase) {
+      if (inCall || alerting) return;
+      console.log("[wake] heard:", phrase);
+      bubbleText("Hey — I'm here.", 1800);
+      startCall();
+    },
+  });
+}
+
 if (bridge.voiceStatus) {
   bridge
     .voiceStatus()
     .then((s) => {
       voiceReady = Boolean(s && s.configured);
+      if (voiceReady && s.wakeSupported && window.CogWake) {
+        // Main already starts the listener; this just ensures resume after reload.
+        window.CogWake.start();
+        console.log("[wake] listening for:", (s.wakePhrases || ["hey cog"]).join(", "));
+      }
     })
     .catch(() => {
       voiceReady = false;
