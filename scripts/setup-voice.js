@@ -49,12 +49,16 @@ function writeEnvValue(key, value) {
   fs.writeFileSync(ENV_PATH, lines.filter((l, i) => l !== "" || i < lines.length - 1).join("\n") + "\n", "utf8");
 }
 
-function strProp(description, required = true) {
-  return {
-    type: "string",
-    description,
-    ...(required ? {} : {}),
-  };
+function str(description) {
+  return { type: "string", description };
+}
+
+function bool(description) {
+  return { type: "boolean", description };
+}
+
+function integer(description) {
+  return { type: "integer", description };
 }
 
 function clientTool(name, description, properties, required) {
@@ -77,38 +81,38 @@ function recallTools() {
       "recall_search",
       "Search Jake's Recall notes and connected repo brains. Use when he asks what he said, decided, or worked on, or when you need facts from memory.",
       {
-        query: strProp("What to look for"),
-        limit: { type: "integer", description: "Max results (default 10)" },
-        brain: strProp('Brain id: "notes", "repo::workbuddy", etc. Omit to search all.', false),
-        project: strProp("Optional project id/name/alias filter for notes", false),
+        query: str("What to look for"),
+        limit: integer("Max results (default 10)"),
+        brain: str('Brain id: "notes", "repo::workbuddy", etc. Omit to search all.'),
+        project: str("Optional project id/name/alias filter for notes"),
       },
       ["query"]
     ),
     clientTool(
       "recall_ask",
       "Ask a natural-language question against Jake's notes and get an answer grounded in them.",
-      { question: strProp("The question to answer from notes") },
+      { question: str("The question to answer from notes") },
       ["question"]
     ),
     clientTool(
       "recall_get_note",
       "Fetch one Recall note in full by id.",
-      { id: strProp("Note id") },
+      { id: str("Note id") },
       ["id"]
     ),
     clientTool(
       "recall_recent",
       "Newest ready notes plus recent recording sessions. Filter with project WorkBuddy for your relationship notes.",
       {
-        limit: { type: "integer", description: "Max notes (default 10)" },
-        project: strProp("Optional project filter, e.g. WorkBuddy", false),
+        limit: integer("Max notes (default 10)"),
+        project: str("Optional project filter, e.g. WorkBuddy"),
       },
       []
     ),
     clientTool(
       "recall_live_context",
       "What Jake said out loud in the last N minutes from the live Recall recording.",
-      { minutes: { type: "integer", description: "Minutes back (default 10)" } },
+      { minutes: integer("Minutes back (default 10)") },
       []
     ),
     clientTool(
@@ -121,9 +125,9 @@ function recallTools() {
       "recall_graph",
       "Note links (default) or a repo brain file/import graph.",
       {
-        brain: strProp('Brain id (default "notes")', false),
-        note_id: strProp("Only links touching this note", false),
-        query: strProp("Only links between notes matching this search", false),
+        brain: str('Brain id (default "notes")'),
+        note_id: str("Only links touching this note"),
+        query: str("Only links between notes matching this search"),
       },
       []
     ),
@@ -131,16 +135,12 @@ function recallTools() {
     clientTool("recall_projects", "List Jake's projects (ArrayBud, WorkBuddy, etc).", {}, []),
     clientTool(
       "recall_save_note",
-      "WRITE: save a note into Recall. File relationship/preference memories under project WorkBuddy with tags like cog, relationship, preference. Use when Jake says remember this, or when quietly saving something important he just shared.",
+      "WRITE: save a note into Recall. File relationship/preference memories under project WorkBuddy with tags like cog, relationship, preference. Use when Jake says remember this, or when quietly saving something important he just shared. Pass tags as a comma-separated string.",
       {
-        title: strProp("Short note title"),
-        summary: strProp("Note body / summary"),
-        tags: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional lowercase tags",
-        },
-        project: strProp("Project id/name/alias, e.g. WorkBuddy", false),
+        title: str("Short note title"),
+        summary: str("Note body / summary"),
+        tags: str("Optional comma-separated lowercase tags"),
+        project: str("Project id/name/alias, e.g. WorkBuddy"),
       },
       ["title", "summary"]
     ),
@@ -148,8 +148,8 @@ function recallTools() {
       "recall_complete_action",
       "WRITE: mark one open action done. Pass note_id and text exactly from recall_open_actions. Only when Jake says the task is finished.",
       {
-        note_id: strProp("Note id from recall_open_actions"),
-        text: strProp("Exact action text"),
+        note_id: str("Note id from recall_open_actions"),
+        text: str("Exact action text"),
       },
       ["note_id", "text"]
     ),
@@ -157,9 +157,9 @@ function recallTools() {
       "recall_set_action_status",
       'WRITE: move an action to todo/doing/done. Prefer recall_complete_action for simple checkoffs.',
       {
-        note_id: strProp("Note id"),
-        text: strProp("Exact action text"),
-        status: strProp('One of "todo", "doing", "done"'),
+        note_id: str("Note id"),
+        text: str("Exact action text"),
+        status: str('One of "todo", "doing", "done"'),
       },
       ["note_id", "text", "status"]
     ),
@@ -167,17 +167,17 @@ function recallTools() {
       "recall_dismiss_action",
       "WRITE: permanently dismiss an action. Only when Jake wants it gone forever.",
       {
-        note_id: strProp("Note id"),
-        text: strProp("Exact action text"),
+        note_id: str("Note id"),
+        text: str("Exact action text"),
       },
       ["note_id", "text"]
     ),
     clientTool(
       "recall_update_note_tags",
-      "WRITE: replace tags on a note.",
+      "WRITE: replace tags on a note. Pass tags as a comma-separated string (empty clears).",
       {
-        id: strProp("Note id"),
-        tags: { type: "array", items: { type: "string" }, description: "New tag list" },
+        id: str("Note id"),
+        tags: str("Comma-separated lowercase tags"),
       },
       ["id", "tags"]
     ),
@@ -185,8 +185,8 @@ function recallTools() {
       "recall_set_note_pinned",
       "WRITE: pin or unpin a note.",
       {
-        id: strProp("Note id"),
-        pinned: { type: "boolean", description: "true to pin, false to unpin" },
+        id: str("Note id"),
+        pinned: bool("true to pin, false to unpin"),
       },
       ["id", "pinned"]
     ),
@@ -194,50 +194,50 @@ function recallTools() {
       "recall_trash_note",
       "WRITE: soft-trash or restore a note. Only when Jake asks.",
       {
-        id: strProp("Note id"),
-        trashed: { type: "boolean", description: "true to trash, false to restore" },
+        id: str("Note id"),
+        trashed: bool("true to trash, false to restore"),
       },
       ["id", "trashed"]
     ),
     clientTool(
       "recall_add_project",
-      "WRITE: create a project. Only when Jake asks.",
+      "WRITE: create a project. Only when Jake asks. Pass aliases as a comma-separated string.",
       {
-        name: strProp("Project name"),
-        aliases: { type: "array", items: { type: "string" }, description: "Optional aliases" },
+        name: str("Project name"),
+        aliases: str("Optional comma-separated aliases"),
       },
       ["name"]
     ),
     clientTool(
       "recall_update_project",
-      "WRITE: update a project name/aliases/brain. Only when Jake asks.",
+      "WRITE: update a project name/aliases/brain. Only when Jake asks. Pass aliases as a comma-separated string.",
       {
-        id: strProp("Project id"),
-        name: strProp("Display name"),
-        aliases: { type: "array", items: { type: "string" }, description: "Aliases" },
-        brain_id: strProp("Optional linked repo brain id", false),
+        id: str("Project id"),
+        name: str("Display name"),
+        aliases: str("Comma-separated aliases"),
+        brain_id: str("Optional linked repo brain id"),
       },
       ["id", "name"]
     ),
     clientTool(
       "recall_remove_project",
       "WRITE: delete a project. Only when Jake explicitly asks.",
-      { id: strProp("Project id") },
+      { id: str("Project id") },
       ["id"]
     ),
     clientTool(
       "recall_connect_brain",
       "WRITE: index a folder as a new repo brain. Only when Jake asks.",
       {
-        name: strProp("Display name"),
-        path: strProp("Absolute folder path"),
+        name: str("Display name"),
+        path: str("Absolute folder path"),
       },
       ["name", "path"]
     ),
     clientTool(
       "recall_remove_brain",
       "WRITE: disconnect a repo brain (not notes). Only when Jake asks.",
-      { id: strProp("Brain id") },
+      { id: str("Brain id") },
       ["id"]
     ),
   ];

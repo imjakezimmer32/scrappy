@@ -508,7 +508,8 @@ ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
     return { ok: false, error: "invalid_tool" };
   }
   try {
-    const result = await recall.call(tool, args && typeof args === "object" ? args : {});
+    const normalized = normalizeRecallArgs(tool, args && typeof args === "object" ? args : {});
+    const result = await recall.call(tool, normalized);
     if (!result.ok) return result;
     return {
       ok: true,
@@ -521,6 +522,53 @@ ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
     return { ok: false, error: err.message || "failed" };
   }
 });
+
+function splitList(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter(Boolean);
+  }
+  if (value == null || value === "") return [];
+  return String(value)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function asBool(value) {
+  if (typeof value === "boolean") return value;
+  const s = String(value).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes";
+}
+
+function asInt(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  const n = parseInt(String(value).trim(), 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+// ElevenLabs client tools pass everything as strings; MCP expects typed JSON.
+function normalizeRecallArgs(tool, args) {
+  const out = { ...args };
+  if ("limit" in out) {
+    const n = asInt(out.limit);
+    if (n !== undefined) out.limit = n;
+    else delete out.limit;
+  }
+  if ("minutes" in out) {
+    const n = asInt(out.minutes);
+    if (n !== undefined) out.minutes = n;
+    else delete out.minutes;
+  }
+  if ("tags" in out) out.tags = splitList(out.tags);
+  if ("aliases" in out) out.aliases = splitList(out.aliases);
+  if ("pinned" in out) out.pinned = asBool(out.pinned);
+  if ("trashed" in out) out.trashed = asBool(out.trashed);
+  // Drop empty optional strings so MCP treats them as omitted.
+  for (const key of Object.keys(out)) {
+    if (out[key] === "" || out[key] == null) delete out[key];
+  }
+  return out;
+}
 
 ipcMain.handle("workbuddy:voice-signed-url", () => fetchSignedUrl());
 
