@@ -1,0 +1,109 @@
+# Cog Self-Debugging Playbook
+
+This guide teaches Cog (and Jake) how to investigate and fix Workbuddy issues without waiting for a human developer every time.
+
+## When to use this
+
+Use this playbook when Jake reports:
+
+- "Cog says my agent is still working but it's done"
+- "Cog stopped talking mid-sentence"
+- "Cog didn't walk over when my agent finished"
+- "Something feels stuck or wrong with status"
+
+## Step 1 — Name the symptom in plain English
+
+Write one sentence: **what Jake expected** vs **what actually happened**.
+
+Example: "Jake asked if the plan agent finished. Cog said Working, but Cursor shows Done."
+
+## Step 2 — Pick the subsystem
+
+| Symptom | Likely area | Key files |
+|--------|-------------|-----------|
+| Wrong agent status | Live status + registry | `cursor-agents.js`, `cursor-agent-status.js` |
+| Agent hung forever | Run timeout | `cursor-agent-status.js` (`waitWithTimeout`) |
+| No desk nudge | Cursor hooks → `/agent-done` | `scripts/workbuddy-agent-done.ps1`, `main.js` |
+| Cog cut off mid-sentence | Voice playback gaps | `renderer/voice.js` (`scheduleSpeakEnd`) |
+| Voice tool hung | Blocking IPC | `main.js` (`continue` → background) |
+
+## Step 3 — Gather evidence (read-only first)
+
+1. **Check saved agent list** — `%APPDATA%/workbuddy/cursor-agents.json`
+2. **Ask for live status** — use `cursor_agent_details` (always hits Cursor API)
+3. **Compare to Cursor UI** — cloud agents at https://cursor.com/agents
+4. **Check Workbuddy is listening** — `http://127.0.0.1:8787/token` (when app is running)
+5. **Run tests** — `npm test` (status logic without Electron)
+
+## Step 4 — Common fixes Cog can start
+
+### Stale "Working" status
+
+1. Run `cursor_agent_details` with the agent id
+2. If stale, use `cursor_restart_agent` or `cursor_continue_agent`
+3. After a Workbuddy update, restart Workbuddy once (startup reconcile runs automatically)
+
+### Agent run too long
+
+Set in `.env.local`:
+
+```env
+CURSOR_AGENT_RUN_TIMEOUT_MS=3600000
+CURSOR_AGENT_STALE_MS=900000
+```
+
+### No nudge when agent finishes
+
+1. Reinstall hooks: `npm run install-hooks`
+2. Make sure Workbuddy is running before Cursor sessions
+3. Tune minimum nudge time: `COG_NUDGE_MIN_DURATION_MS=60000` (1 minute)
+
+### Cog stops talking mid-sentence
+
+Usually a gap between audio chunks. Fixed in `renderer/voice.js` with a grace timer — if it returns, increase `SPEAK_END_GRACE_MS` or check long client-tool calls blocking playback.
+
+## Step 5 — Make a small, testable change
+
+Rules for Cog-started **implementation** agents:
+
+1. **Plan first** unless Jake explicitly says "implement" or "fix it"
+2. **One bug per change** — status accuracy separate from voice separate from hooks
+3. **Add or update a test** in `test/` when changing logic in `cursor-agent-status.js`
+4. **Run `npm test`** before saying done
+5. **Tell Jake simply** — what was wrong, what you changed, what to try
+
+## Step 6 — Verify like Jake would
+
+1. Start a small plan/research agent via voice
+2. Ask "is it done?" twice — once while running, once after
+3. Start a voice call and listen for a full sentence without dropping to idle
+4. Optional: tray → test nudge (`force: true`)
+
+## Step 7 — Teach-back (so Cog learns)
+
+After fixing something, Cog should save a short Recall note:
+
+- **Title:** `Workbuddy fix: <symptom>`
+- **Summary:** symptom, root cause, file changed, how to verify
+- **Tags:** `cog,workbuddy,debug`
+
+Next time Jake mentions the same symptom, search Recall first.
+
+## Config cheat sheet
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `CURSOR_AGENT_RUN_TIMEOUT_MS` | `0` (off) | Max time one agent run may wait |
+| `CURSOR_AGENT_STALE_MS` | `900000` (15 min) | When saved "running" is treated as stuck |
+| `COG_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Cog walks over |
+| `COG_CURSOR_AGENTS` | `on` | Master switch for Cursor agent tools |
+
+## Escalation
+
+Hand off to a human developer when:
+
+- `@cursor/sdk` API shape changed and live checks always fail
+- Hooks never fire (Cursor hook config outside Workbuddy)
+- ElevenLabs voice session drops entirely (WebSocket/auth issue)
+
+Otherwise: follow steps 1–7 and iterate.

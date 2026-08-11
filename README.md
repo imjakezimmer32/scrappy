@@ -177,3 +177,16 @@ never steals focus from your editor.
 - `preload.js` — the IPC bridge
 - `renderer/` — Cog
 - `scripts/` — Windows Startup + Cursor hook helpers
+- `cursor-agents.js` — Cursor agent lifecycle (start, status, stop)
+- `cursor-agent-status.js` — status/timeout logic (unit tested)
+- `docs/cog-debugging-playbook.md` — how Cog can debug Workbuddy issues
+
+### Cursor agent status tuning (`.env.local`)
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CURSOR_AGENT_RUN_TIMEOUT_MS` | `0` (off) | Stop a run after this many ms |
+| `CURSOR_AGENT_STALE_MS` | `900000` (15 min) | Treat saved "running" as stuck after this |
+| `COG_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Cog walks over |
+
+Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.

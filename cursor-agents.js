@@ -8,6 +8,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const statusHelpers = require("./cursor-agent-status");
 
 const REGISTRY_PATH = path.join(
   process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming"),
@@ -92,24 +93,19 @@ function missingApiKeyResponse() {
   };
 }
 
-function friendlyStatus(status, isRunning) {
-  if (isRunning || status === "running") return "Working";
-  if (status === "finished") return "Done";
-  if (status === "cancelled") return "Stopped";
-  if (status === "error") return "Error";
-  if (status === "archived") return "Archived";
-  return status ? String(status) : "Unknown";
-}
-
-function formatAgentForJake(entry) {
+function formatAgentForJake(entry, overrides = {}) {
   if (!entry) return null;
-  const isRunning = entry.status === "running" || activeRuns.has(entry.id);
+  const status = overrides.status != null ? overrides.status : entry.status;
+  const isRunning =
+    overrides.isRunning != null
+      ? overrides.isRunning
+      : status === "running" || activeRuns.has(entry.id);
   return {
     id: entry.id,
     kind: entry.kind || null,
     goal: entry.goal || null,
-    status: entry.status || null,
-    friendlyStatus: friendlyStatus(entry.status, isRunning),
+    status: status || null,
+    friendlyStatus: statusHelpers.friendlyStatus(status, isRunning),
     isRunning,
     runtime: entry.runtime || null,
     openUrl: entry.openUrl || null,
@@ -123,15 +119,28 @@ function formatAgentForJake(entry) {
 }
 
 function buildJakeSummary(entry, extras = {}) {
-  const formatted = formatAgentForJake(entry) || {};
+  const formatted = formatAgentForJake(entry, {
+    status: extras.effectiveStatus,
+    isRunning: extras.isRunning,
+  }) || {};
   const lines = [
     `${formatted.friendlyStatus || "Unknown"} — ${formatted.kind || "agent"}: ${(formatted.goal || "(no goal)").slice(0, 120)}`,
     `Id: ${formatted.id || extras.id || "?"}`,
   ];
   if (formatted.runtime) lines.push(`Runtime: ${formatted.runtime}`);
-  if (formatted.isRunning) lines.push("It is working right now.");
+  if (formatted.isRunning) {
+    const runningFor = statusHelpers.formatDurationMs(
+      statusHelpers.ageMsFromIso(formatted.updatedAt)
+    );
+    lines.push(runningFor ? `Working for about ${runningFor}.` : "It is working right now.");
+  }
+  if (extras.runDurationMs != null) {
+    const dur = statusHelpers.formatDurationMs(extras.runDurationMs);
+    if (dur) lines.push(`Last run took ${dur}.`);
+  }
   if (formatted.resultPreview) lines.push(`Latest result: ${formatted.resultPreview}`);
   if (extras.liveRunStatus) lines.push(`Live run status: ${extras.liveRunStatus}`);
+  if (extras.statusNote) lines.push(extras.statusNote);
   if (formatted.openUrl) lines.push(`Open in Cursor: ${formatted.openUrl}`);
   if (extras.whatNext) lines.push(`Next: ${extras.whatNext}`);
   return lines.join("\n");
@@ -203,10 +212,54 @@ function buildGetRunOptions(agentId, known, apiKey) {
   return { runtime: "local", cwd: (known && known.cwd) || resolveCwd() };
 }
 
-function terminalRunStatus(result) {
-  if (result && result.status === "error") return "error";
-  if (result && result.status === "cancelled") return "cancelled";
-  return "finished";
+function applyRunResult(agentId, result, timedOut) {
+  const summary =
+    (result && (result.result || result.status)) ||
+    (result && result.status) ||
+    (timedOut ? "timeout" : "finished");
+  const nextStatus = statusHelpers.terminalRunStatus(result, timedOut);
+  return upsertAgent({
+    id: agentId,
+    status: nextStatus,
+    updatedAt: new Date().toISOString(),
+    result: typeof summary === "string" ? summary.slice(0, 12000) : String(summary).slice(0, 12000),
+    error:
+      nextStatus === "error"
+        ? (result && result.error && result.error.message) || "run_error"
+        : nextStatus === "timeout"
+          ? "Agent run exceeded the time limit and was stopped."
+          : null,
+  });
+}
+
+async function runAgentLoop(agentId, agent, run) {
+  activeRuns.set(agentId, { run, agent });
+  upsertAgent({
+    id: agentId,
+    runId: run.id,
+    status: "running",
+    updatedAt: new Date().toISOString(),
+  });
+  try {
+    const { result, timedOut } = await statusHelpers.waitWithTimeout(run, statusHelpers.getRunTimeoutMs());
+    applyRunResult(agentId, result, timedOut);
+  } catch (err) {
+    upsertAgent({
+      id: agentId,
+      status: "error",
+      updatedAt: new Date().toISOString(),
+      error: err && err.message ? err.message : String(err),
+    });
+  } finally {
+    activeRuns.delete(agentId);
+    try {
+      if (agent && typeof agent[Symbol.asyncDispose] === "function") {
+        await agent[Symbol.asyncDispose]();
+      }
+    } catch {
+      // ignore dispose errors
+    }
+  }
 }
 
 function buildPrompt(kind, goal) {
@@ -314,24 +367,7 @@ async function startAgent({
   (async () => {
     try {
       const run = await agent.send(buildPrompt(kind, text));
-      activeRuns.set(agentId, { run, agent });
-      upsertAgent({
-        id: agentId,
-        runId: run.id,
-        updatedAt: new Date().toISOString(),
-      });
-      const result = await run.wait();
-      const summary =
-        (result && (result.result || result.status)) ||
-        (result && result.status) ||
-        "finished";
-      upsertAgent({
-        id: agentId,
-        status: terminalRunStatus(result),
-        updatedAt: new Date().toISOString(),
-        result: typeof summary === "string" ? summary.slice(0, 12000) : String(summary).slice(0, 12000),
-        error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
-      });
+      await runAgentLoop(agentId, agent, run);
     } catch (err) {
       upsertAgent({
         id: agentId,
@@ -339,15 +375,6 @@ async function startAgent({
         updatedAt: new Date().toISOString(),
         error: err && err.message ? err.message : String(err),
       });
-    } finally {
-      activeRuns.delete(agentId);
-      try {
-        if (agent && typeof agent[Symbol.asyncDispose] === "function") {
-          await agent[Symbol.asyncDispose]();
-        }
-      } catch {
-        // ignore dispose errors
-      }
     }
   })();
 
@@ -398,22 +425,13 @@ async function continueAgent({ id, message, apiKey }) {
   try {
     const agent = await Agent.resume(agentId, resumeOpts);
     const run = await agent.send(text);
-    const result = await run.wait();
-    const summary =
-      (result && result.result) ||
-      (result && result.status) ||
-      "finished";
-    const entry = upsertAgent({
-      id: agentId,
-      status: terminalRunStatus(result),
-      updatedAt: new Date().toISOString(),
-      result: String(summary).slice(0, 12000),
-      error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
-      openUrl:
-        String(agentId).startsWith("bc-")
-          ? `https://cursor.com/agents?id=${encodeURIComponent(agentId)}`
-          : (known && known.openUrl) || null,
-    });
+    const { result, timedOut } = await statusHelpers.waitWithTimeout(run, statusHelpers.getRunTimeoutMs());
+    const entry = applyRunResult(agentId, result, timedOut);
+    entry.openUrl =
+      String(agentId).startsWith("bc-")
+        ? `https://cursor.com/agents?id=${encodeURIComponent(agentId)}`
+        : (known && known.openUrl) || null;
+    upsertAgent({ id: agentId, openUrl: entry.openUrl });
     try {
       if (typeof agent[Symbol.asyncDispose] === "function") await agent[Symbol.asyncDispose]();
     } catch {
@@ -617,24 +635,7 @@ async function continueAgentInBackground({ id, message, apiKey }) {
     try {
       const agent = await Agent.resume(agentId, resumeOpts);
       const run = await agent.send(text);
-      activeRuns.set(agentId, { run, agent });
-      upsertAgent({
-        id: agentId,
-        runId: run.id,
-        updatedAt: new Date().toISOString(),
-      });
-      const result = await run.wait();
-      const summary =
-        (result && result.result) ||
-        (result && result.status) ||
-        "finished";
-      upsertAgent({
-        id: agentId,
-        status: terminalRunStatus(result),
-        updatedAt: new Date().toISOString(),
-        result: String(summary).slice(0, 12000),
-        error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
-      });
+      await runAgentLoop(agentId, agent, run);
     } catch (err) {
       upsertAgent({
         id: agentId,
@@ -642,8 +643,6 @@ async function continueAgentInBackground({ id, message, apiKey }) {
         updatedAt: new Date().toISOString(),
         error: err && err.message ? err.message : String(err),
       });
-    } finally {
-      activeRuns.delete(agentId);
     }
   })();
 
@@ -697,13 +696,13 @@ async function restartAgent({ id, message, apiKey }) {
   });
 }
 
-async function agentStatusDetailed({ id, apiKey }) {
+async function agentStatusDetailed({ id, apiKey, autoFixStale = true }) {
   const agentId = String(id || "").trim();
   if (!agentId) return { ok: false, error: "missing_id" };
 
   const registry = getAgent(agentId);
   const held = activeRuns.get(agentId);
-  const live = { recentRuns: [], cloud: null };
+  const live = { recentRuns: [], cloud: null, checkedAt: new Date().toISOString() };
 
   const key = String(apiKey || "").trim();
   if (key) {
@@ -736,13 +735,23 @@ async function agentStatusDetailed({ id, apiKey }) {
     }
   }
 
-  const liveRun = live.recentRuns.find((run) => run.status === "running");
-  const isRunning = Boolean(held && held.run) || Boolean(liveRun) || registry?.status === "running";
-  const effectiveStatus = isRunning
-    ? "running"
-    : liveRun
-      ? liveRun.status
-      : registry?.status || (registry ? "unknown" : null);
+  const resolved = statusHelpers.resolveEffectiveStatus({
+    held: held && held.run,
+    recentRuns: live.recentRuns,
+    cloudStatus: live.cloud?.status,
+    registryStatus: registry?.status,
+    registryUpdatedAt: registry?.updatedAt,
+  });
+
+  let { effectiveStatus, isRunning, isStale, liveRun, latestRun } = resolved;
+
+  if (autoFixStale && registry && registry.status === "running" && !isRunning && isStale) {
+    upsertAgent({
+      id: agentId,
+      status: effectiveStatus,
+      updatedAt: new Date().toISOString(),
+    });
+  }
 
   if (!registry && !live.cloud && live.recentRuns.length === 0) {
     return { ok: false, error: "not_found", id: agentId };
@@ -758,15 +767,23 @@ async function agentStatusDetailed({ id, apiKey }) {
       openUrl: isCloudAgentId(agentId)
         ? `https://cursor.com/agents?id=${encodeURIComponent(agentId)}`
         : null,
-    }
+    },
+    { status: effectiveStatus, isRunning }
   );
-  merged.isRunning = isRunning;
-  merged.friendlyStatus = friendlyStatus(effectiveStatus, isRunning);
 
   let whatNext = "Use cursor_continue_agent to send another message.";
   if (isRunning) whatNext = "It is working now. Use cursor_stop_agent to pause it.";
   else if (effectiveStatus === "cancelled") whatNext = "It was stopped. Use cursor_restart_agent to pick back up.";
   else if (effectiveStatus === "finished") whatNext = "It finished. Use cursor_continue_agent if you want more.";
+  else if (effectiveStatus === "timeout") whatNext = "It ran too long and stopped. Use cursor_restart_agent to try again.";
+  else if (effectiveStatus === "stale") whatNext = "It may have stopped while Workbuddy was closed. Use cursor_agent_details or cursor_restart_agent.";
+
+  const statusNote = statusHelpers.buildStatusNote({
+    isStale,
+    liveError: live.error,
+    checkedAt: live.checkedAt,
+    registryUpdatedAt: registry?.updatedAt,
+  });
 
   return {
     ok: true,
@@ -775,10 +792,58 @@ async function agentStatusDetailed({ id, apiKey }) {
     live,
     summary: buildJakeSummary(registry || merged, {
       id: agentId,
-      liveRunStatus: liveRun?.status || null,
+      effectiveStatus,
+      isRunning,
+      liveRunStatus: liveRun?.status || latestRun?.status || null,
+      runDurationMs: latestRun?.durationMs ?? null,
+      statusNote,
       whatNext,
     }),
   };
+}
+
+async function reconcileRunningAgents({ apiKey, silent = false } = {}) {
+  const key = String(apiKey || "").trim();
+  if (!key) return { ok: false, error: "missing_api_key" };
+
+  const running = loadRegistry().agents.filter((a) => a.status === "running");
+  const updates = [];
+
+  for (const agent of running) {
+    if (activeRuns.has(agent.id)) continue;
+    try {
+      const detail = await agentStatusDetailed({ id: agent.id, apiKey: key, autoFixStale: true });
+      if (!detail.ok) continue;
+      const nextStatus = detail.agent?.status;
+      if (nextStatus && nextStatus !== agent.status) {
+        updates.push({ id: agent.id, from: agent.status, to: nextStatus });
+      }
+    } catch (err) {
+      if (!silent) {
+        console.warn("Agent reconcile failed for", agent.id, err.message || err);
+      }
+    }
+  }
+
+  return { ok: true, checked: running.length, updates };
+}
+
+let statusPollTimer = null;
+
+function startStatusPolling(apiKey) {
+  const key = String(apiKey || "").trim();
+  if (!key || statusPollTimer) return;
+  statusPollTimer = setInterval(() => {
+    reconcileRunningAgents({ apiKey: key, silent: true }).catch(() => {});
+  }, 60_000);
+  if (statusPollTimer.unref) statusPollTimer.unref();
+}
+
+function stopStatusPolling() {
+  if (statusPollTimer) {
+    clearInterval(statusPollTimer);
+    statusPollTimer = null;
+  }
 }
 
 async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) {
@@ -935,6 +1000,9 @@ module.exports = {
   restartAgent,
   agentStatus,
   agentStatusDetailed,
+  reconcileRunningAgents,
+  startStatusPolling,
+  stopStatusPolling,
   listAgents,
   listCloudAgents,
   archiveAgent,

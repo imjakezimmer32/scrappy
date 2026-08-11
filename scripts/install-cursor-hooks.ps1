@@ -42,55 +42,13 @@ $startPath = Join-Path $env:USERPROFILE ".cursor\hooks\workbuddy-subagent-start.
 exit 0
 '@ | Set-Content -Path (Join-Path $hooksDir 'workbuddy-subagent-start.ps1') -Encoding UTF8
 
-# --- agent done (stop / subagentStop) ---
-@'
-$ErrorActionPreference = "SilentlyContinue"
-try {
-  $inputJson = [Console]::In.ReadToEnd()
-  $hooksDir = Join-Path $env:USERPROFILE ".cursor\hooks"
-  $tokenPath = Join-Path $hooksDir "workbuddy-token.txt"
-  if (-not (Test-Path $tokenPath)) { exit 0 }
-  $token = (Get-Content -Raw $tokenPath).Trim()
-  if (-not $token) { exit 0 }
-
-  $eventName = "stop"
-  $startPath = Join-Path $hooksDir "workbuddy-session-start.txt"
-  try {
-    $parsed = $inputJson | ConvertFrom-Json -ErrorAction Stop
-    if ($parsed.hook_event_name) { $eventName = [string]$parsed.hook_event_name }
-    elseif ($parsed.event) { $eventName = [string]$parsed.event }
-    if ($eventName -match "subagent") {
-      $startPath = Join-Path $hooksDir "workbuddy-subagent-start.txt"
-    }
-  } catch {}
-
-  $durationMs = 0
-  if (Test-Path $startPath) {
-    $started = 0L
-    [long]::TryParse((Get-Content -Raw $startPath).Trim(), [ref]$started) | Out-Null
-    if ($started -gt 0) {
-      $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      $durationMs = [Math]::Max(0, $now - $started)
-    }
-    Remove-Item -Force $startPath -ErrorAction SilentlyContinue
-  }
-
-  $title = if ($eventName -match "subagent") { "Background agent finished" } else { "Agent finished" }
-  $body = @{
-    durationMs = $durationMs
-    source = "cursor-hook"
-    event = $eventName
-    title = $title
-  } | ConvertTo-Json -Compress
-
-  Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/agent-done" `
-    -Headers @{ Authorization = "Bearer $token" } `
-    -ContentType "application/json" `
-    -Body $body `
-    -TimeoutSec 2 | Out-Null
-} catch {}
-exit 0
-'@ | Set-Content -Path (Join-Path $hooksDir 'workbuddy-agent-done.ps1') -Encoding UTF8
+# --- agent done (stop / subagentStop) — copy canonical script from repo ---
+$srcDone = Join-Path $PSScriptRoot 'workbuddy-agent-done.ps1'
+$destDone = Join-Path $hooksDir 'workbuddy-agent-done.ps1'
+if (-not (Test-Path $srcDone)) {
+  throw "Missing $srcDone"
+}
+Copy-Item -Force $srcDone $destDone
 
 # Merge hooks.json
 $hookCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "./hooks/workbuddy-agent-done.ps1"'

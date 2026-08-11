@@ -256,7 +256,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_continue_agent",
-      "Send a follow-up message to an existing Cursor agent (keeps full chat context). Use the agent id from cursor_start_agent or cursor_list_agents.",
+      "Send a follow-up message to an existing Cursor agent (keeps full chat context). Returns immediately while the agent works in the background. Use the agent id from cursor_start_agent or cursor_list_agents.",
       {
         id: str("Agent id"),
         message: str("Follow-up message / next instruction"),
@@ -293,7 +293,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_agent_status",
-      "Check a Cursor agent by id. Returns friendly status plus a short summary Jake can understand.",
+      "Check a Cursor agent by id. Always refreshes live status from Cursor and returns a short summary Jake can understand.",
       { id: str("Agent id") },
       ["id"]
     ),
