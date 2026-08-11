@@ -117,8 +117,11 @@ function recallTools() {
     ),
     clientTool(
       "recall_open_actions",
-      "List every open action item across ready notes. Use before completing a task.",
-      {},
+      "List open Recall tasks (same Tasks board as the UI). Always trust total_open — that is the real count (can be hundreds). Use project to filter (e.g. ArrayBud) and limit for how many rows to return. Never invent a smaller total from a truncated list.",
+      {
+        limit: integer("Max rows to return (default 50, max 200)"),
+        project: str("Optional project id/name/alias filter"),
+      },
       []
     ),
     clientTool(

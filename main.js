@@ -450,11 +450,12 @@ ipcMain.handle("workbuddy:recall-context", async () => {
   try {
     const [live, actions] = await Promise.all([
       recall.call("recall_live_context", {}),
-      recall.call("recall_open_actions", {}),
+      recall.call("recall_open_actions", { limit: 5 }),
     ]);
     const parts = [];
-    if (live.ok && live.text) parts.push(`Recently said out loud: ${live.text}`);
-    if (actions.ok && actions.text) parts.push(`Open action items: ${actions.text}`);
+    if (live.ok && live.text) parts.push(`Recently said out loud: ${clip(live.text, 2500)}`);
+    if (actions.ok && actions.data) parts.push(formatActionsBrief(actions.data));
+    else if (actions.ok && actions.text) parts.push(`Open action items: ${clip(actions.text, 1200)}`);
     if (!parts.length) return { ok: false, error: "empty" };
     return { ok: true, text: parts.join(" ").slice(0, 4000) };
   } catch (err) {
@@ -463,7 +464,8 @@ ipcMain.handle("workbuddy:recall-context", async () => {
   }
 });
 
-// Full startup memory pack: relationship notes + live speech + open tasks.
+// Full startup memory pack: relationship notes + live speech + task COUNTS
+// (never dump hundreds of action rows — that truncates and Cog invents wrong totals).
 ipcMain.handle("workbuddy:recall-brief", async () => {
   const file = readEnvFile();
   const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
@@ -472,7 +474,7 @@ ipcMain.handle("workbuddy:recall-brief", async () => {
   try {
     const [live, actions, recent, search] = await Promise.all([
       recall.call("recall_live_context", { minutes: 10 }),
-      recall.call("recall_open_actions", {}),
+      recall.call("recall_open_actions", { limit: 5 }),
       recall.call("recall_recent", { limit: 8, project: "WorkBuddy" }),
       recall.call("recall_search", {
         query: "Jake preferences relationship Cog memory decisions",
@@ -481,10 +483,14 @@ ipcMain.handle("workbuddy:recall-brief", async () => {
       }),
     ]);
     const parts = [];
-    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${recent.text}`);
-    if (search.ok && search.text) parts.push(`Related memory search:\n${search.text}`);
-    if (live.ok && live.text) parts.push(`Recently said out loud:\n${live.text}`);
-    if (actions.ok && actions.text) parts.push(`Open action items:\n${actions.text}`);
+    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${clip(recent.text, 3500)}`);
+    if (search.ok && search.text) parts.push(`Related memory search:\n${clip(search.text, 3500)}`);
+    if (live.ok && live.text) parts.push(`Recently said out loud:\n${clip(live.text, 2000)}`);
+    if (actions.ok && actions.data) {
+      parts.push(formatActionsBrief(actions.data));
+    } else if (actions.ok && actions.text) {
+      parts.push(`Open tasks summary:\n${clip(actions.text, 1500)}`);
+    }
     if (!parts.length) return { ok: false, error: "empty" };
     return {
       ok: true,
@@ -495,6 +501,31 @@ ipcMain.handle("workbuddy:recall-brief", async () => {
     return { ok: false, error: "failed" };
   }
 });
+
+function clip(text, max) {
+  const s = String(text || "");
+  return s.length <= max ? s : `${s.slice(0, max)}…`;
+}
+
+function formatActionsBrief(data) {
+  const total = data.total_open ?? (data.open_actions || []).length;
+  const counts = data.counts_by_project || {};
+  const lines = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, n]) => `- ${id}: ${n}`);
+  const samples = (data.open_actions || [])
+    .slice(0, 5)
+    .map((a) => `- [${a.project_id || "none"}] ${a.action}`)
+    .join("\n");
+  return [
+    `Recall Tasks board: ${total} open tasks (this is the real total — do NOT invent a smaller number).`,
+    lines.length ? `By project:\n${lines.join("\n")}` : "",
+    samples ? `Sample (call recall_open_actions for more):\n${samples}` : "",
+    "When Jake asks about tasks, ALWAYS call recall_open_actions. Trust total_open from the tool.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 // Generic Recall MCP tool call for ElevenLabs client tools.
 ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
