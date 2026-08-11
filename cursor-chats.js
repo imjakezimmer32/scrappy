@@ -72,7 +72,7 @@ import json, sqlite3, sys
 db=sys.argv[1]; cid=sys.argv[2]
 con=sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 row=con.execute(
-  """SELECT c.id, c.title, c.source, c.updated_at, c.is_archived, f.body
+  """SELECT c.id, c.title, c.source, c.updated_at, c.is_archived, f.c1
      FROM conversations c
      JOIN conversation_fts_content f ON f.id = c.fts_rowid
      WHERE c.id=? LIMIT 1""",
