@@ -311,7 +311,13 @@ function recallTools() {
     ),
     clientTool(
       "cursor_stop_agent",
-      "Stop/cancel a running Cursor agent by id. Use when Jake says stop, cancel, or kill. Gracefully ends the current run; Jake can restart later.",
+      "Stop/cancel a running Cursor agent by id. Use when Jake says stop or cancel. Gracefully ends the current run; Jake can restart later.",
+      { id: str("Agent id to stop") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_kill_agent",
+      "Same as cursor_stop_agent. Use when Jake says kill an agent — stops the current run gracefully (does not delete the agent).",
       { id: str("Agent id to stop") },
       ["id"]
     ),

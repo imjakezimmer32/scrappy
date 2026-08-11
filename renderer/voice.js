@@ -468,6 +468,7 @@ async function handleClientToolCall(msg) {
         cursor_agent_details: "details",
         cursor_open_agent: "open",
         cursor_stop_agent: "stop",
+        cursor_kill_agent: "stop",
         cursor_pause_agent: "pause",
         cursor_restart_agent: "restart",
         cursor_archive_agent: "archive",
