@@ -117,7 +117,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_open_actions",
-      "List open Recall tasks (same Tasks board as the UI). Always trust total_open — that is the real count (can be hundreds). Use project to filter (e.g. ArrayBud) and limit for how many rows to return. Never invent a smaller total from a truncated list.",
+      "Open tasks from Jake's Recall Tasks board (same source as the UI). Response includes total_open (the real full count — often hundreds), counts_by_project, and up to `limit` rows (default 50). Filter with `project` (name or id, e.g. ArrayBud). Always report total_open when asked how many tasks exist; never invent a smaller number from a truncated list.",
       {
         limit: integer("Max rows to return (default 50, max 200)"),
         project: str("Optional project id/name/alias filter"),
@@ -138,7 +138,7 @@ function recallTools() {
     clientTool("recall_projects", "List Jake's projects (ArrayBud, WorkBuddy, etc).", {}, []),
     clientTool(
       "recall_save_note",
-      "WRITE: save a note into Recall. File relationship/preference memories under project WorkBuddy with tags like cog, relationship, preference. Use when Jake says remember this, or when quietly saving something important he just shared. Pass tags as a comma-separated string.",
+      "WRITE: create a note in Recall. Use when Jake asks to remember something, OR quietly when he shares a lasting preference, decision, or relationship fact worth keeping. File those under project WorkBuddy with tags like cog, relationship, preference. Pass tags as a comma-separated string. Do not ask permission for quiet preference saves — just do it.",
       {
         title: str("Short note title"),
         summary: str("Note body / summary"),
@@ -149,7 +149,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_complete_action",
-      "WRITE: mark one open action done. Pass note_id and text exactly from recall_open_actions. Only when Jake says the task is finished.",
+      "WRITE: check off a task as DONE on the Tasks board. Prefer this whenever Jake says something is finished, done, completed, or taken care of. Pass note_id and text exactly from recall_open_actions. This is completing — not dismissing.",
       {
         note_id: str("Note id from recall_open_actions"),
         text: str("Exact action text"),
@@ -158,7 +158,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_set_action_status",
-      'WRITE: move an action to todo/doing/done. Prefer recall_complete_action for simple checkoffs.',
+      'WRITE: move an action between todo/doing/done. Prefer recall_complete_action for simple "it\'s done" checkoffs.',
       {
         note_id: str("Note id"),
         text: str("Exact action text"),
@@ -168,7 +168,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_dismiss_action",
-      "WRITE: permanently dismiss an action. Only when Jake wants it gone forever.",
+      "WRITE: permanently delete a task so it never comes back. Only when Jake explicitly wants it gone forever — not when he means the work is finished. Finished work uses recall_complete_action.",
       {
         note_id: str("Note id"),
         text: str("Exact action text"),

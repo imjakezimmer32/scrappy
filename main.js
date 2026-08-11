@@ -518,10 +518,9 @@ function formatActionsBrief(data) {
     .map((a) => `- [${a.project_id || "none"}] ${a.action}`)
     .join("\n");
   return [
-    `Recall Tasks board: ${total} open tasks (this is the real total — do NOT invent a smaller number).`,
+    `Recall Tasks: ${total} open (full board).`,
     lines.length ? `By project:\n${lines.join("\n")}` : "",
-    samples ? `Sample (call recall_open_actions for more):\n${samples}` : "",
-    "When Jake asks about tasks, ALWAYS call recall_open_actions. Trust total_open from the tool.",
+    samples ? `Sample:\n${samples}` : "",
   ]
     .filter(Boolean)
     .join("\n");
