@@ -14,5 +14,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^35.0.0"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.27"
   }
 }

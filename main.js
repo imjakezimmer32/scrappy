@@ -5,6 +5,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
+const cursorAgents = require("./cursor-agents");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -549,6 +550,59 @@ ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
     };
   } catch (err) {
     console.error("Recall tool failed:", tool, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+});
+
+// Cursor planning/research agents — start, continue, list, status, open.
+ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_CURSOR_AGENTS || file.COG_CURSOR_AGENTS || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") {
+    return { ok: false, error: "disabled" };
+  }
+  const apiKey = cursorAgents.readApiKey(file);
+  const a = args && typeof args === "object" ? args : {};
+  try {
+    switch (String(action || "").trim()) {
+      case "start": {
+        const out = await cursorAgents.startAgent({
+          goal: a.goal || a.prompt || a.message,
+          kind: a.kind || "research",
+          cwd: a.cwd || a.path || process.cwd(),
+          mode: a.mode || process.env.COG_CURSOR_MODE || file.COG_CURSOR_MODE || "auto",
+          apiKey,
+        });
+        // Quietly file a pointer note in Recall when available.
+        if (out.ok && out.id) {
+          recall
+            .call("recall_save_note", {
+              title: `Cursor ${out.kind || "agent"}: ${(a.goal || "").slice(0, 60)}`,
+              summary: `Cog started a Cursor ${out.kind || "agent"}.\nId: ${out.id}\nRuntime: ${out.runtime}\nStatus: ${out.status}\nOpen: ${out.openUrl || "(local — use cursor_continue_agent)"}\n\nGoal:\n${a.goal || ""}`,
+              tags: "cog,cursor,agent",
+              project: "WorkBuddy",
+            })
+            .catch(() => {});
+        }
+        return out;
+      }
+      case "continue":
+        return await cursorAgents.continueAgent({
+          id: a.id || a.agent_id,
+          message: a.message || a.prompt || a.goal,
+          apiKey,
+        });
+      case "status":
+        return cursorAgents.agentStatus(a.id || a.agent_id);
+      case "list":
+        return { ok: true, agents: cursorAgents.listAgents(asInt(a.limit) || 10) };
+      case "open":
+        return cursorAgents.openAgentInBrowser(a.id || a.agent_id);
+      default:
+        return { ok: false, error: "unknown_action" };
+    }
+  } catch (err) {
+    console.error("Cursor agent action failed:", action, err.message);
     return { ok: false, error: err.message || "failed" };
   }
 });

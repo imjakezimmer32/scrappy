@@ -430,6 +430,36 @@ async function handleClientToolCall(msg) {
       emit("tool", { name: toolName, ok: !out.isError });
       return;
     }
+
+    // Cursor planning/research agents Cog can start and continue.
+    if (String(toolName).startsWith("cursor_")) {
+      const bridge = window.workbuddy;
+      if (!bridge || !bridge.cursorAgent) {
+        reply("Cursor agent bridge unavailable", true);
+        return;
+      }
+      const map = {
+        cursor_start_agent: "start",
+        cursor_continue_agent: "continue",
+        cursor_list_agents: "list",
+        cursor_agent_status: "status",
+        cursor_open_agent: "open",
+      };
+      const action = map[toolName];
+      if (!action) {
+        reply(`unknown cursor tool: ${toolName}`, true);
+        return;
+      }
+      const out = await bridge.cursorAgent(action, parameters);
+      if (!out || !out.ok) {
+        reply(JSON.stringify(out || { error: "cursor_failed" }), true);
+        return;
+      }
+      reply(JSON.stringify(out), false);
+      emit("tool", { name: toolName, ok: true });
+      return;
+    }
+
     reply(`unknown client tool: ${toolName}`, true);
   } catch (err) {
     reply(err && err.message ? err.message : "tool_failed", true);

@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld("workbuddy", {
   recallTool(name, args) {
     return ipcRenderer.invoke("workbuddy:recall-tool", name, args || {});
   },
+  cursorAgent(action, args) {
+    return ipcRenderer.invoke("workbuddy:cursor-agent", action, args || {});
+  },
   voiceStatus() {
     return ipcRenderer.invoke("workbuddy:voice-status");
   },

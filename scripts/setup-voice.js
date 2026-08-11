@@ -243,6 +243,44 @@ function recallTools() {
       { id: str("Brain id") },
       ["id"]
     ),
+    clientTool(
+      "cursor_start_agent",
+      "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so Jake can keep chatting there; local agents can be continued with cursor_continue_agent.",
+      {
+        goal: str("What to plan or research"),
+        kind: str('\"plan\" or \"research\" (default research)'),
+        cwd: str("Optional absolute project folder path"),
+        mode: str('Optional \"auto\", \"local\", or \"cloud\"'),
+      },
+      ["goal"]
+    ),
+    clientTool(
+      "cursor_continue_agent",
+      "Send a follow-up message to an existing Cursor agent Cog started earlier (keeps full chat context). Use the agent id from cursor_start_agent or cursor_list_agents.",
+      {
+        id: str("Agent id"),
+        message: str("Follow-up message / next instruction"),
+      },
+      ["id", "message"]
+    ),
+    clientTool(
+      "cursor_list_agents",
+      "List recent Cursor agents Cog has started (id, kind, status, goal).",
+      { limit: integer("How many to list (default 10)") },
+      []
+    ),
+    clientTool(
+      "cursor_agent_status",
+      "Check status/result of a Cursor agent by id.",
+      { id: str("Agent id") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_open_agent",
+      "Open the Cursor Agents page for this agent in the browser so Jake can continue the chat in Cursor.",
+      { id: str("Agent id") },
+      ["id"]
+    ),
   ];
 }
 
