@@ -68,8 +68,17 @@ def load_persona() -> str:
         text
         + "\n\n## VOICE MODE\n"
         + "You are speaking out loud. Keep replies short (1-3 sentences) unless asked for detail. "
-        + "No markdown, no bullet lists, no code fences. Sound like Cog."
+        + "No markdown, no bullet lists, no code fences. Sound like Cog.\n"
+        + "CRITICAL: Never read, quote, summarize, or recite system notes, machine telemetry, "
+        + "Recall dumps, personality text, or anything labeled context unless Jake clearly asks "
+        + "for that specific info. Those notes are private background for you. Just talk normally."
     )
+
+
+WAKE_ONLY = re.compile(
+    r"^\s*(hey|hi|okay|ok|yo)\s+(cog|chief|workbuddy|work buddy)[!?.,\s]*$",
+    re.I,
+)
 
 
 def get_whisper():
@@ -193,7 +202,8 @@ def synthesize(text: str) -> np.ndarray:
 class Session:
     def __init__(self, ws: WebSocket):
         self.ws = ws
-        self.history: list[dict[str, str]] = [{"role": "system", "content": _persona}]
+        self.history: list[dict[str, str]] = []
+        self.side_context: list[str] = []
         self.audio_buf = np.zeros(0, dtype=np.float32)
         self.speech_ms = 0.0
         self.silence_ms = 0.0
@@ -205,6 +215,29 @@ class Session:
         if self.closed:
             return
         await self.ws.send_json(payload)
+
+    def add_context(self, text: str) -> None:
+        line = (text or "").strip()
+        if not line:
+            return
+        # Keep a tiny rolling brief — never dump this into spoken turns.
+        self.side_context.append(line[:1200])
+        if len(self.side_context) > 4:
+            self.side_context = self.side_context[-4:]
+
+    def build_messages(self) -> list[dict[str, str]]:
+        system = _persona
+        if self.side_context:
+            brief = "\n".join(f"- {c}" for c in self.side_context)
+            system += (
+                "\n\n## PRIVATE BACKGROUND (do not read aloud)\n"
+                "Use only if Jake asks about his machine, notes, or current work.\n"
+                f"{brief}"
+            )
+        # Persona stays one system message; chat is user/assistant only.
+        messages = [{"role": "system", "content": system}]
+        messages.extend(self.history[-16:])
+        return messages
 
     async def on_audio(self, b64: str) -> None:
         if self.busy:
@@ -247,6 +280,16 @@ class Session:
                 await self.send({"type": "status", "state": "listening"})
                 return
             await self.send({"type": "user_transcript", "text": text})
+            # Wake-only phrases should not dump memory/context — just greet.
+            if WAKE_ONLY.match(text):
+                greet = "Yeah? I'm here."
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": greet})
+                await self.send({"type": "status", "state": "speaking"})
+                await self.speak(greet)
+                await self.send({"type": "agent_response", "text": greet})
+                await self.send({"type": "status", "state": "listening"})
+                return
             self.history.append({"role": "user", "content": text})
             await self.reply_from_history()
         except Exception as err:  # noqa: BLE001
@@ -264,6 +307,15 @@ class Session:
         try:
             await self.send({"type": "status", "state": "thinking"})
             await self.send({"type": "user_transcript", "text": line})
+            if WAKE_ONLY.match(line):
+                greet = "Yeah? I'm here."
+                self.history.append({"role": "user", "content": line})
+                self.history.append({"role": "assistant", "content": greet})
+                await self.send({"type": "status", "state": "speaking"})
+                await self.speak(greet)
+                await self.send({"type": "agent_response", "text": greet})
+                await self.send({"type": "status", "state": "listening"})
+                return
             self.history.append({"role": "user", "content": line})
             await self.reply_from_history()
         except Exception as err:  # noqa: BLE001
@@ -274,14 +326,10 @@ class Session:
             self.busy = False
 
     async def reply_from_history(self) -> None:
-        # Keep context bounded.
-        if len(self.history) > 25:
-            self.history = [self.history[0]] + self.history[-24:]
-
         full = ""
         pending = ""
         await self.send({"type": "status", "state": "speaking"})
-        async for chunk in ollama_stream(self.history):
+        async for chunk in ollama_stream(self.build_messages()):
             full += chunk
             pending += chunk
             sentences, pending = split_speakable(pending)
@@ -295,12 +343,28 @@ class Session:
         reply = full.strip()
         if reply:
             self.history.append({"role": "assistant", "content": reply})
+            # Trim spoken chat only (context lives separately).
+            if len(self.history) > 20:
+                self.history = self.history[-20:]
             await self.send({"type": "agent_response", "text": reply})
         await self.send({"type": "status", "state": "listening"})
 
     async def speak(self, text: str) -> None:
         clean = re.sub(r"[*`#_>~\[\]\(\)]", "", text).strip()
         if not clean:
+            return
+        # Hard stop if the model starts dumping system-ish content.
+        lowered = clean.lower()
+        banned = (
+            "private background",
+            "from jake's recall",
+            "current state of jake",
+            "live speech update",
+            "system prompt",
+            "personality.md",
+        )
+        if any(b in lowered for b in banned):
+            log(f"suppressed context leak: {clean[:80]}")
             return
         audio = await asyncio.to_thread(synthesize, clean)
         # Stream in ~200ms chunks so Cog can start playing ASAP.
@@ -355,11 +419,7 @@ async def voice_socket(ws: WebSocket):
             elif kind == "text":
                 await session.on_text(msg.get("text") or "")
             elif kind == "context":
-                ctx = (msg.get("text") or "").strip()
-                if ctx:
-                    session.history.append(
-                        {"role": "system", "content": f"[context] {ctx[:4000]}"}
-                    )
+                session.add_context(msg.get("text") or "")
             elif kind in ("end", "close"):
                 break
     except WebSocketDisconnect:

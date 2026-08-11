@@ -607,4 +607,5 @@ window.CogVoice = {
   sendContext,
   isActive: () => active,
   hasMic: () => Boolean(micStream),
+  backend: () => voiceBackend,
 };

@@ -723,10 +723,10 @@ async function pushSystemContext(first) {
   if (!bridge.systemContext) return;
   const snap = await bridge.systemContext();
   if (!snap || !snap.ok || !snap.text) return;
+  const local = window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local";
+  const text = local ? String(snap.text).slice(0, 500) : snap.text;
   window.CogVoice.sendContext(
-    first
-      ? `Current state of Jake's machine: ${snap.text}`
-      : `Machine update: ${snap.text}`
+    first ? `Current state of Jake's machine: ${text}` : `Machine update: ${text}`
   );
 }
 
@@ -734,9 +734,9 @@ async function pushRecallBrief() {
   if (bridge.recallBrief) {
     const r = await bridge.recallBrief();
     if (r && r.ok && r.text) {
-      window.CogVoice.sendContext(
-        `From Jake's Recall:\n${r.text}`
-      );
+      const local = window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local";
+      const text = local ? String(r.text).slice(0, 700) : r.text;
+      window.CogVoice.sendContext(`From Jake's Recall:\n${text}`);
       return;
     }
   }
@@ -747,6 +747,8 @@ async function pushRecallBrief() {
 }
 
 async function pushRecallLive() {
+  // Local models overfit on live dumps and start reading them aloud.
+  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") return;
   if (!bridge.recallTool) return;
   const r = await bridge.recallTool("recall_live_context", { minutes: 10 });
   if (!r || !r.ok || !r.text) return;
