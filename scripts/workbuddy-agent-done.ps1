@@ -3,11 +3,10 @@ $ErrorActionPreference = "Continue"
 
 function Get-WorkbuddyToken {
   $candidates = @(
+    (Join-Path $env:USERPROFILE ".cursor\hooks\workbuddy-token.txt"),
     (Join-Path $env:APPDATA "workbuddy\local-token.txt"),
-    (Join-Path $env:LOCALAPPDATA "workbuddy\local-token.txt"),
-    "C:\Users\hella\OneDrive\Desktop\Projects\workbuddy\local-token.txt"
+    (Join-Path $env:LOCALAPPDATA "workbuddy\local-token.txt")
   )
-  # Electron userData on Windows is typically %APPDATA%\workbuddy
   foreach ($p in $candidates) {
     if (Test-Path $p) {
       $t = (Get-Content $p -Raw -ErrorAction SilentlyContinue).Trim()
@@ -17,7 +16,7 @@ function Get-WorkbuddyToken {
   return $null
 }
 
-function Get-DurationMs($payload) {
+function Get-SessionDurationMs($payload) {
   $id = $payload.conversation_id
   if (-not $id) { $id = $payload.generation_id }
   $dir = Join-Path $env:LOCALAPPDATA "Workbuddy\sessions"
@@ -36,7 +35,6 @@ function Get-DurationMs($payload) {
     }
   }
 
-  # Fallback: transcript file age
   $tp = $payload.transcript_path
   if ($tp -and (Test-Path $tp)) {
     try {
@@ -48,30 +46,57 @@ function Get-DurationMs($payload) {
   return $null
 }
 
+function Get-HookDurationMs($payload, $eventName) {
+  $hooksDir = Join-Path $env:USERPROFILE ".cursor\hooks"
+  $startPath = Join-Path $hooksDir "workbuddy-session-start.txt"
+  if ($eventName -match "subagent") {
+    $startPath = Join-Path $hooksDir "workbuddy-subagent-start.txt"
+  }
+
+  if (Test-Path $startPath) {
+    try {
+      $started = 0L
+      [long]::TryParse((Get-Content -Raw $startPath).Trim(), [ref]$started) | Out-Null
+      if ($started -gt 0) {
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $dur = [Math]::Max(0, $now - $started)
+        Remove-Item -Force $startPath -ErrorAction SilentlyContinue
+        return $dur
+      }
+    } catch { }
+  }
+
+  return Get-SessionDurationMs $payload
+}
+
 try {
   $raw = [Console]::In.ReadToEnd()
   if (-not $raw) { exit 0 }
   $payload = $raw | ConvertFrom-Json
 
-  # Only nudge on real completions (not abort mid-thought spam)
   $status = [string]$payload.status
-  if ($status -and ($status -ne "completed") -and ($status -ne "error")) {
+  if ($status -and ($status -ne "completed") -and ($status -ne "error") -and ($status -ne "finished")) {
     exit 0
   }
+
+  $eventName = "stop"
+  if ($payload.hook_event_name) { $eventName = [string]$payload.hook_event_name }
+  elseif ($payload.event) { $eventName = [string]$payload.event }
 
   $token = Get-WorkbuddyToken
   if (-not $token) { exit 0 }
 
-  $durationMs = Get-DurationMs $payload
+  $durationMs = Get-HookDurationMs $payload $eventName
+  $title = if ($eventName -match "subagent") { "Background agent finished" } else { "Agent finished" }
+
   $bodyObj = @{
     source     = "cursor-hook"
-    event      = [string]$payload.hook_event_name
-    status     = $status
+    event      = $eventName
+    status     = if ($status) { $status } else { "completed" }
+    title      = $title
     durationMs = $durationMs
-    title      = $null
   }
   if ($null -eq $durationMs) {
-    # Unknown duration: skip server-side filter by not forcing; server will skip
     $bodyObj.Remove("durationMs")
   }
 

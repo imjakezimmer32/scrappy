@@ -804,7 +804,6 @@ window.CogVoice.init({
     setState("idle");
     setFace("focused");
     lastPoke = Date.now();
-    // Resume wake listening after hang-up.
     if (window.CogWake && voiceReady) window.CogWake.start();
   },
   speakStart() {
@@ -1395,8 +1394,7 @@ if (bridge.voiceStatus) {
     .voiceStatus()
     .then((s) => {
       voiceReady = Boolean(s && s.configured);
-      if (voiceReady && s.wakeSupported && window.CogWake) {
-        // Main already starts the listener; this just ensures resume after reload.
+      if (voiceReady && s.wakeWord !== false && s.wakeSupported && window.CogWake) {
         window.CogWake.start();
         console.log("[wake] listening for:", (s.wakePhrases || ["hey cog"]).join(", "));
       }
@@ -1407,6 +1405,11 @@ if (bridge.voiceStatus) {
 }
 
 if (bridge.onChatOpen) bridge.onChatOpen(() => (chatting ? closeChat() : openChat()));
+if (bridge.onVoiceStart) {
+  bridge.onVoiceStart(() => {
+    if (!inCall) startCall();
+  });
+}
 
 bridge.onGrow((payload) => startAlert(payload));
 bridge.onAck(() => {

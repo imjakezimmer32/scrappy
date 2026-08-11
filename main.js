@@ -11,8 +11,15 @@ const wakeListener = require("./wake-listener");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
-const MIN_DURATION_MS = 2 * 60 * 1000;
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
+
+function minDurationMs() {
+  const file = readEnvFile();
+  const raw = process.env.COG_NUDGE_MIN_DURATION_MS || file.COG_NUDGE_MIN_DURATION_MS;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return 2 * 60 * 1000;
+}
 
 let mainWindow = null;
 let tray = null;
@@ -130,6 +137,12 @@ function readEnvFile() {
   return out;
 }
 
+function wakeWordEnabled() {
+  const file = readEnvFile();
+  const setting = (process.env.COG_WAKE_WORD || file.COG_WAKE_WORD || "on").toLowerCase();
+  return !(setting === "off" || setting === "false" || setting === "0");
+}
+
 function voiceConfig() {
   const file = readEnvFile();
   return {
@@ -233,6 +246,13 @@ function createTray() {
       click: () => {
         showBuddy();
         if (mainWindow) mainWindow.webContents.send("workbuddy:chat-open");
+      },
+    },
+    {
+      label: "Talk to Cog (voice)",
+      click: () => {
+        showBuddy();
+        if (mainWindow) mainWindow.webContents.send("workbuddy:voice-start");
       },
     },
     {
@@ -369,13 +389,27 @@ function startServer() {
       }
 
       const force = Boolean(body.force);
+      const hookStatus = String(body.status || "").toLowerCase();
+      if (
+        !force &&
+        hookStatus &&
+        hookStatus !== "completed" &&
+        hookStatus !== "error" &&
+        hookStatus !== "finished"
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, skipped: true, reason: "status_filtered", status: hookStatus }));
+        return;
+      }
+
       let durationMs = null;
       if (typeof body.durationMs === "number") durationMs = body.durationMs;
       else if (typeof body.duration_minutes === "number") durationMs = body.duration_minutes * 60 * 1000;
       else if (typeof body.durationMinutes === "number") durationMs = body.durationMinutes * 60 * 1000;
       else if (typeof body.startedAt === "number") durationMs = Date.now() - body.startedAt;
 
-      if (!force && (durationMs == null || durationMs < MIN_DURATION_MS)) {
+      const minMs = minDurationMs();
+      if (!force && (durationMs == null || durationMs < minMs)) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -383,7 +417,7 @@ function startServer() {
             skipped: true,
             reason: "too_short",
             durationMs,
-            minDurationMs: MIN_DURATION_MS,
+            minDurationMs: minMs,
           })
         );
         return;
@@ -589,19 +623,16 @@ ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
         return out;
       }
       case "continue":
-        return await cursorAgents.continueAgent({
+        return await cursorAgents.continueAgentInBackground({
           id: a.id || a.agent_id,
           message: a.message || a.prompt || a.goal,
           apiKey,
         });
       case "status":
-        if (a.detailed || a.live || a.refresh) {
-          return await cursorAgents.agentStatusDetailed({
-            id: a.id || a.agent_id,
-            apiKey,
-          });
-        }
-        return cursorAgents.agentStatus(a.id || a.agent_id);
+        return await cursorAgents.agentStatusDetailed({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
       case "details":
         return await cursorAgents.agentStatusDetailed({
           id: a.id || a.agent_id,
@@ -766,6 +797,7 @@ ipcMain.handle("workbuddy:voice-status", () => {
     hasKey: Boolean(apiKey),
     hasAgent: Boolean(agentId),
     hasPersonality: personalityPresent(),
+    wakeWord: wakeWordEnabled(),
     wakeSupported: process.platform === "win32",
     wakePhrases: wakeListener.phrases,
   };
@@ -821,16 +853,23 @@ if (!gotTheLock) {
     createTray();
     startServer();
 
-    // Offline "Hey Cog" listener (Windows System.Speech). Pauses while a
-    // voice call owns the mic so it doesn't fight ElevenLabs.
     wakeListener.init({
       onWake(phrase) {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         mainWindow.webContents.send("workbuddy:wake", { phrase });
       },
     });
-    if (voiceConfig().apiKey && voiceConfig().agentId) {
+    const envFile = readEnvFile();
+    const { apiKey, agentId } = voiceConfig();
+    if (apiKey && agentId && wakeWordEnabled()) {
       wakeListener.start();
+    }
+    const cursorKey = cursorAgents.readApiKey(envFile);
+    if (cursorKey) {
+      cursorAgents.reconcileRunningAgents({ apiKey: cursorKey, silent: true }).catch((err) => {
+        console.warn("Startup agent reconcile failed:", err.message || err);
+      });
+      cursorAgents.startStatusPolling(cursorKey);
     }
 
     // Taskbar autohide, resolution changes, docking — keep the overlay
@@ -851,6 +890,7 @@ if (!gotTheLock) {
     app.isQuitting = true;
     if (topKeeper) clearInterval(topKeeper);
     wakeListener.stop();
+    cursorAgents.stopStatusPolling();
     recall.stop();
     if (server) {
       try {

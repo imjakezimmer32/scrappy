@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-startup.ps1",
     "uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-startup.ps1",
     "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1",

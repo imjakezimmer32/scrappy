@@ -36,6 +36,11 @@ let usingMic = true;
 
 let allowSpeech = false;
 let suppressTurn = false;
+let speakEndTimer = null;
+let toolsInFlight = 0;
+
+// Gap between audio chunks can look like "done speaking" — wait before going idle.
+const SPEAK_END_GRACE_MS = 450;
 
 const FILLERS = new Set([
   "uh", "um", "uhm", "hm", "hmm", "mhm", "mm", "mmm", "ah", "eh", "er", "erm",
@@ -80,8 +85,32 @@ function emit(name, payload) {
 
 // ---------- playback ----------
 
+function clearSpeakEndTimer() {
+  if (speakEndTimer) {
+    clearTimeout(speakEndTimer);
+    speakEndTimer = null;
+  }
+}
+
+function scheduleSpeakEnd() {
+  clearSpeakEndTimer();
+  speakEndTimer = setTimeout(() => {
+    speakEndTimer = null;
+    if (toolsInFlight > 0) {
+      scheduleSpeakEnd();
+      return;
+    }
+    if (!sources.length && speaking) {
+      speaking = false;
+      allowSpeech = false;
+      emit("speakEnd");
+    }
+  }, SPEAK_END_GRACE_MS);
+}
+
 function playChunk(b64) {
   if (!audio) return;
+  clearSpeakEndTimer();
   const bytes = decodeBase64(b64);
   const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
   if (!pcm.length) return;
@@ -102,11 +131,7 @@ function playChunk(b64) {
   sources.push(src);
   src.onended = () => {
     sources = sources.filter((s) => s !== src);
-    if (!sources.length && speaking) {
-      speaking = false;
-      allowSpeech = false;
-      emit("speakEnd");
-    }
+    if (!sources.length && speaking) scheduleSpeakEnd();
   };
 
   if (!speaking) {
@@ -118,6 +143,7 @@ function playChunk(b64) {
 // The agent got interrupted — drop everything still queued or it talks over
 // itself for another second.
 function flushPlayback() {
+  clearSpeakEndTimer();
   for (const src of sources) {
     try {
       src.stop();
@@ -272,6 +298,7 @@ async function start(opts) {
             emit("suppressed", msg.agent_response_event.agent_response);
           } else {
             suppressTurn = false;
+            clearSpeakEndTimer();
             emit("said", msg.agent_response_event.agent_response);
           }
         }
@@ -330,6 +357,7 @@ function stop() {
   if (!active && !ws) return;
   active = false;
   speaking = false;
+  clearSpeakEndTimer();
 
   if (levelTimer) cancelAnimationFrame(levelTimer);
   levelTimer = null;
@@ -419,6 +447,8 @@ async function handleClientToolCall(msg) {
   }
 
   try {
+    toolsInFlight += 1;
+    clearSpeakEndTimer();
     // Recall tools are named recall_*; route them through Electron → MCP.
     if (String(toolName).startsWith("recall_")) {
       const bridge = window.workbuddy;
@@ -498,6 +528,8 @@ async function handleClientToolCall(msg) {
     reply(`unknown client tool: ${toolName}`, true);
   } catch (err) {
     reply(err && err.message ? err.message : "tool_failed", true);
+  } finally {
+    toolsInFlight = Math.max(0, toolsInFlight - 1);
   }
 }
 
