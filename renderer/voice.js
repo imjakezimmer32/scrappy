@@ -462,9 +462,17 @@ async function handleClientToolCall(msg) {
         cursor_start_agent: "start",
         cursor_continue_agent: "continue",
         cursor_list_agents: "list",
+        cursor_running_agents: "running",
+        cursor_list_cloud_agents: "list_cloud",
         cursor_agent_status: "status",
+        cursor_agent_details: "details",
         cursor_open_agent: "open",
         cursor_stop_agent: "stop",
+        cursor_pause_agent: "pause",
+        cursor_restart_agent: "restart",
+        cursor_archive_agent: "archive",
+        cursor_unarchive_agent: "unarchive",
+        cursor_delete_agent: "delete",
       };
       const action = map[toolName];
       if (!action) {

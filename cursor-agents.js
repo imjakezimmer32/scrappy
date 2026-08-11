@@ -53,8 +53,88 @@ function getAgent(id) {
   return loadRegistry().agents.find((a) => a.id === id) || null;
 }
 
-function listAgents(limit = 10) {
-  return loadRegistry().agents.slice(0, Math.max(1, Math.min(limit, 40)));
+function listAgents(options = 10) {
+  const opts = typeof options === "number" ? { limit: options } : options || {};
+  const limit = Math.max(1, Math.min(Number(opts.limit) || 10, 40));
+  let agents = loadRegistry().agents;
+
+  if (opts.status) {
+    const wanted = String(opts.status).toLowerCase();
+    agents = agents.filter((a) => String(a.status || "").toLowerCase() === wanted);
+  }
+  if (opts.kind) {
+    agents = agents.filter((a) => String(a.kind || "") === String(opts.kind));
+  }
+  if (opts.runtime) {
+    agents = agents.filter((a) => String(a.runtime || "") === String(opts.runtime));
+  }
+  if (opts.runningOnly || opts.running_only) {
+    agents = agents.filter((a) => a.status === "running" || activeRuns.has(a.id));
+  }
+  if (opts.search) {
+    const q = String(opts.search).toLowerCase();
+    agents = agents.filter(
+      (a) =>
+        String(a.goal || "").toLowerCase().includes(q) ||
+        String(a.kind || "").toLowerCase().includes(q) ||
+        String(a.id || "").toLowerCase().includes(q)
+    );
+  }
+
+  return agents.slice(0, limit).map(formatAgentForJake);
+}
+
+function missingApiKeyResponse() {
+  return {
+    ok: false,
+    error: "missing_api_key",
+    hint: "Add CURSOR_API_KEY to workbuddy/.env.local (create one at https://cursor.com/settings).",
+  };
+}
+
+function friendlyStatus(status, isRunning) {
+  if (isRunning || status === "running") return "Working";
+  if (status === "finished") return "Done";
+  if (status === "cancelled") return "Stopped";
+  if (status === "error") return "Error";
+  if (status === "archived") return "Archived";
+  return status ? String(status) : "Unknown";
+}
+
+function formatAgentForJake(entry) {
+  if (!entry) return null;
+  const isRunning = entry.status === "running" || activeRuns.has(entry.id);
+  return {
+    id: entry.id,
+    kind: entry.kind || null,
+    goal: entry.goal || null,
+    status: entry.status || null,
+    friendlyStatus: friendlyStatus(entry.status, isRunning),
+    isRunning,
+    runtime: entry.runtime || null,
+    openUrl: entry.openUrl || null,
+    runId: entry.runId || null,
+    createdAt: entry.createdAt || null,
+    updatedAt: entry.updatedAt || null,
+    resultPreview: entry.result ? String(entry.result).slice(0, 240) : null,
+    error: entry.error || null,
+    archived: Boolean(entry.archived),
+  };
+}
+
+function buildJakeSummary(entry, extras = {}) {
+  const formatted = formatAgentForJake(entry) || {};
+  const lines = [
+    `${formatted.friendlyStatus || "Unknown"} — ${formatted.kind || "agent"}: ${(formatted.goal || "(no goal)").slice(0, 120)}`,
+    `Id: ${formatted.id || extras.id || "?"}`,
+  ];
+  if (formatted.runtime) lines.push(`Runtime: ${formatted.runtime}`);
+  if (formatted.isRunning) lines.push("It is working right now.");
+  if (formatted.resultPreview) lines.push(`Latest result: ${formatted.resultPreview}`);
+  if (extras.liveRunStatus) lines.push(`Live run status: ${extras.liveRunStatus}`);
+  if (formatted.openUrl) lines.push(`Open in Cursor: ${formatted.openUrl}`);
+  if (extras.whatNext) lines.push(`Next: ${extras.whatNext}`);
+  return lines.join("\n");
 }
 
 function readApiKey(envFile = {}) {
@@ -366,7 +446,12 @@ function agentStatus(id) {
   if (!agentId) return { ok: false, error: "missing_id" };
   const entry = getAgent(agentId);
   if (!entry) return { ok: false, error: "not_found", id: agentId };
-  return { ok: true, agent: entry };
+  const agent = formatAgentForJake(entry);
+  return {
+    ok: true,
+    agent,
+    summary: buildJakeSummary(entry),
+  };
 }
 
 /**
@@ -503,6 +588,329 @@ async function stopAgent({ id, apiKey }) {
   }
 }
 
+async function continueAgentInBackground({ id, message, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) return missingApiKeyResponse();
+
+  const agentId = String(id || "").trim();
+  const text = String(message || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+  if (!text) return { ok: false, error: "empty_message" };
+
+  const known = getAgent(agentId);
+  const { Agent } = await loadSdk();
+  const model = { id: process.env.CURSOR_AGENT_MODEL || "composer-2.5" };
+
+  const resumeOpts = { apiKey: key, model };
+  if (known && known.runtime !== "cloud" && known.cwd) {
+    resumeOpts.local = { cwd: known.cwd };
+    resumeOpts.tools = ["read", "grep", "glob", "ls", "semSearch"];
+  }
+
+  upsertAgent({
+    id: agentId,
+    status: "running",
+    updatedAt: new Date().toISOString(),
+  });
+
+  (async () => {
+    try {
+      const agent = await Agent.resume(agentId, resumeOpts);
+      const run = await agent.send(text);
+      activeRuns.set(agentId, { run, agent });
+      upsertAgent({
+        id: agentId,
+        runId: run.id,
+        updatedAt: new Date().toISOString(),
+      });
+      const result = await run.wait();
+      const summary =
+        (result && result.result) ||
+        (result && result.status) ||
+        "finished";
+      upsertAgent({
+        id: agentId,
+        status: terminalRunStatus(result),
+        updatedAt: new Date().toISOString(),
+        result: String(summary).slice(0, 12000),
+        error: result && result.status === "error" ? (result.error && result.error.message) || "run_error" : null,
+      });
+    } catch (err) {
+      upsertAgent({
+        id: agentId,
+        status: "error",
+        updatedAt: new Date().toISOString(),
+        error: err && err.message ? err.message : String(err),
+      });
+    } finally {
+      activeRuns.delete(agentId);
+    }
+  })();
+
+  return {
+    ok: true,
+    id: agentId,
+    status: "running",
+    message: "Agent is working on your message in the background.",
+    hint: "Use cursor_agent_status to check progress, or cursor_stop_agent to stop it.",
+  };
+}
+
+/**
+ * Pause = stop in Cursor's API (there is no separate pause).
+ */
+async function pauseAgent(args) {
+  const out = await stopAgent(args);
+  if (out.ok) {
+    return {
+      ...out,
+      status: out.status === "cancelled" ? "paused" : out.status,
+      message:
+        out.status === "cancelled" || out.status === "paused"
+          ? "Agent paused. You can restart it later with cursor_restart_agent."
+          : out.message,
+    };
+  }
+  return out;
+}
+
+/**
+ * Stop the current run, then send a fresh continue message in the background.
+ */
+async function restartAgent({ id, message, apiKey }) {
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+
+  const known = getAgent(agentId);
+  await stopAgent({ id: agentId, apiKey });
+
+  const restartMessage =
+    String(message || "").trim() ||
+    (known && known.goal
+      ? `Please restart and continue this task.\n\nOriginal goal:\n${known.goal}`
+      : "Please restart and continue where you left off.");
+
+  return continueAgentInBackground({
+    id: agentId,
+    message: restartMessage,
+    apiKey,
+  });
+}
+
+async function agentStatusDetailed({ id, apiKey }) {
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+
+  const registry = getAgent(agentId);
+  const held = activeRuns.get(agentId);
+  const live = { recentRuns: [], cloud: null };
+
+  const key = String(apiKey || "").trim();
+  if (key) {
+    try {
+      const { Agent } = await loadSdk();
+      const runtime = resolveRuntime(agentId, registry);
+      if (runtime === "cloud" && isCloudAgentId(agentId)) {
+        try {
+          const info = await Agent.get(agentId, { apiKey: key });
+          live.cloud = {
+            name: info.name,
+            status: info.status,
+            archived: info.archived,
+            repos: info.runtime === "cloud" ? info.repos : undefined,
+            url: `https://cursor.com/agents?id=${encodeURIComponent(agentId)}`,
+          };
+        } catch {
+          // ignore cloud metadata errors
+        }
+      }
+      const runs = await Agent.listRuns(agentId, buildListRunsOptions(agentId, registry, key));
+      live.recentRuns = (runs.items || []).slice(0, 5).map((run) => ({
+        id: run.id,
+        status: run.status,
+        resultPreview: run.result ? String(run.result).slice(0, 400) : null,
+        durationMs: run.durationMs || null,
+      }));
+    } catch (err) {
+      live.error = err && err.message ? err.message : String(err);
+    }
+  }
+
+  const liveRun = live.recentRuns.find((run) => run.status === "running");
+  const isRunning = Boolean(held && held.run) || Boolean(liveRun) || registry?.status === "running";
+  const effectiveStatus = isRunning
+    ? "running"
+    : liveRun
+      ? liveRun.status
+      : registry?.status || (registry ? "unknown" : null);
+
+  if (!registry && !live.cloud && live.recentRuns.length === 0) {
+    return { ok: false, error: "not_found", id: agentId };
+  }
+
+  const merged = formatAgentForJake(
+    registry || {
+      id: agentId,
+      kind: null,
+      goal: live.cloud?.name || null,
+      status: effectiveStatus,
+      runtime: isCloudAgentId(agentId) ? "cloud" : "local",
+      openUrl: isCloudAgentId(agentId)
+        ? `https://cursor.com/agents?id=${encodeURIComponent(agentId)}`
+        : null,
+    }
+  );
+  merged.isRunning = isRunning;
+  merged.friendlyStatus = friendlyStatus(effectiveStatus, isRunning);
+
+  let whatNext = "Use cursor_continue_agent to send another message.";
+  if (isRunning) whatNext = "It is working now. Use cursor_stop_agent to pause it.";
+  else if (effectiveStatus === "cancelled") whatNext = "It was stopped. Use cursor_restart_agent to pick back up.";
+  else if (effectiveStatus === "finished") whatNext = "It finished. Use cursor_continue_agent if you want more.";
+
+  return {
+    ok: true,
+    id: agentId,
+    agent: merged,
+    live,
+    summary: buildJakeSummary(registry || merged, {
+      id: agentId,
+      liveRunStatus: liveRun?.status || null,
+      whatNext,
+    }),
+  };
+}
+
+async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) return missingApiKeyResponse();
+
+  const { Agent } = await loadSdk();
+  const result = await Agent.list({
+    runtime: "cloud",
+    apiKey: key,
+    limit: Math.max(1, Math.min(Number(limit) || 15, 50)),
+    includeArchived: Boolean(includeArchived),
+  });
+
+  const registryById = new Map(loadRegistry().agents.map((a) => [a.id, a]));
+  const agents = (result.items || []).map((info) => {
+    const reg = registryById.get(info.agentId);
+    const merged = formatAgentForJake({
+      ...(reg || {}),
+      id: info.agentId,
+      kind: reg?.kind || null,
+      goal: reg?.goal || info.name || info.summary || null,
+      status: info.status || reg?.status || null,
+      runtime: "cloud",
+      openUrl: `https://cursor.com/agents?id=${encodeURIComponent(info.agentId)}`,
+      archived: info.archived,
+    });
+    merged.name = info.name;
+    merged.summary = info.summary;
+    merged.archived = Boolean(info.archived);
+    merged.startedByCog = Boolean(reg);
+    return merged;
+  });
+
+  return {
+    ok: true,
+    agents,
+    count: agents.length,
+    hint: "These are Jake's cloud agents in Cursor. startedByCog=true means Cog started them.",
+  };
+}
+
+async function archiveAgent({ id, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) return missingApiKeyResponse();
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+  if (!isCloudAgentId(agentId)) {
+    return {
+      ok: false,
+      error: "cloud_only",
+      message: "Only cloud agents (bc-...) can be archived. Local agents stay in Cog's list.",
+    };
+  }
+
+  const { Agent } = await loadSdk();
+  await Agent.archive(agentId, { apiKey: key });
+  upsertAgent({
+    id: agentId,
+    archived: true,
+    updatedAt: new Date().toISOString(),
+  });
+  return {
+    ok: true,
+    id: agentId,
+    message: "Agent archived — hidden from the main Cursor list but not deleted.",
+  };
+}
+
+async function unarchiveAgent({ id, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) return missingApiKeyResponse();
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+  if (!isCloudAgentId(agentId)) {
+    return { ok: false, error: "cloud_only", message: "Only cloud agents can be unarchived." };
+  }
+
+  const { Agent } = await loadSdk();
+  await Agent.unarchive(agentId, { apiKey: key });
+  upsertAgent({
+    id: agentId,
+    archived: false,
+    updatedAt: new Date().toISOString(),
+  });
+  return {
+    ok: true,
+    id: agentId,
+    message: "Agent restored — it will show up in Cursor again.",
+  };
+}
+
+async function deleteAgent({ id, confirm, apiKey }) {
+  const key = String(apiKey || "").trim();
+  if (!key) return missingApiKeyResponse();
+  const agentId = String(id || "").trim();
+  if (!agentId) return { ok: false, error: "missing_id" };
+
+  const confirmed =
+    confirm === true ||
+    confirm === 1 ||
+    String(confirm || "").toLowerCase() === "true" ||
+    String(confirm || "").toLowerCase() === "yes";
+  if (!confirmed) {
+    return {
+      ok: false,
+      error: "need_confirm",
+      message:
+        "Permanent delete needs confirm=true. Only use when Jake clearly asks to delete an agent forever.",
+    };
+  }
+
+  if (isCloudAgentId(agentId)) {
+    await stopAgent({ id: agentId, apiKey: key }).catch(() => {});
+    const { Agent } = await loadSdk();
+    await Agent.delete(agentId, { apiKey: key });
+  }
+
+  const reg = loadRegistry();
+  reg.agents = reg.agents.filter((a) => a.id !== agentId);
+  saveRegistry(reg);
+  activeRuns.delete(agentId);
+
+  return {
+    ok: true,
+    id: agentId,
+    message: isCloudAgentId(agentId)
+      ? "Agent permanently deleted from Cursor."
+      : "Agent removed from Cog's list.",
+  };
+}
+
 function openAgentInBrowser(id) {
   const entry = getAgent(id);
   const url =
@@ -521,9 +929,17 @@ function openAgentInBrowser(id) {
 module.exports = {
   startAgent,
   continueAgent,
+  continueAgentInBackground,
   stopAgent,
+  pauseAgent,
+  restartAgent,
   agentStatus,
+  agentStatusDetailed,
   listAgents,
+  listCloudAgents,
+  archiveAgent,
+  unarchiveAgent,
+  deleteAgent,
   openAgentInBrowser,
   readApiKey,
   REGISTRY_PATH,

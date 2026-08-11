@@ -245,18 +245,18 @@ function recallTools() {
     ),
     clientTool(
       "cursor_start_agent",
-      "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so Jake can keep chatting there; local agents can be continued with cursor_continue_agent.",
+      "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so Jake can keep chatting there.",
       {
         goal: str("What to plan or research"),
-        kind: str('\"plan\" or \"research\" (default research)'),
+        kind: str('"plan" or "research" (default research)'),
         cwd: str("Optional absolute project folder path"),
-        mode: str('Optional \"auto\", \"local\", or \"cloud\"'),
+        mode: str('Optional "auto", "local", or "cloud"'),
       },
       ["goal"]
     ),
     clientTool(
       "cursor_continue_agent",
-      "Send a follow-up message to an existing Cursor agent Cog started earlier (keeps full chat context). Use the agent id from cursor_start_agent or cursor_list_agents.",
+      "Send a follow-up message to an existing Cursor agent (keeps full chat context). Use the agent id from cursor_start_agent or cursor_list_agents.",
       {
         id: str("Agent id"),
         message: str("Follow-up message / next instruction"),
@@ -265,13 +265,41 @@ function recallTools() {
     ),
     clientTool(
       "cursor_list_agents",
-      "List recent Cursor agents Cog has started (id, kind, status, goal).",
+      "List Cursor agents Cog has started. Returns friendly status (Working, Done, Stopped). Optional filters: status, kind, runtime, running_only, search.",
+      {
+        limit: integer("How many to list (default 10)"),
+        status: str('Optional filter: "running", "finished", "cancelled", "error"'),
+        kind: str('Optional filter: "plan" or "research"'),
+        runtime: str('Optional filter: "cloud" or "local"'),
+        running_only: bool("If true, only show agents working right now"),
+        search: str("Optional text search in goal/id"),
+      },
+      []
+    ),
+    clientTool(
+      "cursor_running_agents",
+      "Quick list of agents that are working right now. Use when Jake asks what's running or busy.",
       { limit: integer("How many to list (default 10)") },
       []
     ),
     clientTool(
+      "cursor_list_cloud_agents",
+      "List Jake's cloud agents from Cursor (not just ones Cog started). Good overview of everything in the Agents window.",
+      {
+        limit: integer("How many to list (default 15)"),
+        include_archived: bool("Include archived agents"),
+      },
+      []
+    ),
+    clientTool(
       "cursor_agent_status",
-      "Check status/result of a Cursor agent by id.",
+      "Check a Cursor agent by id. Returns friendly status plus a short summary Jake can understand.",
+      { id: str("Agent id") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_agent_details",
+      "Deep check on a Cursor agent — live run status, recent runs, and what Jake should do next. Prefer this when Jake asks for details.",
       { id: str("Agent id") },
       ["id"]
     ),
@@ -283,9 +311,45 @@ function recallTools() {
     ),
     clientTool(
       "cursor_stop_agent",
-      "Stop/cancel a running Cursor agent by id. Use when Jake says stop, cancel, or kill an agent. Get ids from cursor_list_agents or cursor_start_agent. Gracefully ends the current run; Jake can continue the agent later with cursor_continue_agent.",
+      "Stop/cancel a running Cursor agent by id. Use when Jake says stop, cancel, or kill. Gracefully ends the current run; Jake can restart later.",
       { id: str("Agent id to stop") },
       ["id"]
+    ),
+    clientTool(
+      "cursor_pause_agent",
+      "Pause a running agent (same as stop in Cursor). Use when Jake says pause. Tell him he can restart with cursor_restart_agent.",
+      { id: str("Agent id to pause") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_restart_agent",
+      "Restart a stopped or finished agent — stops any active run, then sends a fresh continue message in the background. Use when Jake says restart or try again.",
+      {
+        id: str("Agent id"),
+        message: str("Optional new instruction (defaults to original goal)"),
+      },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_archive_agent",
+      "Archive a cloud agent (bc-...). Hides it from the main Cursor list but keeps history. Cloud only. Use when Jake is done and wants it out of the way.",
+      { id: str("Cloud agent id") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_unarchive_agent",
+      "Restore a previously archived cloud agent so it shows up in Cursor again.",
+      { id: str("Cloud agent id") },
+      ["id"]
+    ),
+    clientTool(
+      "cursor_delete_agent",
+      "Permanently delete an agent. DESTRUCTIVE — only when Jake clearly asks to delete forever. Must pass confirm=true.",
+      {
+        id: str("Agent id"),
+        confirm: bool("Must be true — safety check"),
+      },
+      ["id", "confirm"]
     ),
     clientTool(
       "cursor_list_chats",

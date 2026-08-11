@@ -594,14 +594,76 @@ ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
           apiKey,
         });
       case "status":
+        if (a.detailed || a.live || a.refresh) {
+          return await cursorAgents.agentStatusDetailed({
+            id: a.id || a.agent_id,
+            apiKey,
+          });
+        }
         return cursorAgents.agentStatus(a.id || a.agent_id);
+      case "details":
+        return await cursorAgents.agentStatusDetailed({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
       case "list":
-        return { ok: true, agents: cursorAgents.listAgents(asInt(a.limit) || 10) };
+        return {
+          ok: true,
+          agents: cursorAgents.listAgents({
+            limit: asInt(a.limit) || 10,
+            status: a.status,
+            kind: a.kind,
+            runtime: a.runtime,
+            runningOnly: asBool(a.running_only || a.runningOnly),
+            search: a.search || a.query,
+          }),
+        };
+      case "running":
+        return {
+          ok: true,
+          agents: cursorAgents.listAgents({
+            limit: asInt(a.limit) || 10,
+            runningOnly: true,
+          }),
+        };
+      case "list_cloud":
+        return await cursorAgents.listCloudAgents({
+          limit: asInt(a.limit) || 15,
+          includeArchived: asBool(a.include_archived || a.includeArchived),
+          apiKey,
+        });
       case "open":
         return cursorAgents.openAgentInBrowser(a.id || a.agent_id);
       case "stop":
         return await cursorAgents.stopAgent({
           id: a.id || a.agent_id,
+          apiKey,
+        });
+      case "pause":
+        return await cursorAgents.pauseAgent({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
+      case "restart":
+        return await cursorAgents.restartAgent({
+          id: a.id || a.agent_id,
+          message: a.message || a.prompt || a.goal,
+          apiKey,
+        });
+      case "archive":
+        return await cursorAgents.archiveAgent({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
+      case "unarchive":
+        return await cursorAgents.unarchiveAgent({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
+      case "delete":
+        return await cursorAgents.deleteAgent({
+          id: a.id || a.agent_id,
+          confirm: asBool(a.confirm),
           apiKey,
         });
       default:
