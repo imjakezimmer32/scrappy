@@ -94,6 +94,10 @@ def load_persona() -> str:
         text = PERSONA_PATH.read_text(encoding="utf-8").strip()
     except OSError:
         text = "You are Cog, Jake's desk robot. Be brief and spoken-friendly."
+    # Keep room in the context window for Recall briefs + tool results.
+    max_persona = int(os.environ.get("COG_PERSONA_MAX_CHARS", "7000"))
+    if len(text) > max_persona:
+        text = text[:max_persona].rstrip() + "\n…(persona trimmed for local voice context)"
     return (
         text
         + "\n\n## VOICE MODE\n"
@@ -318,6 +322,7 @@ async def ollama_chat(
     stream: bool = False,
 ) -> Any:
     url = f"{OLLAMA_URL}/api/chat"
+    num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "24576"))
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -325,6 +330,7 @@ async def ollama_chat(
         "options": {
             "temperature": 0.4 if tools else (0.5 if think else 0.7),
             "num_predict": 700 if think else (400 if tools else 220),
+            "num_ctx": num_ctx,
         },
     }
     if think:
@@ -502,7 +508,7 @@ class Session:
         try:
             brief = await memory_bridge.memory_brief()
             if brief.get("ok") and brief.get("text"):
-                self.memory_brief = str(brief["text"])[:10000]
+                self.memory_brief = str(brief["text"])[:4500]
                 log(f"memory brief loaded ({len(self.memory_brief)} chars)")
             else:
                 log(f"memory brief unavailable: {brief.get('error') or brief}")

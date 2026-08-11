@@ -669,8 +669,9 @@ function startServer() {
         res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
         return;
       }
-      const brief = await buildRecallBrief();
-      res.writeHead(brief.ok ? 200 : 200, { "Content-Type": "application/json" });
+      const compact = url.searchParams.get("compact") !== "0";
+      const brief = await buildRecallBrief({ compact });
+      res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(brief));
       return;
     }
@@ -795,35 +796,41 @@ ipcMain.handle("workbuddy:recall-context", async () => {
 
 // Full startup memory pack: relationship notes + live speech + task COUNTS
 // (never dump hundreds of action rows — that truncates and Cog invents wrong totals).
-async function buildRecallBrief() {
+async function buildRecallBrief(opts = {}) {
   const file = readEnvFile();
   const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
+  const compact = Boolean(opts.compact);
 
   try {
     const [live, actions, recent, search] = await Promise.all([
-      recall.call("recall_live_context", { minutes: 10 }),
-      recall.call("recall_open_actions", { limit: 5 }),
-      recall.call("recall_recent", { limit: 8, project: "WorkBuddy" }),
+      recall.call("recall_live_context", { minutes: compact ? 5 : 10 }),
+      recall.call("recall_open_actions", { limit: compact ? 3 : 5 }),
+      recall.call("recall_recent", { limit: compact ? 5 : 8, project: "WorkBuddy" }),
       recall.call("recall_search", {
         query: "Jake preferences relationship Cog memory decisions",
         project: "WorkBuddy",
-        limit: 8,
+        limit: compact ? 5 : 8,
       }),
     ]);
     const parts = [];
-    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${clip(recent.text, 3500)}`);
-    if (search.ok && search.text) parts.push(`Related memory search:\n${clip(search.text, 3500)}`);
-    if (live.ok && live.text) parts.push(`Recently said out loud:\n${clip(live.text, 2000)}`);
+    const recentMax = compact ? 1600 : 3500;
+    const searchMax = compact ? 1600 : 3500;
+    const liveMax = compact ? 900 : 2000;
+    const actionsMax = compact ? 800 : 1500;
+    const totalMax = compact ? 4500 : 12000;
+    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${clip(recent.text, recentMax)}`);
+    if (search.ok && search.text) parts.push(`Related memory search:\n${clip(search.text, searchMax)}`);
+    if (live.ok && live.text) parts.push(`Recently said out loud:\n${clip(live.text, liveMax)}`);
     if (actions.ok && actions.data) {
       parts.push(formatActionsBrief(actions.data));
     } else if (actions.ok && actions.text) {
-      parts.push(`Open tasks summary:\n${clip(actions.text, 1500)}`);
+      parts.push(`Open tasks summary:\n${clip(actions.text, actionsMax)}`);
     }
     if (!parts.length) return { ok: false, error: "empty" };
     return {
       ok: true,
-      text: parts.join("\n\n").slice(0, 12000),
+      text: parts.join("\n\n").slice(0, totalMax),
     };
   } catch (err) {
     console.error("Recall brief failed:", err.message);
