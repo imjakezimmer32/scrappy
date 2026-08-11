@@ -1,8 +1,10 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, session } = require("electron");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const systemInfo = require("./system-info");
+const recall = require("./recall-mcp");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
@@ -42,25 +44,141 @@ function ensureToken() {
   return localToken;
 }
 
-function createWindow() {
-  const { workArea } = screen.getPrimaryDisplay();
-  const width = 280;
-  const height = 340;
-  const x = Math.round(workArea.x + workArea.width - width - 24);
-  const y = Math.round(workArea.y + workArea.height - height - 24);
+// Cog lives on a transparent, click-through overlay stretched across the
+// bounding box of every display, so he can walk, be thrown, and bounce
+// across all of them. Monitors rarely share a floor line, so the renderer
+// also gets each display's rectangle in overlay-local coordinates and works
+// out which floor is under him at any given x.
+// The window spans the full physical bounds of every display — including the
+// strip the taskbar sits on — so Cog's legs can hang over the edge when he
+// sits down. His floor is still the work area, so he stands ON the taskbar's
+// top edge rather than walking across it.
+function displayLayout() {
+  const displays = screen.getAllDisplays();
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const d of displays) {
+    left = Math.min(left, d.bounds.x);
+    top = Math.min(top, d.bounds.y);
+    right = Math.max(right, d.bounds.x + d.bounds.width);
+    bottom = Math.max(bottom, d.bounds.y + d.bounds.height);
+  }
 
+  return {
+    union: { x: left, y: top, width: right - left, height: bottom - top },
+    screens: displays.map((d) => ({
+      left: d.bounds.x - left,
+      right: d.bounds.x + d.bounds.width - left,
+      top: d.workArea.y - top,
+      // The floor he stands on: the top of the taskbar.
+      bottom: d.workArea.y + d.workArea.height - top,
+      // The physical bottom of the glass, for anything that hangs over.
+      deck: d.bounds.y + d.bounds.height - top,
+    })),
+  };
+}
+
+function overlayBounds() {
+  return displayLayout().union;
+}
+
+// Windows re-raises the taskbar above other topmost windows whenever you
+// click it, which drops Cog behind it until something re-asserts him. There
+// is no event for that, so we simply keep re-claiming the top spot. Neither
+// call takes focus, so this never interrupts what you're typing into.
+let topKeeper = null;
+
+function keepOnTop() {
+  if (topKeeper) return;
+  topKeeper = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+    mainWindow.setAlwaysOnTop(true, "screen-saver");
+    mainWindow.moveTop();
+  }, 1200);
+}
+
+function pushLayout() {
+  if (!mainWindow) return;
+  mainWindow.setBounds(overlayBounds());
+  mainWindow.webContents.send("workbuddy:layout", displayLayout().screens);
+}
+
+// ---------- voice credentials ----------
+// The ElevenLabs key lives here in the main process and never crosses into
+// the renderer. The renderer only ever receives a signed URL that expires.
+
+function readEnvFile() {
+  const out = {};
+  const file = path.join(__dirname, ".env.local");
+  try {
+    if (!fs.existsSync(file)) return out;
+    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq < 1) continue;
+      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    }
+  } catch (err) {
+    console.error("Could not read .env.local:", err.message);
+  }
+  return out;
+}
+
+function voiceConfig() {
+  const file = readEnvFile();
+  return {
+    apiKey: process.env.ELEVENLABS_API_KEY || file.ELEVENLABS_API_KEY || "",
+    agentId: process.env.ELEVENLABS_AGENT_ID || file.ELEVENLABS_AGENT_ID || "",
+  };
+}
+
+// ---------- personality ----------
+// The agent's system prompt lives in personality.md and is uploaded to
+// ElevenLabs by scripts/setup-voice.js. It is read here only so the tray can
+// report whether it's present.
+
+function personalityPresent() {
+  return fs.existsSync(path.join(__dirname, "personality.md"));
+}
+
+async function fetchSignedUrl() {
+  const { apiKey, agentId } = voiceConfig();
+  if (!apiKey) return { ok: false, error: "no_api_key" };
+  if (!agentId) return { ok: false, error: "no_agent_id" };
+
+  try {
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
+      { headers: { "xi-api-key": apiKey } }
+    );
+    if (!res.ok) {
+      return { ok: false, error: `elevenlabs_${res.status}` };
+    }
+    const data = await res.json();
+    if (!data.signed_url) return { ok: false, error: "no_signed_url" };
+    return { ok: true, url: data.signed_url };
+  } catch (err) {
+    console.error("Signed URL request failed:", err.message);
+    return { ok: false, error: "network" };
+  }
+}
+
+function createWindow() {
   mainWindow = new BrowserWindow({
-    width,
-    height,
-    x,
-    y,
+    ...overlayBounds(),
     frame: false,
-    transparent: false,
-    resizable: true,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    movable: false,
+    hasShadow: false,
+    focusable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     show: true,
-    backgroundColor: "#1c1917",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -68,8 +186,14 @@ function createWindow() {
     },
   });
 
+  // The taskbar is itself a topmost window, so "floating" would put Cog
+  // behind it and his dangling legs would vanish. This level clears it.
   mainWindow.setAlwaysOnTop(true, "screen-saver");
+  // Mouse events pass straight through to whatever is underneath; the
+  // renderer flips this off while the pointer is actually over Cog.
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
+  mainWindow.webContents.on("did-finish-load", pushLayout);
 
   mainWindow.on("close", (e) => {
     if (!app.isQuitting) {
@@ -92,18 +216,24 @@ function createTray() {
   tray.setToolTip("Workbuddy");
   const menu = Menu.buildFromTemplate([
     {
-      label: "Show buddy",
+      label: "Show Cog",
+      click: () => showBuddy(),
+    },
+    {
+      label: "Hide Cog",
       click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        } else {
-          createWindow();
-        }
+        if (mainWindow) mainWindow.hide();
       },
     },
     {
-      label: "Test grow",
+      label: "Type to Cog",
+      click: () => {
+        showBuddy();
+        if (mainWindow) mainWindow.webContents.send("workbuddy:chat-open");
+      },
+    },
+    {
+      label: "Test nudge",
       click: () => triggerGrow({ force: true, source: "tray" }),
     },
     { type: "separator" },
@@ -116,42 +246,40 @@ function createTray() {
     },
   ]);
   tray.setContextMenu(menu);
-  tray.on("click", () => {
-    if (!mainWindow) createWindow();
-    else {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  tray.on("click", () => showBuddy());
 }
 
-function expandWindowForAlert() {
+// Never steal focus — the buddy is decoration until you click him.
+function showBuddy() {
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  fitOverlay();
+  mainWindow.showInactive();
+}
+
+function raiseOverlay() {
   if (!mainWindow) createWindow();
-  const { workArea } = screen.getPrimaryDisplay();
-  const width = Math.min(520, workArea.width - 40);
-  const height = Math.min(620, workArea.height - 40);
-  const x = Math.round(workArea.x + (workArea.width - width) / 2);
-  const y = Math.round(workArea.y + (workArea.height - height) / 2);
-  mainWindow.setBounds({ x, y, width, height });
   mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.show();
-  mainWindow.focus();
+  mainWindow.showInactive();
   mainWindow.moveTop();
 }
 
-function shrinkWindowCalm() {
+function calmOverlay() {
   if (!mainWindow) return;
-  const { workArea } = screen.getPrimaryDisplay();
-  const width = 280;
-  const height = 340;
-  const x = Math.round(workArea.x + workArea.width - width - 24);
-  const y = Math.round(workArea.y + workArea.height - height - 24);
-  mainWindow.setBounds({ x, y, width, height });
+  // The taskbar is itself a topmost window, so "floating" would put Cog
+  // behind it and his dangling legs would vanish. This level clears it.
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+}
+
+function fitOverlay() {
+  pushLayout();
 }
 
 function triggerGrow(payload = {}) {
   alerting = true;
-  expandWindowForAlert();
+  raiseOverlay();
   if (mainWindow) {
     mainWindow.webContents.send("workbuddy:grow", {
       at: Date.now(),
@@ -164,7 +292,7 @@ function triggerGrow(payload = {}) {
 
 function triggerAck() {
   alerting = false;
-  shrinkWindowCalm();
+  calmOverlay();
   if (mainWindow) {
     mainWindow.webContents.send("workbuddy:ack", { at: Date.now() });
   }
@@ -210,7 +338,7 @@ function startServer() {
 
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, alerting }));
+      res.end(JSON.stringify({ ok: true, alerting, ...displayLayout() }));
       return;
     }
 
@@ -299,6 +427,128 @@ ipcMain.on("workbuddy:ack-from-ui", () => {
   triggerAck();
 });
 
+// What he can see about the machine. Off by one line if you'd rather he
+// didn't: COG_SYSTEM_CONTEXT=off in .env.local.
+ipcMain.handle("workbuddy:system-context", async () => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_SYSTEM_CONTEXT || file.COG_SYSTEM_CONTEXT || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
+  try {
+    return { ok: true, text: await systemInfo.snapshot() };
+  } catch (err) {
+    console.error("System snapshot failed:", err.message);
+    return { ok: false, error: "failed" };
+  }
+});
+
+// What Jake has actually been thinking about, straight out of Recall.
+ipcMain.handle("workbuddy:recall-context", async () => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
+
+  try {
+    const [live, actions] = await Promise.all([
+      recall.call("recall_live_context", {}),
+      recall.call("recall_open_actions", {}),
+    ]);
+    const parts = [];
+    if (live.ok && live.text) parts.push(`Recently said out loud: ${live.text}`);
+    if (actions.ok && actions.text) parts.push(`Open action items: ${actions.text}`);
+    if (!parts.length) return { ok: false, error: "empty" };
+    return { ok: true, text: parts.join(" ").slice(0, 4000) };
+  } catch (err) {
+    console.error("Recall context failed:", err.message);
+    return { ok: false, error: "failed" };
+  }
+});
+
+// Full startup memory pack: relationship notes + live speech + open tasks.
+ipcMain.handle("workbuddy:recall-brief", async () => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
+
+  try {
+    const [live, actions, recent, search] = await Promise.all([
+      recall.call("recall_live_context", { minutes: 10 }),
+      recall.call("recall_open_actions", {}),
+      recall.call("recall_recent", { limit: 8, project: "WorkBuddy" }),
+      recall.call("recall_search", {
+        query: "Jake preferences relationship Cog memory decisions",
+        project: "WorkBuddy",
+        limit: 8,
+      }),
+    ]);
+    const parts = [];
+    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${recent.text}`);
+    if (search.ok && search.text) parts.push(`Related memory search:\n${search.text}`);
+    if (live.ok && live.text) parts.push(`Recently said out loud:\n${live.text}`);
+    if (actions.ok && actions.text) parts.push(`Open action items:\n${actions.text}`);
+    if (!parts.length) return { ok: false, error: "empty" };
+    return {
+      ok: true,
+      text: parts.join("\n\n").slice(0, 12000),
+    };
+  } catch (err) {
+    console.error("Recall brief failed:", err.message);
+    return { ok: false, error: "failed" };
+  }
+});
+
+// Generic Recall MCP tool call for ElevenLabs client tools.
+ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => {
+  const file = readEnvFile();
+  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") {
+    return { ok: false, error: "disabled" };
+  }
+  const tool = String(name || "").trim();
+  if (!tool.startsWith("recall_")) {
+    return { ok: false, error: "invalid_tool" };
+  }
+  try {
+    const result = await recall.call(tool, args && typeof args === "object" ? args : {});
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      text: result.text || "",
+      data: result.data,
+      isError: Boolean(result.isError),
+    };
+  } catch (err) {
+    console.error("Recall tool failed:", tool, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+});
+
+ipcMain.handle("workbuddy:voice-signed-url", () => fetchSignedUrl());
+
+ipcMain.handle("workbuddy:voice-status", () => {
+  const { apiKey, agentId } = voiceConfig();
+  return {
+    configured: Boolean(apiKey && agentId),
+    hasKey: Boolean(apiKey),
+    hasAgent: Boolean(agentId),
+    hasPersonality: personalityPresent(),
+  };
+});
+
+// The overlay is deliberately non-focusable so clicking Cog never pulls focus
+// off your editor — but a text box needs keystrokes, so focus is granted for
+// exactly as long as the chat is open.
+ipcMain.on("workbuddy:chat-focus", (_event, on) => {
+  if (!mainWindow) return;
+  mainWindow.setFocusable(Boolean(on));
+  if (on) mainWindow.focus();
+});
+
+ipcMain.on("workbuddy:set-interactive", (_event, interactive) => {
+  if (!mainWindow) return;
+  if (interactive) mainWindow.setIgnoreMouseEvents(false);
+  else mainWindow.setIgnoreMouseEvents(true, { forward: true });
+});
+
 ipcMain.on("workbuddy:test-grow", () => {
   triggerGrow({ force: true, source: "ui-test" });
 });
@@ -308,17 +558,31 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    showBuddy();
   });
 
   app.whenReady().then(() => {
     ensureToken();
+
+    // Cog needs the microphone to hold a conversation; nothing else.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === "media" || permission === "audioCapture");
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+      return permission === "media" || permission === "audioCapture";
+    });
+
     createWindow();
     createTray();
     startServer();
+
+    // Taskbar autohide, resolution changes, docking — keep the overlay
+    // pinned to the current work area.
+    keepOnTop();
+
+    screen.on("display-metrics-changed", fitOverlay);
+    screen.on("display-added", fitOverlay);
+    screen.on("display-removed", fitOverlay);
   });
 
   app.on("window-all-closed", (e) => {
@@ -328,6 +592,8 @@ if (!gotTheLock) {
 
   app.on("before-quit", () => {
     app.isQuitting = true;
+    if (topKeeper) clearInterval(topKeeper);
+    recall.stop();
     if (server) {
       try {
         server.close();

@@ -2,53 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Workbuddy</title>
     <link rel="stylesheet" href="style.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Nunito:wght@600;700&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
-    <main class="stage" id="stage">
-      <div class="glow" aria-hidden="true"></div>
-      <button class="buddy" id="buddy" type="button" aria-label="Workbuddy — click when you're back">
-        <svg class="face" viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <radialGradient id="bodyGrad" cx="35%" cy="30%" r="70%">
-              <stop offset="0%" stop-color="#ffd29a" />
-              <stop offset="55%" stop-color="#f08a5d" />
-              <stop offset="100%" stop-color="#c94f3d" />
-            </radialGradient>
-          </defs>
-          <circle class="body" cx="100" cy="108" r="72" fill="url(#bodyGrad)" />
-          <ellipse class="cheek left" cx="58" cy="118" rx="14" ry="9" fill="#ffb4a2" opacity="0.55" />
-          <ellipse class="cheek right" cx="142" cy="118" rx="14" ry="9" fill="#ffb4a2" opacity="0.55" />
-          <g class="eyes">
-            <ellipse class="eye left" cx="72" cy="96" rx="10" ry="12" fill="#2a211c" />
-            <ellipse class="eye right" cx="128" cy="96" rx="10" ry="12" fill="#2a211c" />
-            <circle class="shine left" cx="68" cy="90" r="3.2" fill="#fff6e8" />
-            <circle class="shine right" cx="124" cy="90" r="3.2" fill="#fff6e8" />
-          </g>
-          <path
-            class="mouth"
-            d="M78 132 Q100 148 122 132"
-            fill="none"
-            stroke="#2a211c"
-            stroke-width="6"
-            stroke-linecap="round"
-          />
-          <ellipse class="brow left" cx="70" cy="78" rx="12" ry="3" fill="#2a211c" opacity="0" />
-          <ellipse class="brow right" cx="130" cy="78" rx="12" ry="3" fill="#2a211c" opacity="0" />
-        </svg>
-      </button>
-      <h1 class="brand">Workbuddy</h1>
-      <p class="status" id="status">Waiting for your agent…</p>
-      <button class="test" id="test" type="button">Test grow</button>
-    </main>
+    <div id="stage">
+      <div id="cog" class="cog" data-state="idle" data-facing="right">
+        <div class="cog-flip"></div>
+        <div class="bubble" id="bubble"></div>
+        <div class="say-box" id="sayBox">
+          <input id="sayInput" type="text" autocomplete="off" spellcheck="false" placeholder="say something…" maxlength="500" />
+        </div>
+      </div>
+    </div>
+    <script src="cog.js"></script>
+    <script src="lines.js"></script>
+    <script src="voice.js"></script>
     <script src="buddy.js"></script>
   </body>
 </html>

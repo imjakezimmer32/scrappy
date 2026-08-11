@@ -1,13 +1,14 @@
 {
   "name": "workbuddy",
   "version": "1.0.0",
-  "description": "Local attention buddy that grows when a Cursor agent finishes",
+  "description": "Cog — an articulated robot desktop buddy that fetches you when a Cursor agent finishes",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-startup.ps1",
     "uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/uninstall-startup.ps1",
-    "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1"
+    "install-hooks": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-cursor-hooks.ps1",
+    "setup-voice": "node ./scripts/setup-voice.js"
   },
   "author": "Jake",
   "license": "MIT",
