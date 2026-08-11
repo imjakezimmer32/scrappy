@@ -724,7 +724,7 @@ async function pushRecallBrief() {
     const r = await bridge.recallBrief();
     if (r && r.ok && r.text) {
       window.CogVoice.sendContext(
-        `From Jake's Recall (your long-term memory). Prefer these facts over guessing:\n${r.text}`
+        `From Jake's Recall:\n${r.text}`
       );
       return;
     }
