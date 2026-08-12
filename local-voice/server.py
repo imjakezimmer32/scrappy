@@ -37,6 +37,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
 import llm as cog_llm
+import dictionary as listening_dict
 from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
 from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
@@ -67,10 +68,10 @@ ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.008"))
 BARGE_MS = int(os.environ.get("COG_BARGE_MS", "320"))
 BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
 
-# Bias Whisper toward names/products Jake actually says (reduces garbage guesses).
-WHISPER_PROMPT = os.environ.get("COG_WHISPER_PROMPT") or (
-    "Jake talking to Cog. Names and words: Cog, Chief, Jake, Recall, WorkBuddy, "
-    "ArrayBud, Cursor, Cloudflare, Wrangler, agent, research, notes, memory."
+# Bias Whisper toward names/products Jake actually says (listening dictionary
+# vocabulary + optional COG_WHISPER_PROMPT override).
+WHISPER_PROMPT = listening_dict.vocabulary_prompt(
+    os.environ.get("COG_WHISPER_PROMPT") or ""
 )
 
 THINK_TRIGGERS = re.compile(
@@ -424,7 +425,7 @@ def strip_for_speech(text: str) -> str:
 
 
 def normalize_transcript(text: str) -> str:
-    """Clean common Whisper junk so Cog doesn't act on garbage."""
+    """Clean Whisper junk, then apply the listening dictionary."""
     cleaned = (text or "").strip()
     if not cleaned:
         return ""
@@ -445,7 +446,13 @@ def normalize_transcript(text: str) -> str:
         return ""
     # Collapse repeated words: "the the the" → "the"
     cleaned = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", cleaned, flags=re.I)
-    return cleaned.strip(" \t.-")
+    cleaned = cleaned.strip(" \t.-")
+    # Wispr-style listening dictionary (carp → Cog, hey car → hey Cog, …).
+    before = cleaned
+    cleaned = listening_dict.apply(cleaned)
+    if cleaned != before:
+        log(f"dictionary: {before!r} → {cleaned!r}")
+    return cleaned
 
 
 def transcribe(samples: np.ndarray) -> str:
@@ -473,6 +480,11 @@ def transcribe(samples: np.ndarray) -> str:
         no_speech_threshold=0.6,
     )
     text = " ".join(seg.text.strip() for seg in segments).strip()
+    # Refresh Whisper prompt from dictionary vocabulary (hot-reload friendly).
+    global WHISPER_PROMPT
+    WHISPER_PROMPT = listening_dict.vocabulary_prompt(
+        os.environ.get("COG_WHISPER_PROMPT") or ""
+    )
     return normalize_transcript(text)
 
 

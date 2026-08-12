@@ -65,6 +65,12 @@ COG_VAD_ENERGY=0.008      # how loud you must be to count as speech
 COG_TOOL_ROUNDS=6         # how many tool steps he may take when digging
 ```
 
+## Listening dictionary (Wispr-style)
+
+Persistent mishearings (Cog → carp/car) are fixed in
+`local-voice/listening-dictionary.json` **after** Whisper, before Cog thinks.
+See `docs/listening-dictionary.md`. Edit the JSON anytime — it hot-reloads.
+
 ## Memory (Recall bridge)
 
 Local voice talks to WorkBuddy on `http://127.0.0.1:8787` with your local token:
