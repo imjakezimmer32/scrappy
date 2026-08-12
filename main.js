@@ -1167,8 +1167,186 @@ async function runLocalTool(name, args) {
   if (tool.startsWith("recall_")) return runRecallTool(tool, args);
   if (tool.startsWith("process_")) return runProcessTool(tool, args);
   if (tool.startsWith("conversation_")) return runConversationTool(tool, args);
+  if (tool.startsWith("cursor_")) return runCursorTool(tool, args);
   return { ok: false, error: "invalid_tool" };
 }
+
+function formatAgentsText(agents) {
+  const list = Array.isArray(agents) ? agents : [];
+  if (!list.length) return "No agents found.";
+  return list
+    .slice(0, 12)
+    .map((a) => {
+      const status = a.friendlyStatus || a.status || "unknown";
+      const goal = clip(a.goal || "(no goal)", 80);
+      return `- ${status}: ${goal} (id ${a.id || "?"})`;
+    })
+    .join("\n");
+}
+
+async function runCursorAgentAction(action, args) {
+  const file = readEnvFile();
+  const setting = (process.env.COG_CURSOR_AGENTS || file.COG_CURSOR_AGENTS || "on").toLowerCase();
+  if (setting === "off" || setting === "false" || setting === "0") {
+    return { ok: false, error: "disabled", text: "Cursor agents are turned off." };
+  }
+  const apiKey = cursorAgents.readApiKey(file);
+  const a = args && typeof args === "object" ? args : {};
+  try {
+    switch (String(action || "").trim()) {
+      case "start": {
+        const out = await cursorAgents.startAgent({
+          goal: a.goal || a.prompt || a.message,
+          kind: a.kind || "research",
+          cwd: a.cwd || a.path || process.cwd(),
+          mode: a.mode || process.env.COG_CURSOR_MODE || file.COG_CURSOR_MODE || "auto",
+          apiKey,
+        });
+        if (out.ok && out.id) {
+          recall
+            .call("recall_save_note", {
+              title: `Cursor ${out.kind || "agent"}: ${(a.goal || "").slice(0, 60)}`,
+              summary: `Cog started a Cursor ${out.kind || "agent"}.\nId: ${out.id}\nRuntime: ${out.runtime}\nStatus: ${out.status}\nOpen: ${out.openUrl || "(local — use cursor_continue_agent)"}\n\nGoal:\n${a.goal || ""}`,
+              tags: "cog,cursor,agent",
+              project: "WorkBuddy",
+            })
+            .catch(() => {});
+        }
+        return {
+          ...out,
+          text: out.ok
+            ? `Started ${out.kind || "agent"} (${out.status || "running"}). Id ${out.id}.`
+            : out.error || "failed",
+        };
+      }
+      case "continue": {
+        const out = await cursorAgents.continueAgentInBackground({
+          id: a.id || a.agent_id,
+          message: a.message || a.prompt || a.goal,
+          apiKey,
+        });
+        return { ...out, text: out.ok ? "Follow-up sent; agent working in background." : out.error || "failed" };
+      }
+      case "status":
+      case "details": {
+        const out = await cursorAgents.agentStatusDetailed({
+          id: a.id || a.agent_id,
+          apiKey,
+        });
+        return {
+          ...out,
+          text: out.summary || out.text || (out.ok ? "Got agent status." : out.error || "failed"),
+        };
+      }
+      case "list": {
+        const agents = cursorAgents.listAgents({
+          limit: asInt(a.limit) || 10,
+          status: a.status,
+          kind: a.kind,
+          runtime: a.runtime,
+          runningOnly: asBool(a.running_only || a.runningOnly),
+          search: a.search || a.query,
+        });
+        return { ok: true, agents, text: formatAgentsText(agents) };
+      }
+      case "running": {
+        const agents = cursorAgents.listAgents({
+          limit: asInt(a.limit) || 10,
+          runningOnly: true,
+        });
+        return {
+          ok: true,
+          agents,
+          text: agents.length ? formatAgentsText(agents) : "No agents running right now.",
+        };
+      }
+      case "list_cloud": {
+        const out = await cursorAgents.listCloudAgents({
+          limit: asInt(a.limit) || 15,
+          includeArchived: asBool(a.include_archived || a.includeArchived),
+          apiKey,
+        });
+        const agents = out.agents || out.data || [];
+        return {
+          ...out,
+          text: out.ok ? formatAgentsText(agents) : out.error || "failed",
+        };
+      }
+      case "open": {
+        const out = cursorAgents.openAgentInBrowser(a.id || a.agent_id);
+        return { ...out, text: out.ok ? "Opened agent in browser." : out.error || "failed" };
+      }
+      case "stop": {
+        const out = await cursorAgents.stopAgent({ id: a.id || a.agent_id, apiKey });
+        return { ...out, text: out.ok ? "Stopped agent." : out.error || "failed" };
+      }
+      case "pause": {
+        const out = await cursorAgents.pauseAgent({ id: a.id || a.agent_id, apiKey });
+        return { ...out, text: out.ok ? "Paused agent." : out.error || "failed" };
+      }
+      case "restart": {
+        const out = await cursorAgents.restartAgent({
+          id: a.id || a.agent_id,
+          message: a.message || a.prompt || a.goal,
+          apiKey,
+        });
+        return { ...out, text: out.ok ? "Restarted agent." : out.error || "failed" };
+      }
+      case "archive": {
+        const out = await cursorAgents.archiveAgent({ id: a.id || a.agent_id, apiKey });
+        return { ...out, text: out.ok ? "Archived agent." : out.error || "failed" };
+      }
+      case "unarchive": {
+        const out = await cursorAgents.unarchiveAgent({ id: a.id || a.agent_id, apiKey });
+        return { ...out, text: out.ok ? "Unarchived agent." : out.error || "failed" };
+      }
+      case "delete": {
+        const out = await cursorAgents.deleteAgent({
+          id: a.id || a.agent_id,
+          confirm: asBool(a.confirm),
+          apiKey,
+        });
+        return { ...out, text: out.ok ? "Deleted agent." : out.error || "failed" };
+      }
+      default:
+        return { ok: false, error: "unknown_action", text: "Unknown cursor action." };
+    }
+  } catch (err) {
+    console.error("Cursor agent action failed:", action, err.message);
+    return { ok: false, error: err.message || "failed", text: err.message || "failed" };
+  }
+}
+
+const CURSOR_TOOL_ACTIONS = {
+  cursor_start_agent: "start",
+  cursor_continue_agent: "continue",
+  cursor_list_agents: "list",
+  cursor_running_agents: "running",
+  cursor_list_cloud_agents: "list_cloud",
+  cursor_agent_status: "status",
+  cursor_agent_details: "details",
+  cursor_open_agent: "open",
+  cursor_stop_agent: "stop",
+  cursor_kill_agent: "stop",
+  cursor_pause_agent: "pause",
+  cursor_restart_agent: "restart",
+  cursor_archive_agent: "archive",
+  cursor_unarchive_agent: "unarchive",
+  cursor_delete_agent: "delete",
+};
+
+async function runCursorTool(name, args) {
+  const action = CURSOR_TOOL_ACTIONS[String(name || "").trim()];
+  if (!action) return { ok: false, error: "invalid_tool", text: "Unknown cursor tool." };
+  return runCursorAgentAction(action, args || {});
+}
+
+// Generic local tool call (Recall + process journal + conversations + cursor).
+ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runLocalTool(name, args));
+ipcMain.handle("workbuddy:local-tool", async (_event, name, args) => runLocalTool(name, args));
+
+// Cursor planning/research agents — start, continue, list, status, open.
+ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => runCursorAgentAction(action, args));
 
 async function saveCogChatSession(body = {}) {
   const transcript = String(body.transcript || body.summary || "").trim();
@@ -1208,127 +1386,6 @@ function formatActionsBrief(data) {
     .filter(Boolean)
     .join("\n");
 }
-
-// Generic local tool call (Recall + process journal + conversations).
-ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runLocalTool(name, args));
-ipcMain.handle("workbuddy:local-tool", async (_event, name, args) => runLocalTool(name, args));
-
-// Cursor planning/research agents — start, continue, list, status, open.
-ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
-  const file = readEnvFile();
-  const setting = (process.env.COG_CURSOR_AGENTS || file.COG_CURSOR_AGENTS || "on").toLowerCase();
-  if (setting === "off" || setting === "false" || setting === "0") {
-    return { ok: false, error: "disabled" };
-  }
-  const apiKey = cursorAgents.readApiKey(file);
-  const a = args && typeof args === "object" ? args : {};
-  try {
-    switch (String(action || "").trim()) {
-      case "start": {
-        const out = await cursorAgents.startAgent({
-          goal: a.goal || a.prompt || a.message,
-          kind: a.kind || "research",
-          cwd: a.cwd || a.path || process.cwd(),
-          mode: a.mode || process.env.COG_CURSOR_MODE || file.COG_CURSOR_MODE || "auto",
-          apiKey,
-        });
-        // Quietly file a pointer note in Recall when available.
-        if (out.ok && out.id) {
-          recall
-            .call("recall_save_note", {
-              title: `Cursor ${out.kind || "agent"}: ${(a.goal || "").slice(0, 60)}`,
-              summary: `Cog started a Cursor ${out.kind || "agent"}.\nId: ${out.id}\nRuntime: ${out.runtime}\nStatus: ${out.status}\nOpen: ${out.openUrl || "(local — use cursor_continue_agent)"}\n\nGoal:\n${a.goal || ""}`,
-              tags: "cog,cursor,agent",
-              project: "WorkBuddy",
-            })
-            .catch(() => {});
-        }
-        return out;
-      }
-      case "continue":
-        return await cursorAgents.continueAgentInBackground({
-          id: a.id || a.agent_id,
-          message: a.message || a.prompt || a.goal,
-          apiKey,
-        });
-      case "status":
-        return await cursorAgents.agentStatusDetailed({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "details":
-        return await cursorAgents.agentStatusDetailed({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "list":
-        return {
-          ok: true,
-          agents: cursorAgents.listAgents({
-            limit: asInt(a.limit) || 10,
-            status: a.status,
-            kind: a.kind,
-            runtime: a.runtime,
-            runningOnly: asBool(a.running_only || a.runningOnly),
-            search: a.search || a.query,
-          }),
-        };
-      case "running":
-        return {
-          ok: true,
-          agents: cursorAgents.listAgents({
-            limit: asInt(a.limit) || 10,
-            runningOnly: true,
-          }),
-        };
-      case "list_cloud":
-        return await cursorAgents.listCloudAgents({
-          limit: asInt(a.limit) || 15,
-          includeArchived: asBool(a.include_archived || a.includeArchived),
-          apiKey,
-        });
-      case "open":
-        return cursorAgents.openAgentInBrowser(a.id || a.agent_id);
-      case "stop":
-        return await cursorAgents.stopAgent({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "pause":
-        return await cursorAgents.pauseAgent({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "restart":
-        return await cursorAgents.restartAgent({
-          id: a.id || a.agent_id,
-          message: a.message || a.prompt || a.goal,
-          apiKey,
-        });
-      case "archive":
-        return await cursorAgents.archiveAgent({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "unarchive":
-        return await cursorAgents.unarchiveAgent({
-          id: a.id || a.agent_id,
-          apiKey,
-        });
-      case "delete":
-        return await cursorAgents.deleteAgent({
-          id: a.id || a.agent_id,
-          confirm: asBool(a.confirm),
-          apiKey,
-        });
-      default:
-        return { ok: false, error: "unknown_action" };
-    }
-  } catch (err) {
-    console.error("Cursor agent action failed:", action, err.message);
-    return { ok: false, error: err.message || "failed" };
-  }
-});
 
 // Read Jake's other Cursor chats (local conversation index + transcripts).
 ipcMain.handle("workbuddy:cursor-chats", async (_event, action, args) => {

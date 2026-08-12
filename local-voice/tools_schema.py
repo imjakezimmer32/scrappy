@@ -179,8 +179,56 @@ def job_tools() -> list[dict]:
     ]
 
 
+def cursor_tools() -> list[dict]:
+    s = {"type": "string"}
+    i = {"type": "integer"}
+    b = {"type": "boolean"}
+    return [
+        _fn(
+            "cursor_list_agents",
+            "List Cursor agents Cog knows about. Use when Jake asks what agents exist.",
+            {
+                "limit": {**i, "description": "How many (default 10)"},
+                "running_only": {**b, "description": "If true, only agents working now"},
+                "search": {**s, "description": "Optional text filter"},
+            },
+        ),
+        _fn(
+            "cursor_running_agents",
+            "Agents working right now. Use for 'what's running' / 'background agents'.",
+            {"limit": {**i, "description": "How many (default 10)"}},
+        ),
+        _fn(
+            "cursor_list_cloud_agents",
+            "List Jake's cloud agents from Cursor (Agents window overview).",
+            {
+                "limit": {**i, "description": "How many (default 15)"},
+                "include_archived": {**b, "description": "Include archived"},
+            },
+        ),
+        _fn(
+            "cursor_agent_status",
+            "Live status for one agent by id.",
+            {"id": {**s, "description": "Agent id"}},
+            ["id"],
+        ),
+        _fn(
+            "cursor_agent_details",
+            "Deep live check on one agent — prefer when Jake wants details.",
+            {"id": {**s, "description": "Agent id"}},
+            ["id"],
+        ),
+        _fn(
+            "cursor_open_agent",
+            "Open the agent in the browser for Jake.",
+            {"id": {**s, "description": "Agent id"}},
+            ["id"],
+        ),
+    ]
+
+
 def all_tools() -> list[dict]:
-    return recall_tools() + process_tools() + job_tools()
+    return recall_tools() + process_tools() + job_tools() + cursor_tools()
 
 
 LOCAL_MEMORY_RULES = """
@@ -210,5 +258,11 @@ When Jake says dig/search "in the background" / "while that cooks" / keep talkin
 the SYSTEM already starts the dig. You just ack briefly and do the chat/joke part.
 Do not call recall_* or process_* on those turns, and do not invent dig results —
 you'll be cued when the dig finishes (or it waits in a queue if you're busy).
+
+## CURSOR AGENTS (cursor_*)
+
+When Jake asks what agents are running / working / in the background / status —
+call cursor_running_agents or cursor_list_agents. Never invent agent names or status.
+If tools return empty, say none are running. If a tool errors, say you couldn't check.
 """.strip()
 

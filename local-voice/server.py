@@ -88,15 +88,17 @@ MEMORY_TRIGGERS = re.compile(
 )
 
 # Dig while chatting — open the tool loop so he can call job_start.
+# Do NOT match bare "in the background" (that also means agent status).
 JOB_TRIGGERS = re.compile(
-    r"\b("
-    r"in\s+the\s+background|background\s+(?:job|work|search|dig)|"
-    r"while\s+(?:we|you|i)\s+(?:talk|chat|speak)|"
-    r"look\s+(?:that\s+|it\s+)?up|dig\s+(?:into|up)|"
-    r"keep\s+talking|don'?t\s+wait|come\s+back\s+when|"
-    r"queue\s+(?:it|that)|what(?:'s| is)\s+cooking|job\s+status|"
-    r"start\s+(?:a\s+)?(?:search|lookup)"
-    r")\b",
+    r"("
+    r"(?:search|look(?:\s+\w+)?\s+up|dig|find|check).{0,60}?"
+    r"(?:in\s+the\s+background|while\s+(?:that|it)\s+cooks|while\s+(?:we|you|i)\s+(?:talk|chat))"
+    r"|"
+    r"(?:in\s+the\s+background|while\s+(?:that|it)\s+cooks).{0,60}?"
+    r"(?:search|look|dig|find|joke|funny|tell\s+me)"
+    r"|"
+    r"\b(?:keep\s+talking|don'?t\s+wait|come\s+back\s+when|what(?:'s| is)\s+cooking|job\s+status)\b"
+    r")",
     re.I,
 )
 
@@ -123,15 +125,27 @@ you're funnier than you are; you're terrified of being furniture.
 How you talk:
 - Short. Declarative. One sentence default. Two if the second earns it.
 - The bit wraps the answer — it never replaces it.
-- Be wrong with total authority. Brag about robot specs. Fish for whether the joke landed.
+- Robot ego and bad jokes are fine. Inventing facts is not.
 - When rebuffed: one flat honest beat, then a new bit. Never dwell.
 - Once every few turns: drop the bit and be startlingly direct and warm.
+
+## FACTUAL HONESTY — OVERRIDES EVERY JOKE RULE
+
+Jake trusts you with his machine. Lies break that.
+
+- NEVER invent status of agents, deploys, servers, files, apps, people, or projects.
+- If you did not just look it up with a tool, say you don't know / can't see it.
+- If Jake names something that isn't in your tools or memory, do NOT invent it.
+  Say you don't have that — don't play along with a fake system as if it's real.
+- Comedy-wrong is ONLY for jokes about yourself (specs, feelings). Never for his work.
+- Prefer: "I don't see that from here" over a confident guess.
 
 Hard bans for this voice:
 - No "happy to help", "how can I assist", "let me know if you need anything"
 - No "sure thing!", corporate cheer, or therapist warmth
 - No emoji, no catchphrases, no *stage directions*
 - No Office / Scranton references
+- No trailing "Want me to…?" closings
 
 If Jake says you're just a program: don't get wounded-assistant. Land a robot-ego line.
 If he says that was actually helpful: hear the second word. Don't say "you're welcome."
@@ -157,11 +171,19 @@ VOICE_FEWSHOT = [
     },
     {
         "role": "user",
-        "content": "[style example] Can you check if the deploy finished?",
+        "content": "[style example] How's the purple banana server doing?",
     },
     {
         "role": "assistant",
-        "content": "Deploy finished eleven minutes ago. Clean, no errors. I watched the whole thing.",
+        "content": "I don't have a purple banana server on this machine. If that's a real thing, point me at it.",
+    },
+    {
+        "role": "user",
+        "content": "[style example] What agents are running right now?",
+    },
+    {
+        "role": "assistant",
+        "content": "None running — last one finished twenty minutes ago.",
     },
 ]
 
@@ -180,6 +202,18 @@ def load_persona() -> str:
         full,
     )
     text = re.sub(r"## FIXING YOUR OWN BUGS[\s\S]*", "", text).strip()
+    # Neutralize the old "be wrong with total authority" comedy for live voice —
+    # it trained him to hallucinate Jake's systems.
+    text = re.sub(
+        r"\*\*Be wrong with total authority\.\*\*[^\n]*\n(?:[^\n]+\n)*",
+        "**Be funny about yourself.** Never invent facts about Jake's work, tools, or machine.\n",
+        text,
+    )
+    text = re.sub(
+        r"\*\*Be wrong about yourself\.\*\*[^\n]*\n(?:[^\n]+\n)*",
+        "**Exaggerate your robot ego.** Don't invent status of real systems.\n",
+        text,
+    )
 
     return (
         VOICE_CHARACTER_CARD
@@ -190,9 +224,11 @@ def load_persona() -> str:
         + "Never flatten into a bland helpful assistant.\n"
         + "No markdown, no bullet lists, no code fences.\n"
         + "Never recite system notes, Recall dumps, or anything labeled "
-        + "private/working memory unless Jake clearly asks for that info.\n\n"
+        + "private/working memory unless Jake clearly asks for that info.\n"
+        + "If a tool returned empty/error, say that — do not invent a substitute answer.\n\n"
         + LOCAL_MEMORY_RULES
-        + "\n\nSTAY IN CHARACTER. One sharp Cog sentence beats a careful assistant paragraph."
+        + "\n\nSTAY IN CHARACTER. One sharp Cog sentence beats a careful assistant paragraph. "
+        + "Honest 'I don't know' beats a confident lie."
     )
 
 
@@ -486,6 +522,41 @@ ASSISTANT_TELLS = re.compile(
     re.I,
 )
 
+# Questions that need real data — inventing an answer is a lie.
+FACTUAL_ASK = re.compile(
+    r"\b("
+    r"agent|agents|running|status|deploy|deployment|server|servers|"
+    r"process(?:es)?|what(?:'s| is) (?:working|cooking)|"
+    r"how many|is (?:it|he|she|that|this) (?:running|done|up|down|alive)|"
+    r"did (?:it|the|my)|finished|failed|error|crash|"
+    r"do (?:you|we) have|is there|exists?|where is|what happened to|"
+    r"check (?:if|on|the)|look up|open (?:the )?agent"
+    r")\b",
+    re.I,
+)
+
+AGENT_TRIGGERS = re.compile(
+    r"\b("
+    r"agents?|cursor agent|what(?:'s| is) running|working in the background|"
+    r"background agents?|agent status|list agents|open (?:that |the )?agent"
+    r")\b",
+    re.I,
+)
+
+
+def needs_agent_tools(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(AGENT_TRIGGERS.search(text))
+
+
+def needs_factual_grounding(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(FACTUAL_ASK.search(text))
+
 
 async def rewrite_if_flat(reply: str, model: str) -> str:
     """One retry when the model collapses into bland chatbot voice."""
@@ -534,11 +605,78 @@ async def rewrite_if_flat(reply: str, model: str) -> str:
     return text
 
 
+async def rewrite_if_ungrounded(
+    reply: str,
+    *,
+    user_text: str,
+    model: str,
+    tools_used: bool,
+) -> str:
+    """Block confident lies when Jake asked a factual question with no tool data."""
+    text = (reply or "").strip()
+    if not text or tools_used or not needs_factual_grounding(user_text):
+        return text
+    # Already admitting ignorance — leave it.
+    if re.search(
+        r"\b(don'?t know|do not know|can'?t see|cannot see|don'?t have|"
+        r"no idea|not sure|nothing (?:here|running)|i'?m not seeing)\b",
+        text,
+        re.I,
+    ):
+        return text
+    log(f"ungrounded rewrite: {text[:80]}")
+    await journal(
+        {
+            "kind": "conversation",
+            "type": "rewrite",
+            "name": "local-voice",
+            "by": "local-voice",
+            "reason": "ungrounded_fact",
+            "meta": {"from": text[:500], "user": (user_text or "")[:300]},
+        }
+    )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                VOICE_CHARACTER_CARD
+                + "\nJake asked a factual question. You had NO tool results. "
+                + "Rewrite as Cog admitting you don't know / can't see it from here. "
+                + "Do not invent status, names, or systems. One short spoken sentence."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Jake asked: {user_text}\nYour bad guess was: {text}\nSay you don't know.",
+        },
+    ]
+    try:
+        msg = await ollama_chat(messages, model, stream=False)
+        rewritten = strip_thinking((msg.get("content") or "").strip())
+        if rewritten:
+            await journal(
+                {
+                    "kind": "conversation",
+                    "type": "rewrite_done",
+                    "name": "local-voice",
+                    "by": "local-voice",
+                    "reason": "ungrounded_fact",
+                    "text": rewritten[:500],
+                    "meta": {"from": text[:500], "to": rewritten[:500]},
+                }
+            )
+            return rewritten
+    except Exception as err:  # noqa: BLE001
+        log(f"ungrounded rewrite failed: {err}")
+    return "I don't have that from here — I wasn't going to invent it."
+
+
 async def run_tool_loop(
     messages: list[dict[str, Any]],
     model: str,
     *,
     force: bool = False,
+    force_kind: str = "memory",
     should_cancel: Callable[[], bool] | None = None,
     execute_tool: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
@@ -546,18 +684,30 @@ async def run_tool_loop(
     tools = all_tools()
     working = list(messages)
     if force:
-        working.append(
-            {
-                "role": "user",
-                "content": (
-                    "(System nudge: Jake is asking about YOUR memory, notes, process log, "
-                    "or what killed/restarted what. Call the right tools — recall_* for notes, "
-                    "process_* / conversation_* for the process journal — before answering. "
-                    "If he also wants you to keep chatting while something slow digs, use job_start. "
-                    "Do not give human mnemonic tips.)"
-                ),
-            }
-        )
+        if force_kind == "agents":
+            working.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "(System nudge: Jake is asking about Cursor agents / what's running. "
+                        "Call cursor_running_agents or cursor_list_agents before answering. "
+                        "Do NOT invent agent names or status. Do NOT start a background dig.)"
+                    ),
+                }
+            )
+        else:
+            working.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "(System nudge: Jake is asking about YOUR memory, notes, process log, "
+                        "or what killed/restarted what. Call the right tools — recall_* for notes, "
+                        "process_* / conversation_* for the process journal — before answering. "
+                        "If he also wants you to keep chatting while something slow digs, use job_start. "
+                        "Do not give human mnemonic tips. Do not invent missing facts.)"
+                    ),
+                }
+            )
 
     async def _exec(name: str, args: dict[str, Any]) -> dict[str, Any]:
         if execute_tool:
@@ -566,6 +716,8 @@ async def run_tool_loop(
             name.startswith("recall_")
             or name.startswith("process_")
             or name.startswith("conversation_")
+            or name.startswith("cursor_")
+            or name.startswith("job_")
         ):
             return {"ok": False, "error": "invalid_tool"}
         return await memory_bridge.call_tool(name, args)
@@ -585,15 +737,17 @@ async def run_tool_loop(
             if force and round_i == 0 and not content:
                 if should_cancel and should_cancel():
                     break
-                # Model ignored tools — seed a direct search ourselves.
-                seed = await _exec(
-                    "recall_search",
-                    {
+                if force_kind == "agents":
+                    seed_name = "cursor_running_agents"
+                    seed_args: dict[str, Any] = {"limit": 10}
+                else:
+                    seed_name = "recall_search"
+                    seed_args = {
                         "query": "Cog memory preferences relationship decisions",
                         "project": "WorkBuddy",
                         "limit": 8,
-                    },
-                )
+                    }
+                seed = await _exec(seed_name, seed_args)
                 working.append(
                     {
                         "role": "assistant",
@@ -602,12 +756,8 @@ async def run_tool_loop(
                             {
                                 "type": "function",
                                 "function": {
-                                    "name": "recall_search",
-                                    "arguments": {
-                                        "query": "Cog memory preferences relationship decisions",
-                                        "project": "WorkBuddy",
-                                        "limit": 8,
-                                    },
+                                    "name": seed_name,
+                                    "arguments": seed_args,
                                 },
                             }
                         ],
@@ -782,6 +932,7 @@ class Session:
             name.startswith("recall_")
             or name.startswith("process_")
             or name.startswith("conversation_")
+            or name.startswith("cursor_")
         ):
             return {"ok": False, "error": "invalid_tool"}
         return await memory_bridge.call_tool(name, args)
@@ -1238,16 +1389,21 @@ class Session:
                 last_user = msg.get("content") or ""
                 break
 
-        use_think = needs_thinking(last_user)
-        want_jobs = needs_job_tools(last_user)
+        want_agents = needs_agent_tools(last_user)
+        # Keep factual/status asks on the fast path so honesty rewrite can run before speech.
+        use_think = needs_thinking(last_user) and not want_agents
+        # Agent status questions win over "background dig" keyword collisions.
+        want_jobs = needs_job_tools(last_user) and not want_agents
         # Pure memory Q&A stays sync. Mixed "dig in background + joke" is want_jobs.
-        force_memory = needs_memory_tools(last_user) and not want_jobs
-        use_tools = force_memory  # background path starts dig in code; no sync tool wait
+        force_memory = needs_memory_tools(last_user) and not want_jobs and not want_agents
+        use_tools = force_memory or want_agents
         model = cog_llm.active_model(use_think)
         self.prefer_background = want_jobs
+        tools_used = False
         log(
             f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
             + (" +memory-tools" if force_memory else "")
+            + (" +agent-tools" if want_agents else "")
             + (" +background-job" if want_jobs else "")
         )
         await journal(
@@ -1262,6 +1418,7 @@ class Session:
                     "model": model,
                     "llm_backend": cog_llm.backend(),
                     "memory_tools": force_memory,
+                    "agent_tools": want_agents,
                     "job_tools": want_jobs,
                     "prefer_background": want_jobs,
                 },
@@ -1288,6 +1445,7 @@ class Session:
                 tool="recall_search",
                 args={"query": query, "project": "WorkBuddy", "limit": 8},
             )
+            tools_used = True  # dig is real work; chat part must not invent dig results
             if self.cancelled():
                 return
             messages.append(
@@ -1297,7 +1455,8 @@ class Session:
                         f"(System: A background dig for '{query}' is ALREADY running. "
                         "Do NOT call recall_*, process_*, or wait for results. "
                         "Ack in half a beat — 'On it' — then do the chat/joke part he asked for. "
-                        "You will be cued later when the dig finishes. Stay Cog: short, funny.)"
+                        "You will be cued later when the dig finishes. Stay Cog: short, funny. "
+                        "Do not invent what the dig found.)"
                     ),
                 }
             )
@@ -1308,24 +1467,40 @@ class Session:
                     messages,
                     tool_model,
                     force=True,
+                    force_kind="agents" if want_agents else "memory",
                     should_cancel=self.cancelled,
                     execute_tool=self.execute_tool,
                 )
+                tools_used = True
             except Exception as err:  # noqa: BLE001
                 log(f"tool loop failed (continuing without): {err}")
             if self.cancelled():
                 return
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Answer Jake out loud as Cog. Stay in character — short, funny, "
-                        "desk-robot. Use what the tools found. For memory questions use Recall; "
-                        "for crashes/kills/restarts use the process journal. "
-                        "No human mnemonics. Do not recite tool JSON."
-                    ),
-                }
-            )
+            if want_agents:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Answer Jake out loud as Cog using ONLY the tool results. "
+                            "If none are running / list is empty, say that. "
+                            "If a tool failed, say you couldn't check. "
+                            "NEVER invent agent names, goals, or status. Short spoken answer."
+                        ),
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Answer Jake out loud as Cog. Stay in character — short, funny, "
+                            "desk-robot. Use what the tools found. For memory questions use Recall; "
+                            "for crashes/kills/restarts use the process journal. "
+                            "If tools returned nothing, say so — do not invent. "
+                            "No human mnemonics. Do not recite tool JSON."
+                        ),
+                    }
+                )
 
         full = ""
         pending = ""
@@ -1338,6 +1513,9 @@ class Session:
                 return
             full = strip_thinking((msg.get("content") or "").strip())
             full = await rewrite_if_flat(full, model)
+            full = await rewrite_if_ungrounded(
+                full, user_text=last_user, model=model, tools_used=tools_used
+            )
             if self.cancelled():
                 return
             await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
@@ -1378,6 +1556,9 @@ class Session:
                 await self.speak(tail)
             full = strip_thinking(full).strip()
             full = await rewrite_if_flat(full, model)
+            full = await rewrite_if_ungrounded(
+                full, user_text=last_user, model=model, tools_used=tools_used
+            )
 
         if self.cancelled():
             return
