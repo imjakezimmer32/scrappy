@@ -600,10 +600,31 @@ class Session:
         self.closed = False
         self._brief_loaded = False
 
-    async def send(self, payload: dict[str, Any]) -> None:
+    async def send(self, payload: dict[str, Any]) -> bool:
+        if self.closed:
+            return False
+        try:
+            await self.ws.send_json(payload)
+            return True
+        except Exception as err:  # noqa: BLE001
+            self.closed = True
+            log(f"ws send failed: {err}")
+            return False
+
+    async def recover_turn(self, why: str) -> None:
+        """Stay on the line and say something when a turn blows up."""
         if self.closed:
             return
-        await self.ws.send_json(payload)
+        line = "Hold up — I blanked for a second. Say that again?"
+        log(f"recovering turn ({why}): {line}")
+        try:
+            await self.send({"type": "status", "state": "speaking"})
+            await self.speak(line)
+            await self.send({"type": "agent_response", "text": line})
+            await self.send({"type": "status", "state": "listening"})
+        except Exception as err:  # noqa: BLE001
+            log(f"recover failed: {err}")
+            self.closed = True
 
     async def ensure_memory_brief(self) -> None:
         if self._brief_loaded:
@@ -731,8 +752,7 @@ class Session:
             await self.reply_from_history()
         except Exception as err:  # noqa: BLE001
             log(f"turn failed: {err}")
-            await self.send({"type": "error", "error": str(err)})
-            await self.send({"type": "status", "state": "listening"})
+            await self.recover_turn(str(err) or "exception")
         finally:
             self.busy = False
 
@@ -759,8 +779,7 @@ class Session:
             await self.reply_from_history()
         except Exception as err:  # noqa: BLE001
             log(f"text turn failed: {err}")
-            await self.send({"type": "error", "error": str(err)})
-            await self.send({"type": "status", "state": "listening"})
+            await self.recover_turn(str(err) or "exception")
         finally:
             self.busy = False
 
@@ -848,6 +867,9 @@ class Session:
             full = await rewrite_if_flat(full, model)
 
         reply = strip_thinking(full).strip()
+        if not reply:
+            reply = "I lost the thread. One more time?"
+            await self.speak(reply)
         if reply:
             self.history.append({"role": "assistant", "content": reply})
             append_transcript(self.session_id, "cog", reply)

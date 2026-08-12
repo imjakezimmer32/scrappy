@@ -39,6 +39,8 @@ let allowSpeech = false;
 let suppressTurn = false;
 let speakEndTimer = null;
 let toolsInFlight = 0;
+let intentionalStop = false;
+let reconnectAttempts = 0;
 
 // Gap between audio chunks can look like "done speaking" — wait before going idle.
 const SPEAK_END_GRACE_MS = 450;
@@ -203,6 +205,8 @@ async function start(opts) {
       return { ok: true, already: true };
     }
   }
+  intentionalStop = false;
+  reconnectAttempts = 0;
   usingMic = wantMic;
   allowSpeech = false;
   suppressTurn = false;
@@ -333,7 +337,14 @@ async function start(opts) {
     }
   };
 
-  ws.onclose = () => stop();
+  ws.onclose = () => {
+    if (intentionalStop) return;
+    if (active && voiceBackend === "local" && reconnectAttempts < 2) {
+      void softReconnect();
+      return;
+    }
+    stop();
+  };
 
   // ScriptProcessor rather than an AudioWorklet: it needs no separate module
   // fetch (which is fragile under file://) and 16kHz mono is nothing to chew.
@@ -376,6 +387,7 @@ function handleLocalMessage(msg) {
     case "ready":
       break;
     case "status":
+      emit("status", msg);
       break;
     case "user_transcript":
       if (isMeaningful(msg.text)) {
@@ -394,16 +406,84 @@ function handleLocalMessage(msg) {
       allowSpeech = true;
       if (msg.pcm16_b64) playChunk(msg.pcm16_b64, msg.sample_rate || 24000);
       break;
-    case "error":
-      emit("error", msg.error || "local_voice_failed");
+    case "error": {
+      const err = String(msg.error || "local_voice_failed");
+      // Turn hiccups should not hang up the whole call.
+      if (/quota|unauthorized|not_installed|mic_/i.test(err)) {
+        emit("error", err);
+        stop();
+      } else {
+        emit("turnError", err);
+      }
       break;
+    }
     default:
       break;
   }
 }
 
+async function softReconnect() {
+  reconnectAttempts += 1;
+  emit("turnError", "reconnecting");
+  emit("status", { state: "thinking", note: "reconnecting" });
+  const old = ws;
+  if (old) {
+    old.onclose = null;
+    old.onmessage = null;
+    old.onerror = null;
+    try {
+      old.close();
+    } catch {
+      // ignore
+    }
+  }
+  ws = null;
+  try {
+    const auth = window.workbuddy
+      ? await window.workbuddy.voiceSignedUrl()
+      : { ok: false };
+    if (!auth || !auth.ok || auth.backend !== "local") {
+      throw new Error("no_local");
+    }
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timeout")), 10000);
+      ws = new WebSocket(auth.url);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("socket_failed"));
+      };
+    });
+    ws.onmessage = (event) => {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      handleLocalMessage(msg);
+    };
+    ws.onclose = () => {
+      if (intentionalStop) return;
+      if (active && voiceBackend === "local" && reconnectAttempts < 2) {
+        void softReconnect();
+        return;
+      }
+      stop();
+    };
+    reconnectAttempts = 0;
+    emit("status", { state: "listening" });
+  } catch {
+    stop();
+  }
+}
+
 function stop() {
   if (!active && !ws) return;
+  intentionalStop = true;
   active = false;
   speaking = false;
   clearSpeakEndTimer();

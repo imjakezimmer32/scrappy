@@ -846,7 +846,29 @@ window.CogVoice.init({
   // nothing played — he just stays listening.
   suppressed() {},
   ignored() {},
+  status(s) {
+    if (!inCall || !s) return;
+    if (s.state === "thinking") {
+      setState("listen");
+      setFace("focused");
+      const hard = s.route === "think";
+      bubbleText(hard ? "Thinking hard…" : "One sec…", 0, "still with you — click to hang up");
+    } else if (s.state === "listening") {
+      setState("listen");
+      setFace("listen");
+      bubbleText("I'm listening.", 0, "click me to hang up");
+    }
+  },
+  // Recoverable brain hiccup — stay on the call.
+  turnError() {
+    if (!inCall) return;
+    setState("listen");
+    setFace("squint");
+    bubbleText("Still here. Keep talking.", 3500, "click me to hang up");
+  },
   error(code) {
+    // Fatal only — hang up cleanly so he doesn't wander with the mic still open.
+    if (window.CogVoice && window.CogVoice.isActive()) window.CogVoice.stop();
     inCall = false;
     const trouble = VOICE_TROUBLE[code] || ["Something went wrong.", ""];
     say(trouble[0], 5200, "squint", trouble[1]);
