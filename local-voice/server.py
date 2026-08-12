@@ -825,7 +825,7 @@ async def run_tool_loop(
 
 
 def synthesize(text: str) -> np.ndarray:
-    voice = os.environ.get("COG_TTS_VOICE", "am_puck")
+    voice = os.environ.get("COG_TTS_VOICE", "bm_lewis")
     kokoro = get_kokoro()
     samples, _sr = kokoro.create(text, voice=voice, speed=1.05)
     return np.asarray(samples, dtype=np.float32)
