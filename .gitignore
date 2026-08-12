@@ -5,6 +5,7 @@ dist/
 out/
 local-token.txt
 .env.local
+.env.local*.bak
 .env
 local-voice/logs/
 local-voice/.venv/

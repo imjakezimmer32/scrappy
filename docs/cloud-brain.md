@@ -3,7 +3,12 @@
 Your PC still does **listening** (Whisper) and **speaking** (Kokoro).
 The heavy “thinking” part can run on a **cloud API** so your GPU/RAM stay free.
 
-## Quick setup (OpenAI)
+## Quality rule
+
+Prefer a strong model. Do not default to the cheapest/fastest option when
+building Cog — Jake wants careful settings.
+
+## Setup (OpenAI — recommended)
 
 1. Get a key: https://platform.openai.com/api-keys  
 2. Open `workbuddy/.env.local`  
@@ -11,13 +16,14 @@ The heavy “thinking” part can run on a **cloud API** so your GPU/RAM stay fr
 
 ```
 COG_LLM_BACKEND=cloud
-COG_LLM_MODEL=gpt-4o-mini
+COG_LLM_MODEL=gpt-4o
 OPENAI_API_KEY=sk-your-key-here
 ```
 
 4. Restart Cog (or tray → **Switch brain → Cloud API**)
 
-`gpt-4o-mini` is cheap, fast, and strong enough for Cog’s personality + tools.
+`gpt-4o` is the quality default. `gpt-4o-mini` is only for temporary cost saving
+if Jake explicitly asks for it.
 
 ## Free/fast alternative (Groq)
 

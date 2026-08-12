@@ -47,23 +47,25 @@ PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # light local fallback only
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
-# English-only models hear Jake far better than multilingual "base".
-# medium.en is the default on this machine (Ryzen 9); override with WHISPER_MODEL.
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "medium.en")
+# English-only / large models hear Jake carefully. Prefer quality over speed.
+# Default large-v3 on this machine (Ryzen 9). Override with WHISPER_MODEL if needed.
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
+WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8_float32")
+WHISPER_BEAM = int(os.environ.get("WHISPER_BEAM", "8"))
 HOST = os.environ.get("COG_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COG_VOICE_PORT", "8790"))
 SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_OUT = 24000
-MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "4"))
+MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "6"))
 
-# Energy VAD: end turn only after Jake has clearly finished.
-# Patient on purpose — mid-sentence pauses must never chop him off.
-SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "1800"))
-MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "300"))
+# Energy VAD: end turn after this much silence once we've heard speech.
+# Patient on purpose — do not chop Jake off mid-thought.
+SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "1300"))
+MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "220"))
 ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.008"))
-# Barge-in while Cog is busy: harder to trigger so he doesn't cut Jake off.
-BARGE_MS = int(os.environ.get("COG_BARGE_MS", "500"))
-BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.035"))
+# Barge-in while Cog is busy: hotter + sustained so TTS echo doesn't false-trigger.
+BARGE_MS = int(os.environ.get("COG_BARGE_MS", "320"))
+BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
 
 # Bias Whisper toward names/products Jake actually says (reduces garbage guesses).
 WHISPER_PROMPT = os.environ.get("COG_WHISPER_PROMPT") or (
@@ -344,8 +346,8 @@ def get_whisper():
     if _whisper is None:
         from faster_whisper import WhisperModel
 
-        log(f"loading Whisper '{WHISPER_MODEL}' on CPU int8…")
-        _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+        log(f"loading Whisper '{WHISPER_MODEL}' on CPU {WHISPER_COMPUTE}…")
+        _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type=WHISPER_COMPUTE)
         log("Whisper ready")
     return _whisper
 
@@ -448,24 +450,20 @@ def transcribe(samples: np.ndarray) -> str:
     if peak > 1e-4 and peak < 0.25:
         samples = np.clip(samples * (0.35 / peak), -1.0, 1.0)
     model = get_whisper()
+    beam = max(1, min(WHISPER_BEAM, 10))
     segments, _info = model.transcribe(
         samples,
         language="en",
-        # Quality over speed — Jake does not want rushed hearing.
-        beam_size=5,
-        best_of=5,
-        patience=1.5,
+        beam_size=beam,
+        best_of=beam,
         temperature=0.0,
         vad_filter=True,
-        vad_parameters={
-            "min_silence_duration_ms": 700,
-            "speech_pad_ms": 400,
-        },
+        vad_parameters={"min_silence_duration_ms": 500},
         without_timestamps=True,
         condition_on_previous_text=False,
         initial_prompt=WHISPER_PROMPT,
         compression_ratio_threshold=2.4,
-        log_prob_threshold=-0.8,
+        log_prob_threshold=-0.85,
         no_speech_threshold=0.6,
     )
     text = " ".join(seg.text.strip() for seg in segments).strip()

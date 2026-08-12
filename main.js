@@ -175,7 +175,7 @@ function llmBackendPref() {
 
 function llmCloudModel() {
   const file = readEnvFile();
-  return process.env.COG_LLM_MODEL || file.COG_LLM_MODEL || "gpt-4o-mini";
+  return process.env.COG_LLM_MODEL || file.COG_LLM_MODEL || "gpt-4o";
 }
 
 function llmCloudKeyPresent() {
@@ -207,15 +207,15 @@ function localVoiceEnv() {
     GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
     COG_TTS_VOICE: process.env.COG_TTS_VOICE || file.COG_TTS_VOICE || "am_michael",
-    // Ears: bigger Whisper = much better hearing (medium.en default).
-    WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "medium.en",
+    // Ears: quality-first Whisper (large-v3). Never default back to tiny models.
+    WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "large-v3",
+    WHISPER_COMPUTE:
+      process.env.WHISPER_COMPUTE || file.WHISPER_COMPUTE || "int8_float32",
+    WHISPER_BEAM: process.env.WHISPER_BEAM || file.WHISPER_BEAM || "8",
     COG_VAD_SILENCE_MS:
-      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "1800",
+      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "1300",
     COG_VAD_ENERGY: process.env.COG_VAD_ENERGY || file.COG_VAD_ENERGY || "0.008",
-    COG_VAD_MIN_SPEECH_MS:
-      process.env.COG_VAD_MIN_SPEECH_MS || file.COG_VAD_MIN_SPEECH_MS || "300",
-    COG_BARGE_MS: process.env.COG_BARGE_MS || file.COG_BARGE_MS || "500",
-    COG_BARGE_ENERGY: process.env.COG_BARGE_ENERGY || file.COG_BARGE_ENERGY || "0.035",
+    COG_TOOL_ROUNDS: process.env.COG_TOOL_ROUNDS || file.COG_TOOL_ROUNDS || "6",
     COG_WHISPER_PROMPT: process.env.COG_WHISPER_PROMPT || file.COG_WHISPER_PROMPT || "",
     COG_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.

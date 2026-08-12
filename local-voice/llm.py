@@ -52,9 +52,9 @@ def cloud_model(think: bool = False) -> str:
         return (
             os.environ.get("COG_LLM_THINK_MODEL")
             or os.environ.get("COG_LLM_MODEL")
-            or "gpt-4o-mini"
+            or "gpt-4o"
         ).strip()
-    return (os.environ.get("COG_LLM_MODEL") or "gpt-4o-mini").strip()
+    return (os.environ.get("COG_LLM_MODEL") or "gpt-4o").strip()
 
 
 def ollama_model(think: bool = False) -> str:
