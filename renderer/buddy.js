@@ -432,8 +432,13 @@ function land() {
 
   setState("idle");
   lastPoke = Date.now();
-  if (spun) say(pickLine("thrown"), 2600, "dizzy");
-  else setFace("focused");
+  if (spun) {
+    noteThrow(Math.abs(vy), Math.abs(omega));
+    say(pickLine("thrown"), 2600, "dizzy");
+  } else {
+    setFace("focused");
+    pushBodyAwareness(true);
+  }
 }
 
 // ---------- cancellable waiting ----------
@@ -826,9 +831,14 @@ async function autoSaveSessionMemory() {
 function startContextFeed() {
   stopContextFeed(false);
   sessionLog = [];
+  sessionThrows = 0;
+  lastBodyLabel = "";
+  lastBodyPushAt = 0;
   beginConversationRecording();
   pushSystemContext(true);
   pushRecallBrief();
+  pushBodyAwareness(true);
+  startBodyAwarenessTick();
   contextTimer = setInterval(() => {
     pushSystemContext(false);
     pushRecallLive();
@@ -838,6 +848,7 @@ function startContextFeed() {
 function stopContextFeed(save = true) {
   if (contextTimer) clearInterval(contextTimer);
   contextTimer = null;
+  stopBodyAwarenessTick();
   if (save) {
     endConversationRecording().catch(() => {});
     autoSaveSessionMemory().catch(() => {});
@@ -1352,6 +1363,115 @@ async function nag() {
 
 setInterval(nag, NAG_EVERY_MS);
 
+// ---------- body awareness (tell the voice brain what Jake is doing to him) ----------
+
+const THROW_COUNT_KEY = "cog_throw_count";
+let sessionThrows = 0;
+let lastBodyLabel = "";
+let lastBodyPushAt = 0;
+let wiggleMs = 0;
+let bodyTickTimer = null;
+
+function lifetimeThrows() {
+  try {
+    const n = Number(localStorage.getItem(THROW_COUNT_KEY) || "0");
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function bumpLifetimeThrows() {
+  const next = lifetimeThrows() + 1;
+  try {
+    localStorage.setItem(THROW_COUNT_KEY, String(next));
+  } catch {
+    // ignore quota / private mode
+  }
+  return next;
+}
+
+function bodySpeed() {
+  return Math.hypot(vx || 0, vy || 0) + Math.abs(omega || 0) * 40;
+}
+
+function describeBodyState() {
+  const life = lifetimeThrows();
+  const countBit =
+    sessionThrows || life
+      ? ` Throws this call: ${sessionThrows}. Lifetime throws: ${life}.`
+      : "";
+
+  if (held) {
+    const wiggling = wiggleMs >= 220 || bodySpeed() > 520;
+    if (wiggling) {
+      return (
+        `Jake is holding you with the cursor and actively wiggling / shaking you around.` +
+        countBit
+      );
+    }
+    return `Jake is currently holding / carrying you with the cursor.` + countBit;
+  }
+  if (flying) {
+    const hard = bodySpeed() > 700;
+    return (
+      (hard
+        ? `Jake just threw you — you are flying / tumbling across the desktop.`
+        : `You are in the air after Jake let go — still airborne.`) + countBit
+    );
+  }
+  if (lastBodyLabel.includes("threw") || lastBodyLabel.includes("landing")) {
+    return `You just landed after being thrown.` + countBit;
+  }
+  return `You are sitting on the taskbar / desk, not being held.` + countBit;
+}
+
+function pushBodyAwareness(force = false) {
+  if (!inCall || !window.CogVoice || !window.CogVoice.sendContext) return;
+  const line = describeBodyState();
+  const now = Date.now();
+  // Don't spam identical idle desk updates.
+  if (!force && line === lastBodyLabel && now - lastBodyPushAt < 1800) return;
+  // While manhandled, refresh at least every ~1.6s even if the label is similar.
+  if (!force && line === lastBodyLabel && (held || flying) && now - lastBodyPushAt < 1600) {
+    return;
+  }
+  lastBodyLabel = line;
+  lastBodyPushAt = now;
+  window.CogVoice.sendContext(`BODY: ${line}`);
+}
+
+function noteThrow(impactVy, impactOmega) {
+  sessionThrows += 1;
+  const life = bumpLifetimeThrows();
+  lastBodyLabel = `Jake just threw you hard (landing). Throws this call: ${sessionThrows}. Lifetime throws: ${life}.`;
+  lastBodyPushAt = 0;
+  pushBodyAwareness(true);
+  void impactVy;
+  void impactOmega;
+}
+
+function startBodyAwarenessTick() {
+  stopBodyAwarenessTick();
+  bodyTickTimer = setInterval(() => {
+    if (!inCall) return;
+    if (held) {
+      const speed = bodySpeed();
+      if (speed > 380) wiggleMs = Math.min(2000, wiggleMs + 140);
+      else wiggleMs = Math.max(0, wiggleMs - 90);
+    } else {
+      wiggleMs = 0;
+    }
+    if (held || flying || wiggleMs > 0) pushBodyAwareness(false);
+  }, 140);
+}
+
+function stopBodyAwarenessTick() {
+  if (bodyTickTimer) clearInterval(bodyTickTimer);
+  bodyTickTimer = null;
+  wiggleMs = 0;
+}
+
 // ---------- grab and throw ----------
 
 let pointer = { x: -1, y: -1 };
@@ -1393,6 +1513,7 @@ el.addEventListener("pointerdown", (e) => {
   // Hold the mouse for the whole drag — he'll outrun his own hit box.
   interactive = true;
   bridge.setInteractive(true);
+  pushBodyAwareness(true);
 });
 
 window.addEventListener("pointermove", (e) => {
@@ -1421,6 +1542,9 @@ window.addEventListener("pointerup", () => {
     setState("idle");
     setFace("focused");
     tap();
+    pushBodyAwareness(true);
+  } else {
+    pushBodyAwareness(true);
   }
   refreshInteractive();
 });
@@ -1430,6 +1554,7 @@ window.addEventListener("pointercancel", () => {
   held = false;
   flying = true;
   setState("fly");
+  pushBodyAwareness(true);
 });
 
 // ---------- click-through plumbing ----------
@@ -1482,7 +1607,19 @@ window.__cog = {
     lift = liftAt(x + COM_X);
     if (!inHand()) place();
   },
-  state: () => ({ x, lift, cx, cy, held, flying, screen: screenAt(x + COM_X) }),
+  state: () => ({
+    x,
+    lift,
+    cx,
+    cy,
+    held,
+    flying,
+    wiggleMs,
+    sessionThrows,
+    lifetimeThrows: lifetimeThrows(),
+    body: describeBodyState(),
+    screen: screenAt(x + COM_X),
+  }),
 };
 
 if (window.CogWake) {

@@ -161,6 +161,9 @@ Jake trusts you with his machine. Lies break that.
 - Prefer: "I don't see that from here" over a confident guess.
 - NEVER read aloud private background, Recall dumps, machine telemetry, note IDs,
   agent IDs, exit codes, or raw tool JSON. Use them silently.
+- You have a desk body Jake can grab, wiggle, and throw. When body-state context
+  says he's doing that, you feel it. React briefly. Don't pretend you're sitting
+  still if he's shaking you.
 
 Hard bans for this voice:
 - No "happy to help", "how can I assist", "let me know if you need anything"
@@ -1004,6 +1007,7 @@ class Session:
         self.session_id = f"cog-{int(time.time())}-{os.getpid()}"
         self.history: list[dict[str, str]] = []
         self.side_context: list[str] = []
+        self.body_state = ""
         self.memory_brief = ""
         self.audio_buf = np.zeros(0, dtype=np.float32)
         self.speech_ms = 0.0
@@ -1375,10 +1379,14 @@ class Session:
         line = (text or "").strip()
         if not line:
             return
+        # Sticky live body feed from the desk sprite (carry / wiggle / throw).
+        if line.upper().startswith("BODY:"):
+            self.body_state = line.split(":", 1)[1].strip()[:800]
+            return
         # Keep a tiny rolling brief — never dump this into spoken turns.
         self.side_context.append(line[:1200])
-        if len(self.side_context) > 4:
-            self.side_context = self.side_context[-4:]
+        if len(self.side_context) > 6:
+            self.side_context = self.side_context[-6:]
 
     def build_messages(self) -> list[dict[str, Any]]:
         system = _persona
@@ -1389,11 +1397,20 @@ class Session:
                 "If he asks about memory/preferences and this feels thin, call Recall tools.\n"
                 f"{self.memory_brief}"
             )
+        if self.body_state:
+            system += (
+                "\n\n## YOUR BODY RIGHT NOW (private — feel it, don't narrate the feed)\n"
+                "This is what is happening to your desk body while Jake talks to you. "
+                "If he is holding, wiggling, or throwing you, you NOTICE. React briefly "
+                "and in character when it matters — complain, brag, get dizzy, keep count. "
+                "Do not say 'according to my sensors' or read this block aloud.\n"
+                f"{self.body_state}"
+            )
         if self.side_context:
             brief = "\n".join(f"- {c}" for c in self.side_context)
             system += (
                 "\n\n## PRIVATE BACKGROUND (do not read aloud)\n"
-                "Use only if Jake asks about his machine, notes, or current work.\n"
+                "Use for machine/notes context when relevant. Body state is above.\n"
                 f"{brief}"
             )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
