@@ -43,9 +43,19 @@ Ask him out loud:
 
 He has tools: `process_recent`, `process_search`, `process_note`, `conversation_recent`, `conversation_get`.
 
+## Background jobs
+
+Cog can dig (Recall search, etc.) **while still talking to you**. When the dig finishes:
+
+- If he’s free → he speaks the result
+- If he’s mid-sentence / mid-turn → it waits in a **cue** and he pipes up when idle
+
+Those show up in the journal as `kind: job` (`start` / `done` / `error` / `spoken`). Ask: “what’s cooking?” or “job status.”
+
 ## What gets recorded automatically
 
 - WorkBuddy / local-voice / wake-listener **start, stop, kill, exit, auto-restart**
 - Why it happened (`by` + `reason`) — tray, auto-restart, voice call, quit, etc.
 - Conversation beats: what you said, what Cog said, model route, tools, rewrites, recoveries
+- Background job start/finish/spoken cues
 - Notes you add by hand

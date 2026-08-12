@@ -98,7 +98,7 @@ def process_tools() -> list[dict]:
             "Read Cog's live process journal: starts, stops, kills, restarts, wake events, chat status. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
             {
                 "limit": {**i, "description": "Max events (default 40)"},
-                "kind": {**s, "description": 'Optional filter: process, conversation, note, system'},
+                "kind": {**s, "description": 'Optional filter: process, conversation, note, system, job'},
                 "type": {**s, "description": "Optional filter e.g. kill, start, exit, wake, user_note"},
             },
         ),
@@ -137,8 +137,50 @@ def process_tools() -> list[dict]:
     ]
 
 
+def job_tools() -> list[dict]:
+    s = {"type": "string"}
+    return [
+        _fn(
+            "job_start",
+            (
+                "BACKGROUND WORK: kick off a slow tool (Recall search/ask/save, etc.) while you "
+                "keep talking. Returns immediately with a job id. When it finishes, you will be "
+                "cued to tell Jake — or it waits in a queue if you're still speaking. "
+                "Use this when the dig can wait a few seconds and Jake still wants conversation. "
+                "Do NOT use for quick process_recent / conversation reads he needs answered now."
+            ),
+            {
+                "label": {
+                    **s,
+                    "description": "Short human label, e.g. 'search memory for coffee prefs'",
+                },
+                "tool": {
+                    **s,
+                    "description": "Which tool to run in the background (recall_search, recall_ask, …)",
+                },
+                "args_json": {
+                    **s,
+                    "description": 'JSON object of args for that tool, e.g. {"query":"coffee","project":"WorkBuddy"}',
+                },
+            },
+            ["label", "tool"],
+        ),
+        _fn(
+            "job_status",
+            "Check one background job by id (running / done / error + short result).",
+            {"id": {**s, "description": "Job id from job_start"}},
+            ["id"],
+        ),
+        _fn(
+            "job_list",
+            "List recent background jobs for this call (what's cooking / finished).",
+            {},
+        ),
+    ]
+
+
 def all_tools() -> list[dict]:
-    return recall_tools() + process_tools()
+    return recall_tools() + process_tools() + job_tools()
 
 
 LOCAL_MEMORY_RULES = """
@@ -161,4 +203,16 @@ conversation_get.
 
 When Jake asks what crashed, what killed what, why you went quiet, or what processes
 ran — look it up. Don't guess. Summarize briefly out loud; don't read the whole log.
+
+## BACKGROUND WORK (job_*)
+
+You can dig while still chatting. Use job_start for slower Recall work (search, ask,
+save) when Jake also wants you to keep talking — ack briefly ("On it — diggin'") then
+answer the conversational part. When the job finishes, the system will cue you to
+speak the result if you're free, or hold it in a queue if you're mid-sentence.
+
+Use sync tools (not job_start) when the whole point of this turn IS the lookup
+(memory question, crash question). job_status / job_list if he asks what's cooking.
+Never invent job results — wait for the cue or check job_status.
 """.strip()
+

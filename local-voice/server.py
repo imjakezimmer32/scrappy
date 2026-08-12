@@ -28,7 +28,7 @@ import re
 import struct
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 import httpx
 import numpy as np
@@ -37,6 +37,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
 import llm as cog_llm
+from jobs import Job, JobBoard, parse_job_args
 from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
 ROOT = Path(__file__).resolve().parent
@@ -82,6 +83,19 @@ MEMORY_TRIGGERS = re.compile(
     r"process(?:es|es\s+log|log)?|what\s+killed|who\s+killed|crashed?|restart(?:ed)?|"
     r"went\s+quiet|stopped\s+talking|why\s+did\s+you\s+stop|under\s+the\s+hood|"
     r"conversation(?:s)?\s+log|session\s+log|what\s+just\s+happened"
+    r")\b",
+    re.I,
+)
+
+# Dig while chatting — open the tool loop so he can call job_start.
+JOB_TRIGGERS = re.compile(
+    r"\b("
+    r"in\s+the\s+background|background\s+(?:job|work|search|dig)|"
+    r"while\s+(?:we|you|i)\s+(?:talk|chat|speak)|"
+    r"look\s+(?:that\s+|it\s+)?up|dig\s+(?:into|up)|"
+    r"keep\s+talking|don'?t\s+wait|come\s+back\s+when|"
+    r"queue\s+(?:it|that)|what(?:'s| is)\s+cooking|job\s+status|"
+    r"start\s+(?:a\s+)?(?:search|lookup)"
     r")\b",
     re.I,
 )
@@ -232,6 +246,13 @@ def needs_memory_tools(user_text: str) -> bool:
     if not text or WAKE_ONLY.match(text):
         return False
     return bool(MEMORY_TRIGGERS.search(text))
+
+
+def needs_job_tools(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(JOB_TRIGGERS.search(text))
 
 
 WAKE_ONLY = re.compile(
@@ -501,6 +522,7 @@ async def run_tool_loop(
     *,
     force: bool = False,
     should_cancel: Callable[[], bool] | None = None,
+    execute_tool: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Let the LLM call tools, then return the enriched message list."""
     tools = all_tools()
@@ -513,10 +535,22 @@ async def run_tool_loop(
                     "(System nudge: Jake is asking about YOUR memory, notes, process log, "
                     "or what killed/restarted what. Call the right tools — recall_* for notes, "
                     "process_* / conversation_* for the process journal — before answering. "
+                    "If he also wants you to keep chatting while something slow digs, use job_start. "
                     "Do not give human mnemonic tips.)"
                 ),
             }
         )
+
+    async def _exec(name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if execute_tool:
+            return await execute_tool(name, args)
+        if not (
+            name.startswith("recall_")
+            or name.startswith("process_")
+            or name.startswith("conversation_")
+        ):
+            return {"ok": False, "error": "invalid_tool"}
+        return await memory_bridge.call_tool(name, args)
 
     for round_i in range(MAX_TOOL_ROUNDS):
         if should_cancel and should_cancel():
@@ -534,7 +568,7 @@ async def run_tool_loop(
                 if should_cancel and should_cancel():
                     break
                 # Model ignored tools — seed a direct search ourselves.
-                seed = await memory_bridge.call_tool(
+                seed = await _exec(
                     "recall_search",
                     {
                         "query": "Cog memory preferences relationship decisions",
@@ -589,14 +623,7 @@ async def run_tool_loop(
             args = _tool_args(fn.get("arguments"))
             call_id = call.get("id") or f"call_{name or 'tool'}"
             log(f"tool -> {name} {json.dumps(args)[:160]}")
-            if not (
-                name.startswith("recall_")
-                or name.startswith("process_")
-                or name.startswith("conversation_")
-            ):
-                result: dict[str, Any] = {"ok": False, "error": "invalid_tool"}
-            else:
-                result = await memory_bridge.call_tool(name, args)
+            result = await _exec(name, args)
             await journal(
                 {
                     "kind": "conversation",
@@ -655,9 +682,207 @@ class Session:
         self.barge_ms = 0.0
         self.barge_buf = np.zeros(0, dtype=np.float32)
         self._partial_reply = ""
+        self.result_cue: asyncio.Queue[str] = asyncio.Queue()
+        self._deliver_task: asyncio.Task | None = None
+        self.board = JobBoard(
+            session_id=self.session_id,
+            run_tool=memory_bridge.call_tool,
+            journal=journal,
+            on_done=self._on_job_done,
+        )
 
     def cancelled(self) -> bool:
         return self.cancel.is_set() or self.closed
+
+    async def execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch sync tools + job_* (background work)."""
+        if name == "job_start":
+            label = str(args.get("label") or "").strip()
+            tool = str(args.get("tool") or "").strip()
+            job_args = parse_job_args(args.get("args_json") if "args_json" in args else args.get("args"))
+            # Also accept flat leftover keys as args if no JSON provided.
+            if not job_args:
+                job_args = {
+                    k: v
+                    for k, v in args.items()
+                    if k not in ("label", "tool", "args_json", "args")
+                }
+            out = self.board.start(label=label, tool=tool, args=job_args)
+            if out.get("ok"):
+                await self.send(
+                    {
+                        "type": "job",
+                        "status": "running",
+                        "job": (out.get("data") or {}),
+                    }
+                )
+            return out
+        if name == "job_status":
+            return self.board.status_payload(str(args.get("id") or ""))
+        if name == "job_list":
+            rows = self.board.list_jobs(limit=int(args.get("limit") or 8))
+            active = sum(1 for r in rows if r.get("status") == "running")
+            return {
+                "ok": True,
+                "text": f"{active} running, {len(rows)} recent jobs.",
+                "data": {"jobs": rows},
+            }
+        if not (
+            name.startswith("recall_")
+            or name.startswith("process_")
+            or name.startswith("conversation_")
+        ):
+            return {"ok": False, "error": "invalid_tool"}
+        return await memory_bridge.call_tool(name, args)
+
+    async def _on_job_done(self, job: Job) -> None:
+        if self.closed:
+            return
+        line = await self._summarize_job(job)
+        job.spoken = False
+        self.add_context(
+            f"Background job '{job.label}' ({job.status}): {(job.result_text or job.error)[:900]}"
+        )
+        await self.result_cue.put(line)
+        await self.send(
+            {
+                "type": "job",
+                "status": job.status,
+                "job": job.brief(),
+                "preview": line[:240],
+            }
+        )
+        # Long digs: walk over so Jake notices even if muted.
+        if job.duration_ms() >= 8000:
+            try:
+                await memory_bridge.desk_nudge(job.label, duration_ms=job.duration_ms())
+            except Exception as err:  # noqa: BLE001
+                log(f"desk nudge skip: {err}")
+        self._kick_deliver()
+
+    async def _summarize_job(self, job: Job) -> str:
+        if not job.ok:
+            return f"Hey — that background dig for {job.label} flopped. {job.error or 'Something broke.'}"
+        raw = (job.result_text or "").strip()
+        if not raw:
+            return f"Finished {job.label}, but it came back empty."
+        model = cog_llm.active_model(False)
+        prompt = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Cog, Jake's short funny desk robot. "
+                    "Turn a finished background job into 1-2 spoken sentences. "
+                    "No JSON, no bullet dump, no 'as an AI'."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Background job label: {job.label}\n"
+                    f"Tool: {job.tool}\n"
+                    f"Raw result:\n{raw[:2800]}\n\n"
+                    "Speak the useful bit to Jake now."
+                ),
+            },
+        ]
+        try:
+            msg = await ollama_chat(prompt, model, stream=False)
+            line = strip_thinking((msg.get("content") or "").strip())
+            line = re.sub(r"[*`#_>~\[\]\(\)]", "", line).strip()
+            if line and len(line) > 8:
+                return line[:500]
+        except Exception as err:  # noqa: BLE001
+            log(f"job summarize failed: {err}")
+        clip = re.sub(r"\s+", " ", raw)[:220]
+        return f"Got that background dig for {job.label}: {clip}"
+
+    def _kick_deliver(self) -> None:
+        if self.closed:
+            return
+        if self._deliver_task and not self._deliver_task.done():
+            return
+        self._deliver_task = asyncio.create_task(self._deliver_loop())
+
+    async def _deliver_loop(self) -> None:
+        """Speak queued job results only when Cog is idle."""
+        try:
+            while not self.closed and not self.result_cue.empty():
+                # Wait until he's not mid-turn and Jake isn't mid-utterance.
+                for _ in range(300):
+                    if self.closed:
+                        return
+                    idle = (
+                        not self.busy
+                        and not (self.turn_task and not self.turn_task.done())
+                        and not self.in_speech
+                        and self.audio_buf.size < SAMPLE_RATE_IN // 2
+                    )
+                    if idle:
+                        break
+                    await asyncio.sleep(0.2)
+                else:
+                    # Still busy — try again later without spinning forever.
+                    await asyncio.sleep(1.0)
+                    continue
+
+                lines: list[str] = []
+                while not self.result_cue.empty():
+                    try:
+                        lines.append(self.result_cue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                if not lines:
+                    return
+
+                if len(lines) == 1:
+                    spoken = lines[0]
+                else:
+                    spoken = "Couple things came back. " + " Also: ".join(lines[:3])
+                    if len(lines) > 3:
+                        spoken += f" And {len(lines) - 3} more in the queue."
+
+                # Own the mic briefly via a normal turn so barge-in still works.
+                if self.busy or (self.turn_task and not self.turn_task.done()):
+                    for line in lines:
+                        await self.result_cue.put(line)
+                    await asyncio.sleep(0.5)
+                    continue
+
+                self._start_turn(self._announce_results(spoken, lines))
+                # Wait for that announcement turn to finish.
+                while self.turn_task and not self.turn_task.done():
+                    await asyncio.sleep(0.15)
+        except Exception as err:  # noqa: BLE001
+            log(f"deliver loop failed: {err}")
+
+    async def _announce_results(self, spoken: str, source_lines: list[str]) -> None:
+        if self.cancelled():
+            for line in source_lines:
+                await self.result_cue.put(line)
+            return
+        await self.send({"type": "status", "state": "speaking", "route": "job"})
+        await self.speak(spoken)
+        if self.cancelled():
+            # Interrupted mid-announce — try again when idle.
+            await self.result_cue.put(spoken)
+            return
+        self.history.append({"role": "assistant", "content": spoken})
+        append_transcript(self.session_id, "cog", spoken)
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
+        await journal(
+            {
+                "kind": "job",
+                "type": "spoken",
+                "name": "local-voice",
+                "session_id": self.session_id,
+                "by": "local-voice",
+                "text": spoken[:800],
+            }
+        )
+        await self.send({"type": "agent_response", "text": spoken, "route": "job"})
+        await self.send({"type": "status", "state": "listening"})
 
     async def send(self, payload: dict[str, Any]) -> bool:
         if self.closed:
@@ -671,10 +896,10 @@ class Session:
             return False
 
     async def interrupt(self, reason: str = "barge_in") -> None:
-        """Stop current turn: mute playback, cancel unfinished tools/speech.
+        """Stop current turn: mute playback, cancel unfinished sync tools/speech.
 
-        Tools that already finished keep their side effects. Anything still
-        queued (remaining tool calls, TTS frames) is dropped.
+        Background jobs keep running. Tools that already finished keep side effects.
+        Queued job result cues stay queued and speak when idle again.
         """
         if not self.busy and not (self.turn_task and not self.turn_task.done()):
             return
@@ -726,6 +951,7 @@ class Session:
         )
         self.cancel.clear()
         await self.send({"type": "status", "state": "listening"})
+        self._kick_deliver()
 
     async def recover_turn(self, why: str) -> None:
         """Stay on the line and say something when a turn blows up."""
@@ -847,6 +1073,8 @@ class Session:
                 if not self.cancel.is_set():
                     self.busy = False
                 self.turn_task = None
+                # After any turn, try to speak finished background work.
+                self._kick_deliver()
 
         self.turn_task = asyncio.create_task(_runner())
 
@@ -960,10 +1188,13 @@ class Session:
 
         use_think = needs_thinking(last_user)
         force_memory = needs_memory_tools(last_user)
+        want_jobs = needs_job_tools(last_user)
+        use_tools = force_memory or want_jobs
         model = cog_llm.active_model(use_think)
         log(
             f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
             + (" +memory-tools" if force_memory else "")
+            + (" +job-tools" if want_jobs and not force_memory else "")
         )
         await journal(
             {
@@ -977,6 +1208,7 @@ class Session:
                     "model": model,
                     "llm_backend": cog_llm.backend(),
                     "memory_tools": force_memory,
+                    "job_tools": want_jobs,
                 },
             }
         )
@@ -991,31 +1223,47 @@ class Session:
             }
         )
 
-        # Only spend a tool round when Jake is asking about memory/notes/tasks.
+        # Tool round for memory lookups and/or background job_start.
         messages = self.build_messages()
-        if force_memory:
+        if use_tools:
+            tool_model = cog_llm.active_model(False)
             try:
                 messages = await run_tool_loop(
                     messages,
-                    OLLAMA_MODEL,
-                    force=True,
+                    tool_model,
+                    force=force_memory,
                     should_cancel=self.cancelled,
+                    execute_tool=self.execute_tool,
                 )
             except Exception as err:  # noqa: BLE001
                 log(f"tool loop failed (continuing without): {err}")
             if self.cancelled():
                 return
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Answer Jake out loud as Cog. Stay in character — short, funny, "
-                        "desk-robot. Use what the tools found. For memory questions use Recall; "
-                        "for crashes/kills/restarts use the process journal. No human mnemonics. "
-                        "Do not recite tool JSON."
-                    ),
-                }
-            )
+            if force_memory:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Answer Jake out loud as Cog. Stay in character — short, funny, "
+                            "desk-robot. Use what the tools found. For memory questions use Recall; "
+                            "for crashes/kills/restarts use the process journal. "
+                            "If you started a background job, ack it briefly and keep chatting — "
+                            "don't pretend you already have that result. No human mnemonics. "
+                            "Do not recite tool JSON."
+                        ),
+                    }
+                )
+            elif want_jobs:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Answer Jake out loud as Cog. If you started background work with "
+                            "job_start, say you're on it in one short beat, then handle the rest "
+                            "of what he said. Don't invent the job result yet."
+                        ),
+                    }
+                )
 
         full = ""
         pending = ""
@@ -1203,6 +1451,10 @@ async def voice_socket(ws: WebSocket):
                 await session.turn_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
+        try:
+            await session.board.cancel_all()
+        except Exception:  # noqa: BLE001
+            pass
         await session.persist_session()
 
 

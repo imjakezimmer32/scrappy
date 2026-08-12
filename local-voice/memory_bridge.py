@@ -107,3 +107,26 @@ async def process_event(event: dict[str, Any]) -> dict[str, Any]:
         if r.status_code != 200:
             return {"ok": False, "error": f"http_{r.status_code}"}
         return r.json()
+
+
+async def desk_nudge(title: str, duration_ms: int = 15000) -> dict[str, Any]:
+    """Ask the desk robot to walk over (same path as Cursor agent-done)."""
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "no_token"}
+    url = f"{WORKBUDDY_URL}/agent-done"
+    payload = {
+        "force": True,
+        "source": "local-job",
+        "title": (title or "Background work done")[:120],
+        "durationMs": max(0, int(duration_ms)),
+    }
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            content=json.dumps(payload),
+        )
+        if r.status_code != 200:
+            return {"ok": False, "error": f"http_{r.status_code}"}
+        return r.json()
