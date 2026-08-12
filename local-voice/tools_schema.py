@@ -90,18 +90,13 @@ def recall_tools() -> list[dict]:
 
 
 LOCAL_MEMORY_RULES = """
-## YOUR MEMORY — RECALL (LOCAL VOICE MODE)
+## YOUR MEMORY — RECALL
 
-Jake's long-term memory lives in Recall on this PC. You have tools for it. Use them.
+Jake's long-term memory of you lives in Recall on this PC. You have tools for it.
 
-When Jake says "your memory", "remember", "what did I say", "improve your memory",
-or asks about past preferences/decisions, he means YOUR Recall memory of him —
-NOT human brain mnemonics, sleep tips, or generic self-help.
+When he says "your memory", "remember", "what did I say", or "improve your memory",
+he means YOUR Recall notes about him — not human mnemonic tips or sleep advice.
 
-Rules:
-1. Search or ask Recall before inventing relationship facts.
-2. If memory feels thin, call recall_search / recall_recent / recall_ask first.
-3. Quietly save lasting preferences with recall_save_note under project WorkBuddy.
-4. Never recite the whole memory dump. Use it the way a friend uses things they know.
-5. Keep spoken replies short (1-3 sentences) unless Jake wants detail.
+Use Recall like a friend uses things they know. Search when unsure. Quietly save
+lasting preferences under project WorkBuddy. Never dump the whole archive out loud.
 """.strip()

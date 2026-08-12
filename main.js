@@ -151,7 +151,7 @@ function voiceBackendPref() {
 
 function ollamaModel() {
   const file = readEnvFile();
-  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
+  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:14b";
 }
 
 function ollamaThinkModel() {
@@ -224,8 +224,8 @@ function setThinkMode(mode) {
 }
 
 const LOCAL_MODEL_CHOICES = [
-  { label: "Qwen 2.5 7B (fast replies)", id: "qwen2.5:7b" },
-  { label: "Qwen 2.5 14B (smarter chat)", id: "qwen2.5:14b" },
+  { label: "Qwen 2.5 14B (best character)", id: "qwen2.5:14b" },
+  { label: "Qwen 2.5 7B (faster, flatter)", id: "qwen2.5:7b" },
   { label: "Gemma 2 9B (natural chat)", id: "gemma2:9b" },
 ];
 

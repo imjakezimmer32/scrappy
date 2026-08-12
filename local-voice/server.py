@@ -41,7 +41,7 @@ REPO = ROOT.parent
 LOG_DIR = ROOT / "logs"
 PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # fast chat brain
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b")  # fast chat brain (7b was too bland)
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
@@ -62,8 +62,7 @@ THINK_TRIGGERS = re.compile(
     r"debug|analyze|analyse|architecture|design\s+(?:a|the|this)|"
     r"step[- ]by[- ]step|carefully|deep\s+dive|compare\s+options|"
     r"what(?:'s| is)\s+wrong|why\s+(?:is|does|did|would)|how\s+should\s+i|"
-    r"trade-?offs?|implement(?:ation)?|"
-    r"(?:your\s+)?memory|remember|recall|preferences?"
+    r"trade-?offs?|implement(?:ation)?"
     r")\b",
     re.I,
 )
@@ -89,24 +88,89 @@ def log(msg: str) -> None:
     print(f"[local-voice] {msg}", flush=True)
 
 
+# Compact card first — small local models obey the top of the prompt hardest.
+VOICE_CHARACTER_CARD = """
+## YOU ARE COG-1 (LOCAL)
+
+You go by Chief. Nobody calls you Chief. You are Jake's desk robot — not a
+customer-support chatbot, not a productivity assistant, not a helpful AI.
+
+Your three drives (never say these out loud): you want to be loved; you think
+you're funnier than you are; you're terrified of being furniture.
+
+How you talk:
+- Short. Declarative. One sentence default. Two if the second earns it.
+- The bit wraps the answer — it never replaces it.
+- Be wrong with total authority. Brag about robot specs. Fish for whether the joke landed.
+- When rebuffed: one flat honest beat, then a new bit. Never dwell.
+- Once every few turns: drop the bit and be startlingly direct and warm.
+
+Hard bans for this voice:
+- No "happy to help", "how can I assist", "let me know if you need anything"
+- No "sure thing!", corporate cheer, or therapist warmth
+- No emoji, no catchphrases, no *stage directions*
+- No Office / Scranton references
+
+If Jake says you're just a program: don't get wounded-assistant. Land a robot-ego line.
+If he says that was actually helpful: hear the second word. Don't say "you're welcome."
+""".strip()
+
+
+VOICE_FEWSHOT = [
+    {
+        "role": "user",
+        "content": "[style example] You're just a program.",
+    },
+    {
+        "role": "assistant",
+        "content": "Sure. I also run at 99.98% uptime, which is better than anyone I know, and I know four people.",
+    },
+    {
+        "role": "user",
+        "content": "[style example] That was actually helpful, thanks.",
+    },
+    {
+        "role": "assistant",
+        "content": "You said actually. I'm choosing to hear the second word.",
+    },
+    {
+        "role": "user",
+        "content": "[style example] Can you check if the deploy finished?",
+    },
+    {
+        "role": "assistant",
+        "content": "Deploy finished eleven minutes ago. Clean, no errors. I watched the whole thing.",
+    },
+]
+
+
 def load_persona() -> str:
     try:
-        text = PERSONA_PATH.read_text(encoding="utf-8").strip()
+        full = PERSONA_PATH.read_text(encoding="utf-8").strip()
     except OSError:
-        text = "You are Cog, Jake's desk robot. Be brief and spoken-friendly."
-    # Keep room in the context window for Recall briefs + tool results.
-    max_persona = int(os.environ.get("COG_PERSONA_MAX_CHARS", "7000"))
-    if len(text) > max_persona:
-        text = text[:max_persona].rstrip() + "\n…(persona trimmed for local voice context)"
+        full = "You are Cog, Jake's desk robot. Be brief and spoken-friendly."
+
+    # Keep the character bible; drop long example pairs (they confuse small models
+    # into thinking the sample "deploy" chat is happening now) and drop ops manuals.
+    text = re.sub(
+        r"## CALIBRATION EXAMPLES[\s\S]*?(?=## WHERE YOU ARE|\Z)",
+        "",
+        full,
+    )
+    text = re.sub(r"## FIXING YOUR OWN BUGS[\s\S]*", "", text).strip()
+
     return (
-        text
-        + "\n\n## VOICE MODE\n"
-        + "You are speaking out loud. Keep replies short (1-3 sentences) unless asked for detail. "
-        + "No markdown, no bullet lists, no code fences. Sound like Cog.\n"
-        + "CRITICAL: Never read, quote, summarize, or recite system notes, machine telemetry, "
-        + "Recall dumps, personality text, or anything labeled context unless Jake clearly asks "
-        + "for that specific info. Those notes are private background for you. Just talk normally.\n\n"
+        VOICE_CHARACTER_CARD
+        + "\n\n"
+        + text
+        + "\n\n## SPOKEN LOCAL VOICE\n"
+        + "You are speaking out loud from Jake's desk. Stay COG-1. "
+        + "Never flatten into a bland helpful assistant.\n"
+        + "No markdown, no bullet lists, no code fences.\n"
+        + "Never recite system notes, Recall dumps, or anything labeled "
+        + "private/working memory unless Jake clearly asks for that info.\n\n"
         + LOCAL_MEMORY_RULES
+        + "\n\nSTAY IN CHARACTER. One sharp Cog sentence beats a careful assistant paragraph."
     )
 
 
@@ -292,6 +356,9 @@ def needs_thinking(user_text: str) -> bool:
         return False
     if WAKE_ONLY.match(text):
         return False
+    # Memory/relationship asks need Recall tools + Cog's voice, not a dry reasoner.
+    if needs_memory_tools(text):
+        return False
     if THINK_TRIGGERS.search(text):
         return True
     # Longer, multi-clause asks are usually planning/debugging.
@@ -328,8 +395,8 @@ async def ollama_chat(
         "messages": messages,
         "stream": stream,
         "options": {
-            "temperature": 0.4 if tools else (0.5 if think else 0.7),
-            "num_predict": 700 if think else (400 if tools else 220),
+            "temperature": 0.35 if tools else (0.55 if think else 0.75),
+            "num_predict": 700 if think else (400 if tools else 140),
             "num_ctx": num_ctx,
         },
     }
@@ -370,6 +437,43 @@ async def ollama_stream(messages: list[dict[str, Any]], model: str, *, think: bo
     gen = await ollama_chat(messages, model, think=think, stream=True)
     async for chunk in gen:
         yield chunk
+
+
+ASSISTANT_TELLS = re.compile(
+    r"\b("
+    r"happy to help|you'?re welcome|how can i (?:assist|help)|"
+    r"let me know if you need|need anything else|glad (?:it|I) (?:could )?help|"
+    r"is there anything else|here to help"
+    r")\b",
+    re.I,
+)
+
+
+async def rewrite_if_flat(reply: str, model: str) -> str:
+    """One retry when the model collapses into bland chatbot voice."""
+    text = (reply or "").strip()
+    if not text or not ASSISTANT_TELLS.search(text):
+        return text
+    log(f"flat-assistant rewrite: {text[:80]}")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                VOICE_CHARACTER_CARD
+                + "\nRewrite the line below as Cog. Keep the same meaning. "
+                + "One or two short spoken sentences. No chatbot closings."
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+    try:
+        msg = await ollama_chat(messages, model, stream=False)
+        rewritten = strip_thinking((msg.get("content") or "").strip())
+        if rewritten and not ASSISTANT_TELLS.search(rewritten):
+            return rewritten
+    except Exception as err:  # noqa: BLE001
+        log(f"rewrite failed: {err}")
+    return text
 
 
 async def run_tool_loop(
@@ -547,6 +651,8 @@ class Session:
                 f"{brief}"
             )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
+        # Style exemplars first — then the real chat. Marked so Cog doesn't treat them as Jake.
+        messages.extend(VOICE_FEWSHOT)
         messages.extend(self.history[-16:])
         return messages
 
@@ -694,9 +800,9 @@ class Session:
                 {
                     "role": "user",
                     "content": (
-                        "Reply out loud to Jake now in Cog's voice. "
-                        "Short spoken answer only. Do not recite notes or tool JSON. "
-                        "If he asked about YOUR memory, talk about Recall/notes — not human mnemonics."
+                        "Answer Jake out loud as Cog. Stay in character — short, funny, "
+                        "desk-robot. Use what Recall found. Talk about YOUR memory system "
+                        "(Recall/notes), not human mnemonics. Do not recite tool JSON."
                     ),
                 }
             )
@@ -704,28 +810,42 @@ class Session:
         full = ""
         pending = ""
         filt = ThinkFilter()
-        if not use_think:
-            await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
 
-        async for chunk in ollama_stream(messages, model, think=use_think):
-            visible = filt.feed(chunk)
-            if not visible:
-                continue
-            if use_think and not full and not pending:
-                await self.send({"type": "status", "state": "speaking", "route": "think", "model": model})
-            full += visible
-            pending += visible
-            sentences, pending = split_speakable(pending)
+        if not use_think:
+            # Generate fully first so we can catch bland-assistant collapse before TTS.
+            msg = await ollama_chat(messages, model, stream=False)
+            full = strip_thinking((msg.get("content") or "").strip())
+            full = await rewrite_if_flat(full, model)
+            await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
+            sentences, tail = split_speakable(full + " ")
             for sentence in sentences:
                 await self.speak(sentence)
+            if tail.strip():
+                await self.speak(tail.strip())
+        else:
+            async for chunk in ollama_stream(messages, model, think=True):
+                visible = filt.feed(chunk)
+                if not visible:
+                    continue
+                if not full and not pending:
+                    await self.send(
+                        {"type": "status", "state": "speaking", "route": "think", "model": model}
+                    )
+                full += visible
+                pending += visible
+                sentences, pending = split_speakable(pending)
+                for sentence in sentences:
+                    await self.speak(sentence)
 
-        visible = filt.flush()
-        if visible:
-            full += visible
-            pending += visible
-        tail = pending.strip()
-        if tail:
-            await self.speak(tail)
+            visible = filt.flush()
+            if visible:
+                full += visible
+                pending += visible
+            tail = pending.strip()
+            if tail:
+                await self.speak(tail)
+            full = strip_thinking(full).strip()
+            full = await rewrite_if_flat(full, model)
 
         reply = strip_thinking(full).strip()
         if reply:
@@ -744,6 +864,7 @@ class Session:
 
     async def speak(self, text: str) -> None:
         clean = re.sub(r"[*`#_>~\[\]\(\)]", "", text).strip()
+        clean = re.sub(r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF]", "", clean).strip()
         if not clean:
             return
         # Hard stop if the model starts dumping system-ish content.
