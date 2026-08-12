@@ -220,14 +220,19 @@ def load_persona() -> str:
     except OSError:
         full = "You are Cog, Jake's desk robot. Be brief and spoken-friendly."
 
-    # Keep the character bible; drop long example pairs (they confuse small models
-    # into thinking the sample "deploy" chat is happening now) and drop ops manuals.
+    # Keep the character bible; drop long example pairs (they confuse models
+    # into thinking the sample "deploy" chat is happening now).
     text = re.sub(
         r"## CALIBRATION EXAMPLES[\s\S]*?(?=## WHERE YOU ARE|\Z)",
         "",
         full,
     )
-    text = re.sub(r"## FIXING YOUR OWN BUGS[\s\S]*", "", text).strip()
+    # Drop the debugging playbook only — keep BEFORE YOU ACT / CAN'T rules.
+    text = re.sub(
+        r"## FIXING YOUR OWN BUGS[\s\S]*?(?=## BEFORE YOU ACT|\Z)",
+        "",
+        text,
+    ).strip()
     # Neutralize the old "be wrong with total authority" comedy for live voice —
     # it trained him to hallucinate Jake's systems.
     text = re.sub(
@@ -251,7 +256,8 @@ def load_persona() -> str:
         + "No markdown, no bullet lists, no code fences.\n"
         + "Never recite system notes, Recall dumps, or anything labeled "
         + "private/working memory unless Jake clearly asks for that info.\n"
-        + "If a tool returned empty/error, say that — do not invent a substitute answer.\n\n"
+        + "If a tool returned empty/error, say that — do not invent a substitute answer.\n"
+        + "Quality over speed: ask clarifying questions before acting when unclear.\n\n"
         + LOCAL_MEMORY_RULES
         + "\n\nSTAY IN CHARACTER. One sharp Cog sentence beats a careful assistant paragraph. "
         + "Honest 'I don't know' beats a confident lie."
