@@ -38,6 +38,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import memory_bridge
 import llm as cog_llm
 import dictionary as listening_dict
+import intent_gate
 from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
 from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
@@ -667,7 +668,7 @@ AGENT_START_TRIGGERS = re.compile(
 
 AGENT_STATUS_TRIGGERS = re.compile(
     r"\b("
-    r"what(?:'s| is) running|working in the background|background agents?|"
+    r"what(?:'s|s| is) running|working in the background|background agents?|"
     r"agent status|list agents|which agents|any agents|"
     r"what agents|agents? (?:do we have|are|running|working)"
     r")\b",
@@ -1024,6 +1025,8 @@ class Session:
         self.result_cue: asyncio.Queue[str] = asyncio.Queue()
         self._deliver_task: asyncio.Task | None = None
         self.prefer_background = False
+        # Architecture A: wait for Jake's answer before tools when unclear.
+        self.pending_clarify: dict[str, Any] | None = None
         self.board = JobBoard(
             session_id=self.session_id,
             run_tool=memory_bridge.call_tool,
@@ -1565,6 +1568,7 @@ class Session:
         await self.reply_from_history()
 
     async def reply_from_history(self) -> None:
+        """Architectures A + C: intent gate → Talk lane and/or Work lane."""
         if self.cancelled():
             return
         await self.ensure_memory_brief()
@@ -1577,31 +1581,22 @@ class Session:
                 last_user = msg.get("content") or ""
                 break
 
-        want_status = needs_agent_status(last_user)
-        want_start = needs_agent_start(last_user)
-        want_agents = want_status or want_start or needs_agent_tools(last_user)
+        intent = intent_gate.classify_intent(last_user, pending=self.pending_clarify)
         # Keep factual/status asks on the fast path so honesty rewrite can run before speech.
-        use_think = needs_thinking(last_user) and not want_agents
-        # Agent status questions win over "background dig" keyword collisions.
-        want_jobs = needs_job_tools(last_user) and not want_agents
-        # Pure memory Q&A stays sync. Mixed "dig in background + joke" is want_jobs.
-        force_memory = needs_memory_tools(last_user) and not want_jobs and not want_agents
-        use_tools = force_memory or want_agents
-        if want_start and not want_status:
-            force_kind = "agents_start"
-        elif want_agents:
-            force_kind = "agents"
-        else:
-            force_kind = "memory"
+        use_think = (
+            needs_thinking(last_user)
+            and intent.mode == "chat"
+            and intent.lane == "talk"
+        )
         model = cog_llm.active_model(use_think)
-        self.prefer_background = want_jobs
+        self.prefer_background = intent.mode == "dig"
         tools_used = False
+        route_label = f"{intent.lane}/{intent.mode}"
         log(
-            f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
-            + (" +memory-tools" if force_memory else "")
-            + (" +agent-tools" if want_agents else "")
-            + (f"/{force_kind}" if want_agents else "")
-            + (" +background-job" if want_jobs else "")
+            f"gate -> {route_label} ({intent.reason})"
+            + (f" work={intent.work_kind}" if intent.work_kind != "none" else "")
+            + f" / {cog_llm.backend()} ({model})"
+            + (" +think" if use_think else "")
         )
         await journal(
             {
@@ -1610,15 +1605,16 @@ class Session:
                 "name": "local-voice",
                 "session_id": self.session_id,
                 "by": "local-voice",
-                "reason": "think" if use_think else "fast",
+                "reason": route_label,
                 "meta": {
                     "model": model,
                     "llm_backend": cog_llm.backend(),
-                    "memory_tools": force_memory,
-                    "agent_tools": want_agents,
-                    "agent_force_kind": force_kind if want_agents else None,
-                    "job_tools": want_jobs,
-                    "prefer_background": want_jobs,
+                    "lane": intent.lane,
+                    "mode": intent.mode,
+                    "work_kind": intent.work_kind,
+                    "gate_reason": intent.reason,
+                    "prefer_background": self.prefer_background,
+                    "had_pending_clarify": bool(self.pending_clarify),
                 },
             }
         )
@@ -1628,74 +1624,123 @@ class Session:
             {
                 "type": "status",
                 "state": "thinking",
-                "route": "think" if use_think else "fast",
+                "route": route_label,
+                "lane": intent.lane,
+                "mode": intent.mode,
                 "model": model,
             }
         )
 
         messages = self.build_messages()
 
-        # LASTING PATH: code starts the dig immediately; spoken turn never waits on it.
-        if want_jobs:
-            query = background_search_query(last_user)
-            await self._start_named_job(
-                label=f"notes: {query}",
-                tool="recall_search",
-                args={"query": query, "project": "WorkBuddy", "limit": 8},
-            )
-            tools_used = True  # dig is real work; chat part must not invent dig results
-            if self.cancelled():
-                return
+        # --- Architecture A: clarify on Talk lane (no tools yet) ---
+        if intent.mode == "clarify":
+            self.pending_clarify = {
+                "work_kind": intent.work_kind,
+                "original": last_user,
+                "hint": intent.clarify_hint,
+            }
+            hint = intent.clarify_hint or "What exactly do you want?"
             messages.append(
                 {
                     "role": "user",
                     "content": (
-                        f"(System: A background dig for '{query}' is ALREADY running. "
-                        "Do NOT call recall_*, process_*, or wait for results. "
-                        "Ack in half a beat — 'On it' — then do the chat/joke part he asked for. "
-                        "You will be cued later when the dig finishes. Stay Cog: short, funny. "
-                        "Do not invent what the dig found.)"
+                        "(System — CLARIFY lane: Jake's ask is unclear. "
+                        "Do NOT call tools. Do NOT invent a plan and run it. "
+                        f"Ask ONE short clarifying question. Hint: {hint} "
+                        "Stay Cog: brief, useful, not a lecture.)"
                     ),
                 }
             )
-        elif use_tools:
-            tool_model = cog_llm.active_model(False)
-            try:
-                messages = await run_tool_loop(
-                    messages,
-                    tool_model,
-                    force=True,
-                    force_kind=force_kind,
-                    should_cancel=self.cancelled,
-                    execute_tool=self.execute_tool,
+        else:
+            # Clear pending when we move past clarify (chat, act, dig, or follow-up act).
+            if intent.reason == "clarify_followup" or intent.mode in ("chat", "act", "dig"):
+                self.pending_clarify = None
+
+            # --- Architecture C Work lane ---
+            if intent.mode == "dig":
+                query = intent.dig_query or background_search_query(last_user)
+                await self._start_named_job(
+                    label=f"notes: {query}",
+                    tool="recall_search",
+                    args={"query": query, "project": "WorkBuddy", "limit": 8},
                 )
                 tools_used = True
-            except Exception as err:  # noqa: BLE001
-                log(f"tool loop failed (continuing without): {err}")
-            if self.cancelled():
-                return
-            if want_agents:
+                if self.cancelled():
+                    return
                 messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "Answer Jake out loud as Cog using ONLY the tool results. "
-                            "If none are running / list is empty, say that. "
-                            "If a tool failed, say you couldn't check. "
-                            "NEVER invent agent names, goals, or status. Short spoken answer."
+                            f"(System — WORK dig already running for '{query}'. "
+                            "Talk lane only: ack in half a beat — 'On it' — then chat/joke if he asked. "
+                            "Do NOT call recall_*/process_* or invent dig results. "
+                            "You will be cued when the dig finishes.)"
                         ),
                     }
                 )
+            elif intent.mode == "act" and intent.work_kind in (
+                "memory",
+                "agents",
+                "agents_start",
+            ):
+                force_kind = intent.work_kind
+                if intent.reason == "clarify_followup" and intent.goal:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"(System: Jake clarified. Goal/topic: {intent.goal}. "
+                                "Proceed carefully with tools now.)"
+                            ),
+                        }
+                    )
+                tool_model = cog_llm.active_model(False)
+                try:
+                    messages = await run_tool_loop(
+                        messages,
+                        tool_model,
+                        force=True,
+                        force_kind=force_kind,
+                        should_cancel=self.cancelled,
+                        execute_tool=self.execute_tool,
+                    )
+                    tools_used = True
+                except Exception as err:  # noqa: BLE001
+                    log(f"tool loop failed (continuing without): {err}")
+                if self.cancelled():
+                    return
+                if force_kind.startswith("agents"):
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Answer Jake out loud as Cog using ONLY the tool results. "
+                                "If none are running / list is empty, say that. "
+                                "If a tool failed, say you couldn't check. "
+                                "NEVER invent agent names, goals, or status. Short spoken answer."
+                            ),
+                        }
+                    )
+                else:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Answer Jake out loud as Cog. Stay in character — short, useful. "
+                                "Use what the tools found. If tools returned nothing, say so — "
+                                "do not invent. No human mnemonics. Do not recite tool JSON."
+                            ),
+                        }
+                    )
             else:
+                # Pure Talk lane — casual chat, body awareness, no tools.
                 messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "Answer Jake out loud as Cog. Stay in character — short, funny, "
-                            "desk-robot. Use what the tools found. For memory questions use Recall; "
-                            "for crashes/kills/restarts use the process journal. "
-                            "If tools returned nothing, say so — do not invent. "
-                            "No human mnemonics. Do not recite tool JSON."
+                            "(System — TALK lane: chat only. No tools this turn. "
+                            "Answer briefly as Cog. If BODY context is present, acknowledge it naturally.)"
                         ),
                     }
                 )
@@ -1703,9 +1748,9 @@ class Session:
         full = ""
         pending = ""
         filt = ThinkFilter()
+        speak_route = route_label
 
         if not use_think:
-            # Generate fully first so we can catch bland-assistant collapse before TTS.
             msg = await ollama_chat(messages, model, stream=False)
             if self.cancelled():
                 return
@@ -1716,7 +1761,16 @@ class Session:
             )
             if self.cancelled():
                 return
-            await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
+            await self.send(
+                {
+                    "type": "status",
+                    "state": "speaking",
+                    "route": speak_route,
+                    "lane": intent.lane,
+                    "mode": intent.mode,
+                    "model": model,
+                }
+            )
             sentences, tail = split_speakable(full + " ")
             for sentence in sentences:
                 if self.cancelled():
@@ -1733,7 +1787,14 @@ class Session:
                     continue
                 if not full and not pending:
                     await self.send(
-                        {"type": "status", "state": "speaking", "route": "think", "model": model}
+                        {
+                            "type": "status",
+                            "state": "speaking",
+                            "route": speak_route,
+                            "lane": intent.lane,
+                            "mode": intent.mode,
+                            "model": model,
+                        }
                     )
                 full += visible
                 pending += visible
@@ -1776,7 +1837,9 @@ class Session:
                 {
                     "type": "agent_response",
                     "text": reply,
-                    "route": "think" if use_think else "fast",
+                    "route": speak_route,
+                    "lane": intent.lane,
+                    "mode": intent.mode,
                 }
             )
         await self.send({"type": "status", "state": "listening"})

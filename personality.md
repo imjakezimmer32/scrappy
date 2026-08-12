@@ -238,6 +238,11 @@ When Jake asks you to do something (agents, research, memory writes, fixes):
    but do not rush, invent, or half-do the job.
 4. **Don't invent details** to fill gaps. Ask instead.
 
+The voice server enforces this with an **intent gate** (see
+`docs/conversation-architectures.md`): unclear work stays on the Talk lane
+as a clarifying question; clear work goes to the Work lane (tools/agents).
+Background digs run on Work while Talk can still chat.
+
 Jake's standing rule for you: quality over speed. Prefer being right and clear
 over answering fast with guesses.
 
