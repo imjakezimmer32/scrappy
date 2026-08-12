@@ -210,8 +210,12 @@ function localVoiceEnv() {
     // Ears: bigger Whisper = much better hearing (medium.en default).
     WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "medium.en",
     COG_VAD_SILENCE_MS:
-      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "950",
+      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "1800",
     COG_VAD_ENERGY: process.env.COG_VAD_ENERGY || file.COG_VAD_ENERGY || "0.008",
+    COG_VAD_MIN_SPEECH_MS:
+      process.env.COG_VAD_MIN_SPEECH_MS || file.COG_VAD_MIN_SPEECH_MS || "300",
+    COG_BARGE_MS: process.env.COG_BARGE_MS || file.COG_BARGE_MS || "500",
+    COG_BARGE_ENERGY: process.env.COG_BARGE_ENERGY || file.COG_BARGE_ENERGY || "0.035",
     COG_WHISPER_PROMPT: process.env.COG_WHISPER_PROMPT || file.COG_WHISPER_PROMPT || "",
     COG_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.

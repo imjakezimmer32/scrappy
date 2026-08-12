@@ -47,11 +47,14 @@ WHISPER_MODEL=medium.en   # best local hearing (default)
 # WHISPER_MODEL=base      # old/fast/poor — avoid
 ```
 
-Also tunable:
+Also tunable (patient defaults — nothing rushed):
 ```
-COG_VAD_SILENCE_MS=950   # how long to wait after you pause before he answers
+COG_VAD_SILENCE_MS=1800  # wait after you pause before he answers (~1.8s)
 COG_VAD_ENERGY=0.008     # how loud you must be to count as speech
+COG_BARGE_MS=500         # how long you must talk over him to interrupt
 ```
+
+Jake preference: never rush listening or turn-taking. Quality over speed.
 
 ## Memory (Recall bridge)
 

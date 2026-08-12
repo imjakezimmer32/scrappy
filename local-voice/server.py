@@ -56,14 +56,14 @@ SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_OUT = 24000
 MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "4"))
 
-# Energy VAD: end turn after this much silence once we've heard speech.
-# A bit patient so mid-sentence pauses don't chop Jake off.
-SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "950"))
-MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "250"))
+# Energy VAD: end turn only after Jake has clearly finished.
+# Patient on purpose — mid-sentence pauses must never chop him off.
+SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "1800"))
+MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "300"))
 ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.008"))
-# Barge-in while Cog is busy: hotter + sustained so TTS echo doesn't false-trigger.
-BARGE_MS = int(os.environ.get("COG_BARGE_MS", "280"))
-BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
+# Barge-in while Cog is busy: harder to trigger so he doesn't cut Jake off.
+BARGE_MS = int(os.environ.get("COG_BARGE_MS", "500"))
+BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.035"))
 
 # Bias Whisper toward names/products Jake actually says (reduces garbage guesses).
 WHISPER_PROMPT = os.environ.get("COG_WHISPER_PROMPT") or (
@@ -451,17 +451,22 @@ def transcribe(samples: np.ndarray) -> str:
     segments, _info = model.transcribe(
         samples,
         language="en",
+        # Quality over speed — Jake does not want rushed hearing.
         beam_size=5,
         best_of=5,
+        patience=1.5,
         temperature=0.0,
         vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 400},
+        vad_parameters={
+            "min_silence_duration_ms": 700,
+            "speech_pad_ms": 400,
+        },
         without_timestamps=True,
         condition_on_previous_text=False,
         initial_prompt=WHISPER_PROMPT,
         compression_ratio_threshold=2.4,
         log_prob_threshold=-0.8,
-        no_speech_threshold=0.55,
+        no_speech_threshold=0.6,
     )
     text = " ".join(seg.text.strip() for seg in segments).strip()
     return normalize_transcript(text)
