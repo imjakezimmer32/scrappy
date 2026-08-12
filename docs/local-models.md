@@ -34,6 +34,25 @@ Examples: "think about…", "plan…", "debug…", "figure out…", "architectur
 
 Casual "hey there Cog / how's it going" stays on the fast brain.
 
+## Ears (speech-to-text)
+
+Cog listens with **faster-whisper** on your CPU (`WHISPER_MODEL` in `.env.local`).
+
+Default is **`medium.en`** — much more accurate than the old `base` model.
+Your Ryzen 9 can handle it. First launch after a model change may take a minute while it warms up.
+
+```
+WHISPER_MODEL=medium.en   # best local hearing (default)
+# WHISPER_MODEL=small.en  # faster, still good
+# WHISPER_MODEL=base      # old/fast/poor — avoid
+```
+
+Also tunable:
+```
+COG_VAD_SILENCE_MS=950   # how long to wait after you pause before he answers
+COG_VAD_ENERGY=0.008     # how loud you must be to count as speech
+```
+
 ## Memory (Recall bridge)
 
 Local voice talks to WorkBuddy on `http://127.0.0.1:8787` with your local token:

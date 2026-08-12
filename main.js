@@ -207,6 +207,12 @@ function localVoiceEnv() {
     GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
     COG_TTS_VOICE: process.env.COG_TTS_VOICE || file.COG_TTS_VOICE || "am_michael",
+    // Ears: bigger Whisper = much better hearing (medium.en default).
+    WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "medium.en",
+    COG_VAD_SILENCE_MS:
+      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "950",
+    COG_VAD_ENERGY: process.env.COG_VAD_ENERGY || file.COG_VAD_ENERGY || "0.008",
+    COG_WHISPER_PROMPT: process.env.COG_WHISPER_PROMPT || file.COG_WHISPER_PROMPT || "",
     COG_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.
     WORKBUDDY_URL: `http://${HOST}:${PORT}`,

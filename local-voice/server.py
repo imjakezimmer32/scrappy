@@ -47,7 +47,9 @@ PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # light local fallback only
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
+# English-only models hear Jake far better than multilingual "base".
+# medium.en is the default on this machine (Ryzen 9); override with WHISPER_MODEL.
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "medium.en")
 HOST = os.environ.get("COG_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COG_VOICE_PORT", "8790"))
 SAMPLE_RATE_IN = 16000
@@ -55,12 +57,19 @@ SAMPLE_RATE_OUT = 24000
 MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "4"))
 
 # Energy VAD: end turn after this much silence once we've heard speech.
-SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "700"))
-MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "280"))
-ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.012"))
+# A bit patient so mid-sentence pauses don't chop Jake off.
+SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "950"))
+MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "250"))
+ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.008"))
 # Barge-in while Cog is busy: hotter + sustained so TTS echo doesn't false-trigger.
 BARGE_MS = int(os.environ.get("COG_BARGE_MS", "280"))
 BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
+
+# Bias Whisper toward names/products Jake actually says (reduces garbage guesses).
+WHISPER_PROMPT = os.environ.get("COG_WHISPER_PROMPT") or (
+    "Jake talking to Cog. Names and words: Cog, Chief, Jake, Recall, WorkBuddy, "
+    "ArrayBud, Cursor, Cloudflare, Wrangler, agent, research, notes, memory."
+)
 
 THINK_TRIGGERS = re.compile(
     r"\b("
@@ -363,19 +372,56 @@ def rms_energy(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples))))
 
 
-def transcribe(samples: np.ndarray) -> str:
-    if samples.size < SAMPLE_RATE_IN * 0.15:
+def normalize_transcript(text: str) -> str:
+    """Clean common Whisper junk so Cog doesn't act on garbage."""
+    cleaned = (text or "").strip()
+    if not cleaned:
         return ""
+    # Drop obvious hallucination loops / music markers.
+    lowered = cleaned.lower()
+    junk = (
+        "thanks for watching",
+        "thank you for watching",
+        "subscribe",
+        "♪",
+        "🎵",
+        "[music]",
+        "(music)",
+        "[silence]",
+        "(silence)",
+    )
+    if any(j in lowered for j in junk) and len(cleaned) < 80:
+        return ""
+    # Collapse repeated words: "the the the" → "the"
+    cleaned = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", cleaned, flags=re.I)
+    return cleaned.strip(" \t.-")
+
+
+def transcribe(samples: np.ndarray) -> str:
+    if samples.size < SAMPLE_RATE_IN * 0.18:
+        return ""
+    # Soft peak normalize so quiet mics still reach Whisper cleanly.
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    if peak > 1e-4 and peak < 0.25:
+        samples = np.clip(samples * (0.35 / peak), -1.0, 1.0)
     model = get_whisper()
     segments, _info = model.transcribe(
         samples,
         language="en",
-        beam_size=1,
+        beam_size=5,
+        best_of=5,
+        temperature=0.0,
         vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 400},
         without_timestamps=True,
+        condition_on_previous_text=False,
+        initial_prompt=WHISPER_PROMPT,
+        compression_ratio_threshold=2.4,
+        log_prob_threshold=-0.8,
+        no_speech_threshold=0.55,
     )
     text = " ".join(seg.text.strip() for seg in segments).strip()
-    return text
+    return normalize_transcript(text)
 
 
 def split_speakable(buffer: str) -> tuple[list[str], str]:

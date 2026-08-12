@@ -274,6 +274,8 @@ async function start(opts) {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
+        // Prefer native 48k capture; we downsample to 16k ourselves for Whisper.
+        sampleRate: { ideal: 48000 },
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
@@ -287,9 +289,10 @@ async function start(opts) {
     micStream = null;
   }
 
-  // Local TTS is 24kHz; ElevenLabs conversational audio is 16kHz.
-  const contextRate = voiceBackend === "local" ? 24000 : RATE;
-  audio = new AudioContext({ sampleRate: contextRate });
+  // Use the device's native rate for clean mic capture. Playback buffers are
+  // created at their own sample rate (16k ElevenLabs / 24k Kokoro) and the
+  // Web Audio graph resamples them — forcing 24k here used to smear speech.
+  audio = new AudioContext();
   if (audio.state === "suspended") await audio.resume();
 
   outGain = audio.createGain();
@@ -399,6 +402,7 @@ async function start(opts) {
   // fetch (which is fragile under file://) and 16kHz mono is nothing to chew.
   if (micStream) {
     // Always downsample mic to 16k PCM for both backends.
+    // Linear interpolation beats nearest-neighbor (less mushy consonants).
     processor = audio.createScriptProcessor(CHUNK, 1, 1);
     processor.onaudioprocess = (e) => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -406,8 +410,14 @@ async function start(opts) {
       const ratio = audio.sampleRate / RATE;
       const outLen = Math.max(1, Math.floor(input.length / ratio));
       const pcm = new Int16Array(outLen);
+      const last = input.length - 1;
       for (let i = 0; i < outLen; i += 1) {
-        const s = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] || 0));
+        const src = i * ratio;
+        const i0 = Math.floor(src);
+        const i1 = i0 < last ? i0 + 1 : last;
+        const frac = src - i0;
+        const sample = (input[i0] || 0) * (1 - frac) + (input[i1] || 0) * frac;
+        const s = Math.max(-1, Math.min(1, sample));
         pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
       const b64 = encodeBase64(new Uint8Array(pcm.buffer));
