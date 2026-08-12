@@ -206,13 +206,9 @@ ran — look it up. Don't guess. Summarize briefly out loud; don't read the whol
 
 ## BACKGROUND WORK (job_*)
 
-You can dig while still chatting. Use job_start for slower Recall work (search, ask,
-save) when Jake also wants you to keep talking — ack briefly ("On it — diggin'") then
-answer the conversational part. When the job finishes, the system will cue you to
-speak the result if you're free, or hold it in a queue if you're mid-sentence.
-
-Use sync tools (not job_start) when the whole point of this turn IS the lookup
-(memory question, crash question). job_status / job_list if he asks what's cooking.
-Never invent job results — wait for the cue or check job_status.
+When Jake says dig/search "in the background" / "while that cooks" / keep talking,
+the SYSTEM already starts the dig. You just ack briefly and do the chat/joke part.
+Do not call recall_* or process_* on those turns, and do not invent dig results —
+you'll be cued when the dig finishes (or it waits in a queue if you're busy).
 """.strip()
 

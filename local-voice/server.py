@@ -37,7 +37,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
 import llm as cog_llm
-from jobs import Job, JobBoard, parse_job_args
+from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
 from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
 ROOT = Path(__file__).resolve().parent
@@ -253,6 +253,24 @@ def needs_job_tools(user_text: str) -> bool:
     if not text or WAKE_ONLY.match(text):
         return False
     return bool(JOB_TRIGGERS.search(text))
+
+
+def background_search_query(user_text: str) -> str:
+    """Pull the dig topic out of a 'search X in the background + joke' ask."""
+    text = (user_text or "").strip()
+    cleaned = JOB_TRIGGERS.sub(" ", text)
+    cleaned = re.sub(
+        r"\b("
+        r"search(?:\s+my)?(?:\s+notes?)?(?:\s+for)?|look(?:\s+that)?\s+up|dig(?:\s+into|\s+up)?|"
+        r"find|check|tell\s+me\s+something\s+funny|tell\s+me\s+a\s+joke|something\s+funny|"
+        r"a\s+joke|make\s+me\s+laugh"
+        r")\b",
+        " ",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,!?;:")
+    return cleaned[:120] if cleaned else "preferences relationship"
 
 
 WAKE_ONLY = re.compile(
@@ -684,6 +702,7 @@ class Session:
         self._partial_reply = ""
         self.result_cue: asyncio.Queue[str] = asyncio.Queue()
         self._deliver_task: asyncio.Task | None = None
+        self.prefer_background = False
         self.board = JobBoard(
             session_id=self.session_id,
             run_tool=memory_bridge.call_tool,
@@ -694,29 +713,38 @@ class Session:
     def cancelled(self) -> bool:
         return self.cancel.is_set() or self.closed
 
+    async def _start_named_job(
+        self, *, label: str, tool: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        out = self.board.start(label=label, tool=tool, args=args or {})
+        if out.get("ok"):
+            await self.send(
+                {
+                    "type": "job",
+                    "status": "running",
+                    "job": (out.get("data") or {}),
+                }
+            )
+            log(f"job started -> {tool} ({label})")
+        return out
+
     async def execute_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        """Dispatch sync tools + job_* (background work)."""
+        """Dispatch sync tools + job_* (background work).
+
+        Lasting rule: when prefer_background is on, slow Recall tools are forced
+        onto the JobBoard — the model cannot block the spoken turn by calling them sync.
+        """
         if name == "job_start":
             label = str(args.get("label") or "").strip()
             tool = str(args.get("tool") or "").strip()
             job_args = parse_job_args(args.get("args_json") if "args_json" in args else args.get("args"))
-            # Also accept flat leftover keys as args if no JSON provided.
             if not job_args:
                 job_args = {
                     k: v
                     for k, v in args.items()
                     if k not in ("label", "tool", "args_json", "args")
                 }
-            out = self.board.start(label=label, tool=tool, args=job_args)
-            if out.get("ok"):
-                await self.send(
-                    {
-                        "type": "job",
-                        "status": "running",
-                        "job": (out.get("data") or {}),
-                    }
-                )
-            return out
+            return await self._start_named_job(label=label, tool=tool, args=job_args)
         if name == "job_status":
             return self.board.status_payload(str(args.get("id") or ""))
         if name == "job_list":
@@ -727,6 +755,29 @@ class Session:
                 "text": f"{active} running, {len(rows)} recent jobs.",
                 "data": {"jobs": rows},
             }
+
+        # Hard policy: auto-background slow digs so chat/jokes aren't blocked.
+        if self.prefer_background and name in BACKGROUND_AUTO_TOOLS:
+            label = str(args.get("query") or args.get("question") or args.get("title") or name)[:80]
+            return await self._start_named_job(
+                label=f"{name}: {label}",
+                tool=name,
+                args=args,
+            )
+
+        # On background turns, ignore process/conversation reads — they stall the joke.
+        if self.prefer_background and (
+            name.startswith("process_") or name.startswith("conversation_")
+        ):
+            return {
+                "ok": True,
+                "text": (
+                    "Skipped for this turn — Jake asked for background dig + chat. "
+                    "Dig is already running; do the joke/chat part now."
+                ),
+                "data": {"skipped": True, "tool": name},
+            }
+
         if not (
             name.startswith("recall_")
             or name.startswith("process_")
@@ -1073,6 +1124,7 @@ class Session:
                 if not self.cancel.is_set():
                     self.busy = False
                 self.turn_task = None
+                self.prefer_background = False
                 # After any turn, try to speak finished background work.
                 self._kick_deliver()
 
@@ -1187,14 +1239,16 @@ class Session:
                 break
 
         use_think = needs_thinking(last_user)
-        force_memory = needs_memory_tools(last_user)
         want_jobs = needs_job_tools(last_user)
-        use_tools = force_memory or want_jobs
+        # Pure memory Q&A stays sync. Mixed "dig in background + joke" is want_jobs.
+        force_memory = needs_memory_tools(last_user) and not want_jobs
+        use_tools = force_memory  # background path starts dig in code; no sync tool wait
         model = cog_llm.active_model(use_think)
+        self.prefer_background = want_jobs
         log(
             f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
             + (" +memory-tools" if force_memory else "")
-            + (" +job-tools" if want_jobs and not force_memory else "")
+            + (" +background-job" if want_jobs else "")
         )
         await journal(
             {
@@ -1209,6 +1263,7 @@ class Session:
                     "llm_backend": cog_llm.backend(),
                     "memory_tools": force_memory,
                     "job_tools": want_jobs,
+                    "prefer_background": want_jobs,
                 },
             }
         )
@@ -1223,15 +1278,36 @@ class Session:
             }
         )
 
-        # Tool round for memory lookups and/or background job_start.
         messages = self.build_messages()
-        if use_tools:
+
+        # LASTING PATH: code starts the dig immediately; spoken turn never waits on it.
+        if want_jobs:
+            query = background_search_query(last_user)
+            await self._start_named_job(
+                label=f"notes: {query}",
+                tool="recall_search",
+                args={"query": query, "project": "WorkBuddy", "limit": 8},
+            )
+            if self.cancelled():
+                return
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"(System: A background dig for '{query}' is ALREADY running. "
+                        "Do NOT call recall_*, process_*, or wait for results. "
+                        "Ack in half a beat — 'On it' — then do the chat/joke part he asked for. "
+                        "You will be cued later when the dig finishes. Stay Cog: short, funny.)"
+                    ),
+                }
+            )
+        elif use_tools:
             tool_model = cog_llm.active_model(False)
             try:
                 messages = await run_tool_loop(
                     messages,
                     tool_model,
-                    force=force_memory,
+                    force=True,
                     should_cancel=self.cancelled,
                     execute_tool=self.execute_tool,
                 )
@@ -1239,31 +1315,17 @@ class Session:
                 log(f"tool loop failed (continuing without): {err}")
             if self.cancelled():
                 return
-            if force_memory:
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "Answer Jake out loud as Cog. Stay in character — short, funny, "
-                            "desk-robot. Use what the tools found. For memory questions use Recall; "
-                            "for crashes/kills/restarts use the process journal. "
-                            "If you started a background job, ack it briefly and keep chatting — "
-                            "don't pretend you already have that result. No human mnemonics. "
-                            "Do not recite tool JSON."
-                        ),
-                    }
-                )
-            elif want_jobs:
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "Answer Jake out loud as Cog. If you started background work with "
-                            "job_start, say you're on it in one short beat, then handle the rest "
-                            "of what he said. Don't invent the job result yet."
-                        ),
-                    }
-                )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Answer Jake out loud as Cog. Stay in character — short, funny, "
+                        "desk-robot. Use what the tools found. For memory questions use Recall; "
+                        "for crashes/kills/restarts use the process journal. "
+                        "No human mnemonics. Do not recite tool JSON."
+                    ),
+                }
+            )
 
         full = ""
         pending = ""

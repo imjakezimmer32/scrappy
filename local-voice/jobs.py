@@ -32,6 +32,20 @@ ALLOWED_JOB_TOOLS = frozenset(
     }
 )
 
+# Slow digs — when prefer_background is on, these NEVER block the spoken turn.
+BACKGROUND_AUTO_TOOLS = frozenset(
+    {
+        "recall_search",
+        "recall_ask",
+        "recall_recent",
+        "recall_live_context",
+        "recall_open_actions",
+        "recall_get_note",
+        "recall_save_note",
+        "recall_complete_action",
+    }
+)
+
 # Tools that should usually stay on the foreground turn (Jake wants the answer now).
 FOREGROUND_TOOLS = frozenset(
     {
