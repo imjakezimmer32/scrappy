@@ -41,6 +41,11 @@ let speakEndTimer = null;
 let toolsInFlight = 0;
 let intentionalStop = false;
 let reconnectAttempts = 0;
+let bargeArmed = false;
+let bargeMs = 0;
+let bargeLastTs = 0;
+const LOCAL_BARGE_RMS = 0.045;
+const LOCAL_BARGE_MS = 220;
 
 // Gap between audio chunks can look like "done speaking" — wait before going idle.
 const SPEAK_END_GRACE_MS = 450;
@@ -140,6 +145,13 @@ function playChunk(b64, sampleRate) {
 
   if (!speaking) {
     speaking = true;
+    bargeArmed = false;
+    bargeMs = 0;
+    // Arm barge-in after a short delay so his own voice through the speakers
+    // doesn't count as you talking over him.
+    setTimeout(() => {
+      if (speaking) bargeArmed = true;
+    }, 350);
     emit("speakStart");
   }
 }
@@ -161,6 +173,41 @@ function flushPlayback() {
     speaking = false;
     emit("speakEnd");
   }
+  bargeArmed = false;
+  bargeMs = 0;
+}
+
+function sendLocalInterrupt() {
+  if (voiceBackend !== "local" || !ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    ws.send(JSON.stringify({ type: "interrupt" }));
+  } catch {
+    // ignore
+  }
+}
+
+function maybeLocalBarge(inputRms) {
+  if (voiceBackend !== "local" || !speaking) {
+    bargeMs = 0;
+    bargeLastTs = 0;
+    return;
+  }
+  // Ignore the first beat of his speech so speaker→mic bleed doesn't trip us.
+  if (!bargeArmed) return;
+  const now = performance.now();
+  const dt = bargeLastTs ? Math.min(80, now - bargeLastTs) : 16;
+  bargeLastTs = now;
+  if (inputRms >= LOCAL_BARGE_RMS) {
+    bargeMs += dt;
+    if (bargeMs >= LOCAL_BARGE_MS) {
+      bargeMs = 0;
+      bargeLastTs = 0;
+      flushPlayback();
+      sendLocalInterrupt();
+    }
+  } else {
+    bargeMs = Math.max(0, bargeMs - dt * 0.7);
+  }
 }
 
 // ---------- levels, for the face ----------
@@ -180,8 +227,10 @@ function startLevels() {
   const outScratch = new Uint8Array(outAnalyser.fftSize);
   const tick = () => {
     if (!active) return;
+    const inputLevel = Math.min(1, rms(micAnalyser, inScratch) * 5);
+    maybeLocalBarge(inputLevel / 5); // raw-ish RMS before the *5 face boost
     emit("level", {
-      input: Math.min(1, rms(micAnalyser, inScratch) * 5),
+      input: inputLevel,
       output: Math.min(1, rms(outAnalyser, outScratch) * 6),
       speaking,
     });
@@ -405,6 +454,9 @@ function handleLocalMessage(msg) {
     case "audio":
       allowSpeech = true;
       if (msg.pcm16_b64) playChunk(msg.pcm16_b64, msg.sample_rate || 24000);
+      break;
+    case "interruption":
+      flushPlayback();
       break;
     case "error": {
       const err = String(msg.error || "local_voice_failed");

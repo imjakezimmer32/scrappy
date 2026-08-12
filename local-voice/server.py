@@ -5,12 +5,14 @@ Protocol (JSON over WebSocket, similar to Cog's ElevenLabs client):
   Client → { "type": "audio", "pcm16_b64": "..." }   # 16kHz mono PCM chunks
   Client → { "type": "text", "text": "..." }         # typed message
   Client → { "type": "context", "text": "..." }      # background context
+  Client → { "type": "interrupt" }                   # barge-in / stop current turn
   Client → { "type": "end" }                        # hang up
 
   Server → { "type": "ready" }
   Server → { "type": "user_transcript", "text": "..." }
   Server → { "type": "agent_response", "text": "..." }
   Server → { "type": "audio", "pcm16_b64": "...", "sample_rate": 24000 }
+  Server → { "type": "interruption" }               # stop client playback
   Server → { "type": "error", "error": "..." }
   Server → { "type": "status", "state": "listening"|"thinking"|"speaking" }
 """
@@ -26,7 +28,7 @@ import re
 import struct
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 import numpy as np
@@ -55,6 +57,9 @@ MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "4"))
 SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "700"))
 MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "280"))
 ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.012"))
+# Barge-in while Cog is busy: hotter + sustained so TTS echo doesn't false-trigger.
+BARGE_MS = int(os.environ.get("COG_BARGE_MS", "280"))
+BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
 
 THINK_TRIGGERS = re.compile(
     r"\b("
@@ -495,8 +500,9 @@ async def run_tool_loop(
     model: str,
     *,
     force: bool = False,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    """Let Ollama call Recall tools, then return the enriched message list."""
+    """Let the LLM call tools, then return the enriched message list."""
     tools = all_tools()
     working = list(messages)
     if force:
@@ -513,12 +519,20 @@ async def run_tool_loop(
         )
 
     for round_i in range(MAX_TOOL_ROUNDS):
+        if should_cancel and should_cancel():
+            log("tool loop cancelled before round")
+            break
         msg = await ollama_chat(working, model, tools=tools, stream=False)
+        if should_cancel and should_cancel():
+            log("tool loop cancelled after model (skipping tool execution)")
+            break
         tool_calls = msg.get("tool_calls") or []
         content = (msg.get("content") or "").strip()
 
         if not tool_calls:
             if force and round_i == 0 and not content:
+                if should_cancel and should_cancel():
+                    break
                 # Model ignored tools — seed a direct search ourselves.
                 seed = await memory_bridge.call_tool(
                     "recall_search",
@@ -567,6 +581,9 @@ async def run_tool_loop(
             }
         )
         for call in tool_calls:
+            if should_cancel and should_cancel():
+                log("tool loop cancelled — not running remaining tools")
+                break
             fn = call.get("function") or {}
             name = str(fn.get("name") or "").strip()
             args = _tool_args(fn.get("arguments"))
@@ -607,6 +624,8 @@ async def run_tool_loop(
                     )[:8000],
                 }
             )
+        if should_cancel and should_cancel():
+            break
     return working
 
 
@@ -631,6 +650,14 @@ class Session:
         self.busy = False
         self.closed = False
         self._brief_loaded = False
+        self.cancel = asyncio.Event()
+        self.turn_task: asyncio.Task | None = None
+        self.barge_ms = 0.0
+        self.barge_buf = np.zeros(0, dtype=np.float32)
+        self._partial_reply = ""
+
+    def cancelled(self) -> bool:
+        return self.cancel.is_set() or self.closed
 
     async def send(self, payload: dict[str, Any]) -> bool:
         if self.closed:
@@ -643,9 +670,66 @@ class Session:
             log(f"ws send failed: {err}")
             return False
 
+    async def interrupt(self, reason: str = "barge_in") -> None:
+        """Stop current turn: mute playback, cancel unfinished tools/speech.
+
+        Tools that already finished keep their side effects. Anything still
+        queued (remaining tool calls, TTS frames) is dropped.
+        """
+        if not self.busy and not (self.turn_task and not self.turn_task.done()):
+            return
+        log(f"interrupt ({reason})")
+        self.cancel.set()
+        await self.send({"type": "interruption"})
+        task = self.turn_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:  # noqa: BLE001
+                log(f"interrupt await turn: {err}")
+        self.turn_task = None
+        self.busy = False
+        # Keep any speech we already heard over him for the next turn.
+        if self.barge_buf.size > 0:
+            self.audio_buf = self.barge_buf.copy()
+            self.in_speech = True
+            self.speech_ms = max(self.speech_ms, self.barge_ms)
+            self.silence_ms = 0.0
+            self.barge_buf = np.zeros(0, dtype=np.float32)
+            self.barge_ms = 0.0
+        # Keep history honest — he did not finish what he was saying.
+        if self._partial_reply.strip():
+            note = self._partial_reply.strip()
+            if not note.endswith("…"):
+                note += "…"
+            self.history.append(
+                {
+                    "role": "assistant",
+                    "content": f"{note} (interrupted)",
+                }
+            )
+            if len(self.history) > 20:
+                self.history = self.history[-20:]
+        self._partial_reply = ""
+        await journal(
+            {
+                "kind": "conversation",
+                "type": "interrupt",
+                "name": "local-voice",
+                "session_id": self.session_id,
+                "by": "local-voice",
+                "reason": reason,
+            }
+        )
+        self.cancel.clear()
+        await self.send({"type": "status", "state": "listening"})
+
     async def recover_turn(self, why: str) -> None:
         """Stay on the line and say something when a turn blows up."""
-        if self.closed:
+        if self.closed or self.cancelled():
             return
         line = "Hold up — I blanked for a second. Say that again?"
         log(f"recovering turn ({why}): {line}")
@@ -663,8 +747,11 @@ class Session:
         try:
             await self.send({"type": "status", "state": "speaking"})
             await self.speak(line)
-            await self.send({"type": "agent_response", "text": line})
-            await self.send({"type": "status", "state": "listening"})
+            if not self.cancelled():
+                await self.send({"type": "agent_response", "text": line})
+                await self.send({"type": "status", "state": "listening"})
+        except asyncio.CancelledError:
+            raise
         except Exception as err:  # noqa: BLE001
             log(f"recover failed: {err}")
             self.closed = True
@@ -738,14 +825,51 @@ class Session:
         except Exception as err:  # noqa: BLE001
             log(f"session save failed: {err}")
 
-    async def on_audio(self, b64: str) -> None:
-        if self.busy:
+    def _start_turn(self, coro) -> None:
+        """Run a turn in the background so mic audio keeps arriving (barge-in)."""
+        if self.turn_task and not self.turn_task.done():
             return
+        self.cancel.clear()
+        self.busy = True
+        self._partial_reply = ""
+
+        async def _runner() -> None:
+            try:
+                await coro
+            except asyncio.CancelledError:
+                log("turn cancelled")
+                raise
+            except Exception as err:  # noqa: BLE001
+                log(f"turn failed: {err}")
+                if not self.cancelled():
+                    await self.recover_turn(str(err) or "exception")
+            finally:
+                if not self.cancel.is_set():
+                    self.busy = False
+                self.turn_task = None
+
+        self.turn_task = asyncio.create_task(_runner())
+
+    async def on_audio(self, b64: str) -> None:
         samples = pcm16_b64_to_float32(b64)
         if samples.size == 0:
             return
         energy = rms_energy(samples)
         duration_ms = 1000.0 * samples.size / SAMPLE_RATE_IN
+
+        # While Cog is thinking/speaking, listen for barge-in.
+        if self.busy:
+            if energy >= BARGE_ENERGY:
+                self.barge_ms += duration_ms
+                self.barge_buf = np.concatenate([self.barge_buf, samples])
+                if self.barge_ms >= BARGE_MS:
+                    await self.interrupt(reason="barge_in")
+                    # interrupt() already folded barge_buf into audio_buf
+            else:
+                self.barge_ms = max(0.0, self.barge_ms - duration_ms * 0.6)
+                if self.barge_ms <= 0:
+                    self.barge_buf = np.zeros(0, dtype=np.float32)
+            return
 
         if energy >= ENERGY_THRESH:
             self.in_speech = True
@@ -756,78 +880,77 @@ class Session:
             self.silence_ms += duration_ms
             self.audio_buf = np.concatenate([self.audio_buf, samples])
             if self.silence_ms >= SILENCE_MS and self.speech_ms >= MIN_SPEECH_MS:
-                await self.finish_user_turn()
+                self._start_turn(self._finish_user_turn())
 
         # Cap buffer so we don't grow forever on noise.
         max_samples = SAMPLE_RATE_IN * 30
         if self.audio_buf.size > max_samples:
             self.audio_buf = self.audio_buf[-max_samples:]
+        if self.barge_buf.size > max_samples:
+            self.barge_buf = self.barge_buf[-max_samples:]
 
-    async def finish_user_turn(self) -> None:
-        if self.busy:
-            return
+    async def _finish_user_turn(self) -> None:
         clip = self.audio_buf.copy()
         self.audio_buf = np.zeros(0, dtype=np.float32)
         self.in_speech = False
         self.speech_ms = 0.0
         self.silence_ms = 0.0
-        self.busy = True
-        try:
-            await self.send({"type": "status", "state": "thinking"})
-            text = await asyncio.to_thread(transcribe, clip)
-            if not text or len(text.strip()) < 2:
-                await self.send({"type": "status", "state": "listening"})
-                return
-            await self.send({"type": "user_transcript", "text": text})
-            append_transcript(self.session_id, "jake", text)
-            # Wake-only phrases should not dump memory/context — just greet.
-            if WAKE_ONLY.match(text):
-                greet = "Yeah? I'm here."
-                self.history.append({"role": "user", "content": text})
-                self.history.append({"role": "assistant", "content": greet})
-                append_transcript(self.session_id, "cog", greet)
-                await self.send({"type": "status", "state": "speaking"})
-                await self.speak(greet)
+        await self.send({"type": "status", "state": "thinking"})
+        text = await asyncio.to_thread(transcribe, clip)
+        if self.cancelled():
+            return
+        if not text or len(text.strip()) < 2:
+            await self.send({"type": "status", "state": "listening"})
+            return
+        await self.send({"type": "user_transcript", "text": text})
+        append_transcript(self.session_id, "jake", text)
+        # Wake-only phrases should not dump memory/context — just greet.
+        if WAKE_ONLY.match(text):
+            greet = "Yeah? I'm here."
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": greet})
+            append_transcript(self.session_id, "cog", greet)
+            await self.send({"type": "status", "state": "speaking"})
+            await self.speak(greet)
+            if not self.cancelled():
                 await self.send({"type": "agent_response", "text": greet})
                 await self.send({"type": "status", "state": "listening"})
-                return
-            self.history.append({"role": "user", "content": text})
-            await self.reply_from_history()
-        except Exception as err:  # noqa: BLE001
-            log(f"turn failed: {err}")
-            await self.recover_turn(str(err) or "exception")
-        finally:
-            self.busy = False
+            return
+        self.history.append({"role": "user", "content": text})
+        await self.reply_from_history()
 
     async def on_text(self, text: str) -> None:
         line = (text or "").strip()
-        if not line or self.busy:
+        if not line:
             return
-        self.busy = True
-        try:
-            await self.send({"type": "status", "state": "thinking"})
-            await self.send({"type": "user_transcript", "text": line})
-            append_transcript(self.session_id, "jake", line)
-            if WAKE_ONLY.match(line):
-                greet = "Yeah? I'm here."
-                self.history.append({"role": "user", "content": line})
-                self.history.append({"role": "assistant", "content": greet})
-                append_transcript(self.session_id, "cog", greet)
-                await self.send({"type": "status", "state": "speaking"})
-                await self.speak(greet)
+        if self.busy:
+            await self.interrupt(reason="typed_over")
+        self._start_turn(self._run_text_turn(line))
+
+    async def _run_text_turn(self, line: str) -> None:
+        await self.send({"type": "status", "state": "thinking"})
+        await self.send({"type": "user_transcript", "text": line})
+        append_transcript(self.session_id, "jake", line)
+        if WAKE_ONLY.match(line):
+            greet = "Yeah? I'm here."
+            self.history.append({"role": "user", "content": line})
+            self.history.append({"role": "assistant", "content": greet})
+            append_transcript(self.session_id, "cog", greet)
+            await self.send({"type": "status", "state": "speaking"})
+            await self.speak(greet)
+            if not self.cancelled():
                 await self.send({"type": "agent_response", "text": greet})
                 await self.send({"type": "status", "state": "listening"})
-                return
-            self.history.append({"role": "user", "content": line})
-            await self.reply_from_history()
-        except Exception as err:  # noqa: BLE001
-            log(f"text turn failed: {err}")
-            await self.recover_turn(str(err) or "exception")
-        finally:
-            self.busy = False
+            return
+        self.history.append({"role": "user", "content": line})
+        await self.reply_from_history()
 
     async def reply_from_history(self) -> None:
+        if self.cancelled():
+            return
         await self.ensure_memory_brief()
+        if self.cancelled():
+            return
 
         last_user = ""
         for msg in reversed(self.history):
@@ -857,6 +980,8 @@ class Session:
                 },
             }
         )
+        if self.cancelled():
+            return
         await self.send(
             {
                 "type": "status",
@@ -870,9 +995,16 @@ class Session:
         messages = self.build_messages()
         if force_memory:
             try:
-                messages = await run_tool_loop(messages, OLLAMA_MODEL, force=True)
+                messages = await run_tool_loop(
+                    messages,
+                    OLLAMA_MODEL,
+                    force=True,
+                    should_cancel=self.cancelled,
+                )
             except Exception as err:  # noqa: BLE001
                 log(f"tool loop failed (continuing without): {err}")
+            if self.cancelled():
+                return
             messages.append(
                 {
                     "role": "user",
@@ -892,16 +1024,24 @@ class Session:
         if not use_think:
             # Generate fully first so we can catch bland-assistant collapse before TTS.
             msg = await ollama_chat(messages, model, stream=False)
+            if self.cancelled():
+                return
             full = strip_thinking((msg.get("content") or "").strip())
             full = await rewrite_if_flat(full, model)
+            if self.cancelled():
+                return
             await self.send({"type": "status", "state": "speaking", "route": "fast", "model": model})
             sentences, tail = split_speakable(full + " ")
             for sentence in sentences:
+                if self.cancelled():
+                    return
                 await self.speak(sentence)
-            if tail.strip():
+            if tail.strip() and not self.cancelled():
                 await self.speak(tail.strip())
         else:
             async for chunk in ollama_stream(messages, model, think=True):
+                if self.cancelled():
+                    return
                 visible = filt.feed(chunk)
                 if not visible:
                     continue
@@ -913,8 +1053,12 @@ class Session:
                 pending += visible
                 sentences, pending = split_speakable(pending)
                 for sentence in sentences:
+                    if self.cancelled():
+                        return
                     await self.speak(sentence)
 
+            if self.cancelled():
+                return
             visible = filt.flush()
             if visible:
                 full += visible
@@ -925,13 +1069,18 @@ class Session:
             full = strip_thinking(full).strip()
             full = await rewrite_if_flat(full, model)
 
+        if self.cancelled():
+            return
         reply = strip_thinking(full).strip()
         if not reply:
             reply = "I lost the thread. One more time?"
             await self.speak(reply)
+        if self.cancelled():
+            return
         if reply:
             self.history.append({"role": "assistant", "content": reply})
             append_transcript(self.session_id, "cog", reply)
+            self._partial_reply = ""
             if len(self.history) > 20:
                 self.history = self.history[-20:]
             await self.send(
@@ -944,6 +1093,8 @@ class Session:
         await self.send({"type": "status", "state": "listening"})
 
     async def speak(self, text: str) -> None:
+        if self.cancelled():
+            return
         clean = re.sub(r"[*`#_>~\[\]\(\)]", "", text).strip()
         clean = re.sub(r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF]", "", clean).strip()
         if not clean:
@@ -961,10 +1112,15 @@ class Session:
         if any(b in lowered for b in banned):
             log(f"suppressed context leak: {clean[:80]}")
             return
+        self._partial_reply = (self._partial_reply + " " + clean).strip()
         audio = await asyncio.to_thread(synthesize, clean)
+        if self.cancelled():
+            return
         # Stream in ~200ms chunks so Cog can start playing ASAP.
         frame = int(SAMPLE_RATE_OUT * 0.2)
         for i in range(0, audio.size, frame):
+            if self.cancelled():
+                return
             piece = audio[i : i + frame]
             await self.send(
                 {
@@ -1032,12 +1188,21 @@ async def voice_socket(ws: WebSocket):
                 await session.on_text(msg.get("text") or "")
             elif kind == "context":
                 session.add_context(msg.get("text") or "")
+            elif kind in ("interrupt", "interruption"):
+                await session.interrupt(reason="client")
             elif kind in ("end", "close"):
                 break
     except WebSocketDisconnect:
         pass
     finally:
         session.closed = True
+        session.cancel.set()
+        if session.turn_task and not session.turn_task.done():
+            session.turn_task.cancel()
+            try:
+                await session.turn_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await session.persist_session()
 
 
