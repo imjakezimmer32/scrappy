@@ -593,16 +593,20 @@ async function handleClientToolCall(msg) {
   try {
     toolsInFlight += 1;
     clearSpeakEndTimer();
-    // Recall tools are named recall_*; route them through Electron → MCP.
-    if (String(toolName).startsWith("recall_")) {
+    // Recall / process journal / conversation tools route through Electron.
+    if (
+      String(toolName).startsWith("recall_") ||
+      String(toolName).startsWith("process_") ||
+      String(toolName).startsWith("conversation_")
+    ) {
       const bridge = window.workbuddy;
       if (!bridge || !bridge.recallTool) {
-        reply("Recall bridge unavailable", true);
+        reply("Local tool bridge unavailable", true);
         return;
       }
       const out = await bridge.recallTool(toolName, parameters);
       if (!out || !out.ok) {
-        reply(out && out.error ? out.error : "recall_failed", true);
+        reply(out && out.error ? out.error : "tool_failed", true);
         return;
       }
       reply(out.text || JSON.stringify(out.data || { ok: true }), Boolean(out.isError));

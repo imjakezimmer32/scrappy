@@ -267,6 +267,42 @@ function recent(limit = 80) {
   return out;
 }
 
+function search(query, limit = 40) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return recent(limit);
+  const hay = recent(Math.max(limit * 8, 400));
+  const matched = hay.filter((e) => {
+    const blob = [
+      e.kind,
+      e.type,
+      e.name,
+      e.by,
+      e.reason,
+      e.text,
+      Array.isArray(e.kills) ? e.kills.join(" ") : "",
+      e.session_id,
+      e.meta ? JSON.stringify(e.meta) : "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return blob.includes(q);
+  });
+  return matched.slice(-limit);
+}
+
+function formatEvents(events, max = 30) {
+  const slice = (events || []).slice(-max);
+  return slice
+    .map((e) => {
+      const kills = e.kills && e.kills.length ? ` kills=[${e.kills.join(",")}]` : "";
+      const text = e.text ? ` :: ${String(e.text).slice(0, 180)}` : "";
+      const reason = e.reason ? ` (${e.reason})` : "";
+      const pid = e.pid != null ? ` pid=${e.pid}` : "";
+      return `${e.iso || ""} [${e.kind}/${e.type}] ${e.name || "?"}${pid}${reason}${kills}${text}`;
+    })
+    .join("\n");
+}
+
 function dir() {
   return rootDir;
 }
@@ -287,6 +323,8 @@ module.exports = {
   note,
   openInboxForUser,
   recent,
+  search,
+  formatEvents,
   dir,
   inbox,
   importInbox,

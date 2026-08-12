@@ -182,6 +182,38 @@ function listRecent(limit = 20) {
   return files.slice(0, limit);
 }
 
+function getSession(sessionId) {
+  const id = String(sessionId || "").trim();
+  if (!id) return null;
+  const metaPath = path.join(projectDir, `${id.replace(/[^\w.\-]+/g, "_")}.meta.json`);
+  if (fs.existsSync(metaPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(metaPath, "utf8"));
+    } catch {
+      // fall through
+    }
+  }
+  return buildMeta(id);
+}
+
+function formatSessionList(sessions) {
+  return (sessions || [])
+    .map((s) => {
+      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} cog=${s.turns_cog || 0} | ${s.backend || "?"} | ${s.model || "?"}`;
+    })
+    .join("\n");
+}
+
+function formatTranscript(meta, maxTurns = 40) {
+  if (!meta) return "(not found)";
+  const lines = [`Session ${meta.session_id}`, `Started ${meta.started_at || "?"}`, ""];
+  const turns = (meta.transcript || []).slice(-maxTurns);
+  for (const t of turns) {
+    lines.push(`${t.role === "jake" ? "Jake" : "Cog"}: ${t.text || ""}`);
+  }
+  return lines.join("\n");
+}
+
 function projectPath() {
   return projectDir;
 }
@@ -192,6 +224,9 @@ module.exports = {
   recordEvent,
   endSession,
   listRecent,
+  getSession,
+  formatSessionList,
+  formatTranscript,
   buildMeta,
   readEvents,
   projectPath,

@@ -34,6 +34,15 @@ You’ll see lines like:
 
 That `kills=[...]` line is how you see **what stopped what**.
 
+## Cog can read this too
+
+Ask him out loud:
+- “What just killed local voice?”
+- “Check the process log.”
+- “What conversations did we save today?”
+
+He has tools: `process_recent`, `process_search`, `process_note`, `conversation_recent`, `conversation_get`.
+
 ## What gets recorded automatically
 
 - WorkBuddy / local-voice / wake-listener **start, stop, kill, exit, auto-restart**

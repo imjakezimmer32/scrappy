@@ -244,6 +244,49 @@ function recallTools() {
       ["id"]
     ),
     clientTool(
+      "process_recent",
+      "Read Cog's timestamped process journal: starts, stops, kills, restarts, wake events. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
+      {
+        limit: integer("Max events (default 40)"),
+        kind: str('Optional filter: "process", "conversation", "note", "system"'),
+        type: str('Optional filter e.g. "kill", "start", "exit", "wake"'),
+      },
+      []
+    ),
+    clientTool(
+      "process_search",
+      "Search the process journal by keyword (kill, local-voice, wake, model switch, etc).",
+      {
+        query: str("What to search for"),
+        limit: integer("Max matches (default 30)"),
+      },
+      ["query"]
+    ),
+    clientTool(
+      "process_note",
+      "WRITE: add a timestamped note into the process journal.",
+      {
+        text: str("Note to record"),
+        reason: str("Optional short reason tag"),
+      },
+      ["text"]
+    ),
+    clientTool(
+      "conversation_recent",
+      "List recent saved Cog voice conversations (ids + turn counts).",
+      { limit: integer("Max sessions (default 10)") },
+      []
+    ),
+    clientTool(
+      "conversation_get",
+      "Fetch one conversation transcript by session id from conversation_recent.",
+      {
+        id: str("Session id"),
+        max_turns: integer("Max turns to include (default 40)"),
+      },
+      ["id"]
+    ),
+    clientTool(
       "cursor_start_agent",
       "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so Jake can keep chatting there.",
       {

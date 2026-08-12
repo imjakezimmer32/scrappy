@@ -34,7 +34,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
-from tools_schema import LOCAL_MEMORY_RULES, recall_tools
+from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
@@ -73,7 +73,10 @@ MEMORY_TRIGGERS = re.compile(
     r"what\s+did\s+i\s+(?:say|tell|ask)|recall|"
     r"do\s+you\s+remember|from\s+(?:our|my)\s+(?:notes|chats?|memory)|"
     r"preferences?|relationship|"
-    r"open\s+tasks?|action\s+items?|my\s+notes?|search\s+(?:my\s+)?notes?"
+    r"open\s+tasks?|action\s+items?|my\s+notes?|search\s+(?:my\s+)?notes?|"
+    r"process(?:es|es\s+log|log)?|what\s+killed|who\s+killed|crashed?|restart(?:ed)?|"
+    r"went\s+quiet|stopped\s+talking|why\s+did\s+you\s+stop|under\s+the\s+hood|"
+    r"conversation(?:s)?\s+log|session\s+log|what\s+just\s+happened"
     r")\b",
     re.I,
 )
@@ -529,16 +532,17 @@ async def run_tool_loop(
     force: bool = False,
 ) -> list[dict[str, Any]]:
     """Let Ollama call Recall tools, then return the enriched message list."""
-    tools = recall_tools()
+    tools = all_tools()
     working = list(messages)
     if force:
         working.append(
             {
                 "role": "user",
                 "content": (
-                    "(System nudge: Jake is asking about YOUR memory / Recall. "
-                    "Call recall_search or recall_ask or recall_recent before answering. "
-                    "Do not give human mnemonic/sleep tips.)"
+                    "(System nudge: Jake is asking about YOUR memory, notes, process log, "
+                    "or what killed/restarted what. Call the right tools — recall_* for notes, "
+                    "process_* / conversation_* for the process journal — before answering. "
+                    "Do not give human mnemonic tips.)"
                 ),
             }
         )
@@ -602,7 +606,11 @@ async def run_tool_loop(
             name = str(fn.get("name") or "").strip()
             args = _tool_args(fn.get("arguments"))
             log(f"tool -> {name} {json.dumps(args)[:160]}")
-            if not name.startswith("recall_"):
+            if not (
+                name.startswith("recall_")
+                or name.startswith("process_")
+                or name.startswith("conversation_")
+            ):
                 result: dict[str, Any] = {"ok": False, "error": "invalid_tool"}
             else:
                 result = await memory_bridge.call_tool(name, args)
@@ -901,8 +909,9 @@ class Session:
                     "role": "user",
                     "content": (
                         "Answer Jake out loud as Cog. Stay in character — short, funny, "
-                        "desk-robot. Use what Recall found. Talk about YOUR memory system "
-                        "(Recall/notes), not human mnemonics. Do not recite tool JSON."
+                        "desk-robot. Use what the tools found. For memory questions use Recall; "
+                        "for crashes/kills/restarts use the process journal. No human mnemonics. "
+                        "Do not recite tool JSON."
                     ),
                 }
             )

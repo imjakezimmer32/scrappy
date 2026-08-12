@@ -779,7 +779,7 @@ function startServer() {
         res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
         return;
       }
-      const result = await runRecallTool(body.tool || body.name, body.args || body.arguments || {});
+      const result = await runLocalTool(body.tool || body.name, body.args || body.arguments || {});
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
       return;
@@ -990,6 +990,104 @@ async function runRecallTool(name, args) {
   }
 }
 
+function runProcessTool(name, args) {
+  const tool = String(name || "").trim();
+  const a = args && typeof args === "object" ? args : {};
+  try {
+    if (tool === "process_recent") {
+      const limit = Math.min(100, Math.max(1, Number(a.limit) || 40));
+      let events = processJournal.recent(Math.max(limit * 3, limit));
+      if (a.kind) {
+        const kind = String(a.kind).toLowerCase();
+        events = events.filter((e) => String(e.kind || "").toLowerCase() === kind);
+      }
+      if (a.type) {
+        const type = String(a.type).toLowerCase();
+        events = events.filter((e) => String(e.type || "").toLowerCase() === type);
+      }
+      events = events.slice(-limit);
+      return {
+        ok: true,
+        text: processJournal.formatEvents(events, limit) || "(no process events yet)",
+        data: { count: events.length, dir: processJournal.dir() },
+      };
+    }
+    if (tool === "process_search") {
+      const query = String(a.query || a.q || "").trim();
+      if (!query) return { ok: false, error: "query_required" };
+      const limit = Math.min(80, Math.max(1, Number(a.limit) || 30));
+      const events = processJournal.search(query, limit);
+      return {
+        ok: true,
+        text:
+          processJournal.formatEvents(events, limit) ||
+          `(no process events matched "${query}")`,
+        data: { count: events.length, query },
+      };
+    }
+    if (tool === "process_note") {
+      const text = String(a.text || a.note || "").trim();
+      if (!text) return { ok: false, error: "empty" };
+      const out = processJournal.note(text, {
+        by: a.by || "cog",
+        reason: a.reason || "cog process_note tool",
+      });
+      return {
+        ok: Boolean(out.ok),
+        text: out.ok ? `Saved process note: ${text.slice(0, 200)}` : out.error || "failed",
+        data: out.event || null,
+        error: out.ok ? undefined : out.error,
+      };
+    }
+    return { ok: false, error: "invalid_tool" };
+  } catch (err) {
+    console.error("Process tool failed:", tool, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+}
+
+function runConversationTool(name, args) {
+  const tool = String(name || "").trim();
+  const a = args && typeof args === "object" ? args : {};
+  try {
+    if (tool === "conversation_recent") {
+      const limit = Math.min(40, Math.max(1, Number(a.limit) || 10));
+      const sessions = conversationStore.listRecent(limit);
+      return {
+        ok: true,
+        text: conversationStore.formatSessionList(sessions) || "(no saved conversations yet)",
+        data: { count: sessions.length, sessions },
+      };
+    }
+    if (tool === "conversation_get") {
+      const id = String(a.id || a.session_id || a.sessionId || "").trim();
+      if (!id) return { ok: false, error: "id_required" };
+      const meta = conversationStore.getSession(id);
+      if (!meta || !(meta.transcript || []).length) {
+        // Still return meta if present with zero turns.
+        if (!meta) return { ok: false, error: "not_found" };
+      }
+      return {
+        ok: true,
+        text: conversationStore.formatTranscript(meta, Number(a.max_turns) || 40),
+        data: meta,
+      };
+    }
+    return { ok: false, error: "invalid_tool" };
+  } catch (err) {
+    console.error("Conversation tool failed:", tool, err.message);
+    return { ok: false, error: err.message || "failed" };
+  }
+}
+
+async function runLocalTool(name, args) {
+  const tool = String(name || "").trim();
+  if (tool.startsWith("recall_")) return runRecallTool(tool, args);
+  if (tool.startsWith("process_")) return runProcessTool(tool, args);
+  if (tool.startsWith("conversation_")) return runConversationTool(tool, args);
+  return { ok: false, error: "invalid_tool" };
+}
+
 async function saveCogChatSession(body = {}) {
   const transcript = String(body.transcript || body.summary || "").trim();
   if (!transcript) return { ok: false, error: "empty" };
@@ -1029,8 +1127,9 @@ function formatActionsBrief(data) {
     .join("\n");
 }
 
-// Generic Recall MCP tool call for ElevenLabs client tools + local-voice HTTP.
-ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runRecallTool(name, args));
+// Generic local tool call (Recall + process journal + conversations).
+ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runLocalTool(name, args));
+ipcMain.handle("workbuddy:local-tool", async (_event, name, args) => runLocalTool(name, args));
 
 // Cursor planning/research agents — start, continue, list, status, open.
 ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => {
