@@ -206,7 +206,7 @@ function localVoiceEnv() {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || file.OPENAI_API_KEY || "",
     GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
-    COG_TTS_VOICE: process.env.COG_TTS_VOICE || file.COG_TTS_VOICE || "am_eric",
+    COG_TTS_VOICE: process.env.COG_TTS_VOICE || file.COG_TTS_VOICE || "am_adam",
     COG_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.
     WORKBUDDY_URL: `http://${HOST}:${PORT}`,
