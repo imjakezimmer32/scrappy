@@ -464,6 +464,8 @@ def transcribe(samples: np.ndarray) -> str:
         samples = np.clip(samples * (0.35 / peak), -1.0, 1.0)
     model = get_whisper()
     beam = max(1, min(WHISPER_BEAM, 10))
+    # Hot-reload vocabulary into Whisper's listening hint each turn.
+    prompt = listening_dict.vocabulary_prompt(os.environ.get("COG_WHISPER_PROMPT") or "")
     segments, _info = model.transcribe(
         samples,
         language="en",
@@ -474,17 +476,12 @@ def transcribe(samples: np.ndarray) -> str:
         vad_parameters={"min_silence_duration_ms": 500},
         without_timestamps=True,
         condition_on_previous_text=False,
-        initial_prompt=WHISPER_PROMPT,
+        initial_prompt=prompt or WHISPER_PROMPT,
         compression_ratio_threshold=2.4,
         log_prob_threshold=-0.85,
         no_speech_threshold=0.6,
     )
     text = " ".join(seg.text.strip() for seg in segments).strip()
-    # Refresh Whisper prompt from dictionary vocabulary (hot-reload friendly).
-    global WHISPER_PROMPT
-    WHISPER_PROMPT = listening_dict.vocabulary_prompt(
-        os.environ.get("COG_WHISPER_PROMPT") or ""
-    )
     return normalize_transcript(text)
 
 
