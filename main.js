@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, session } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, session, shell } = require("electron");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
@@ -9,10 +9,14 @@ const cursorAgents = require("./cursor-agents");
 const cursorChats = require("./cursor-chats");
 const wakeListener = require("./wake-listener");
 const localVoice = require("./local-voice-launcher");
+const processJournal = require("./process-journal");
+const conversationStore = require("./conversation-store");
 
 const PORT = 8787;
 const HOST = "127.0.0.1";
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
+
+let activeConversationId = null;
 
 function minDurationMs() {
   const file = readEnvFile();
@@ -198,8 +202,19 @@ function setLocalModel(model) {
   if (!name) return { ok: false, error: "empty" };
   writeEnvKey("VOICE_BACKEND", "local");
   writeEnvKey("OLLAMA_MODEL", name);
-  localVoice.stop();
-  const started = localVoice.start(localVoiceEnv());
+  processJournal.record({
+    kind: "process",
+    type: "config",
+    name: "ollama-fast",
+    by: "tray",
+    reason: `switch fast brain -> ${name}`,
+    meta: { model: name },
+  });
+  localVoice.stop(`switch fast brain to ${name}`, "tray");
+  const started = localVoice.start(localVoiceEnv(), {
+    by: "tray",
+    reason: `restart after fast brain -> ${name}`,
+  });
   rebuildTray();
   return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
 }
@@ -208,8 +223,19 @@ function setThinkModel(model) {
   const name = String(model || "").trim();
   if (!name) return { ok: false, error: "empty" };
   writeEnvKey("OLLAMA_THINK_MODEL", name);
-  localVoice.stop();
-  const started = localVoice.start(localVoiceEnv());
+  processJournal.record({
+    kind: "process",
+    type: "config",
+    name: "ollama-think",
+    by: "tray",
+    reason: `switch think brain -> ${name}`,
+    meta: { model: name },
+  });
+  localVoice.stop(`switch think brain to ${name}`, "tray");
+  const started = localVoice.start(localVoiceEnv(), {
+    by: "tray",
+    reason: `restart after think brain -> ${name}`,
+  });
   rebuildTray();
   return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
 }
@@ -217,8 +243,18 @@ function setThinkModel(model) {
 function setThinkMode(mode) {
   const value = String(mode || "auto").toLowerCase();
   writeEnvKey("OLLAMA_THINK_MODE", value);
-  localVoice.stop();
-  const started = localVoice.start(localVoiceEnv());
+  processJournal.record({
+    kind: "process",
+    type: "config",
+    name: "think-mode",
+    by: "tray",
+    reason: `think mode -> ${value}`,
+  });
+  localVoice.stop(`switch think mode to ${value}`, "tray");
+  const started = localVoice.start(localVoiceEnv(), {
+    by: "tray",
+    reason: `restart after think mode -> ${value}`,
+  });
   rebuildTray();
   return started.ok ? { ok: true, mode: value } : { ok: false, error: started.error || "local_voice_failed" };
 }
@@ -466,9 +502,38 @@ function rebuildTray() {
     },
     { type: "separator" },
     {
+      label: "Add note to process log…",
+      click: () => {
+        const out = processJournal.openInboxForUser();
+        if (!out.ok) console.warn("[process-journal] open inbox failed:", out.error);
+        else console.log("[process-journal] inbox:", out.path);
+      },
+    },
+    {
+      label: "Open process logs folder",
+      click: () => {
+        const dir = processJournal.dir();
+        if (!dir) return;
+        try {
+          shell.openPath(dir);
+        } catch (err) {
+          console.warn("[process-journal] open folder failed:", err.message);
+        }
+      },
+    },
+    { type: "separator" },
+    {
       label: "Quit",
       click: () => {
         app.isQuitting = true;
+        processJournal.record({
+          kind: "process",
+          type: "quit",
+          name: "workbuddy",
+          by: "tray",
+          reason: "Quit from tray",
+          pid: process.pid,
+        });
         app.quit();
       },
     },
@@ -737,6 +802,65 @@ function startServer() {
       const result = await saveCogChatSession(body);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/local/process-event") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      let body = {};
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
+        return;
+      }
+      const result = processJournal.record(body);
+      if (body.session_id && (body.kind === "conversation" || body.type === "user" || body.type === "assistant")) {
+        conversationStore.recordEvent(body.session_id, body);
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/local/process-note") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      let body = {};
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
+        return;
+      }
+      const result = processJournal.note(body.text || body.note || "", {
+        by: body.by || "http",
+        reason: body.reason || "process note",
+        meta: body.meta,
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/local/process-recent") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      const limit = Number(url.searchParams.get("limit") || 80);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, events: processJournal.recent(limit), dir: processJournal.dir() }));
       return;
     }
 
@@ -1139,11 +1263,69 @@ ipcMain.handle("workbuddy:voice-status", async () => {
 });
 
 ipcMain.on("workbuddy:wake-pause", () => {
-  wakeListener.pause();
+  wakeListener.pause("renderer", "pause for voice call");
 });
 
 ipcMain.on("workbuddy:wake-resume", () => {
-  wakeListener.resume();
+  wakeListener.resume("renderer", "resume after voice call");
+});
+
+ipcMain.handle("workbuddy:process-note", (_event, text) => {
+  return processJournal.note(text, { by: "ui", reason: "from Cog UI" });
+});
+
+ipcMain.handle("workbuddy:process-event", (_event, event) => {
+  const result = processJournal.record(event || {});
+  if (event && event.session_id) {
+    conversationStore.recordEvent(event.session_id, event);
+  }
+  return result;
+});
+
+ipcMain.handle("workbuddy:conversation-start", (_event, info = {}) => {
+  const id = info.sessionId || conversationStore.newSessionId();
+  activeConversationId = id;
+  conversationStore.recordEvent(id, {
+    type: "session_start",
+    backend: info.backend || null,
+    model: info.model || null,
+  });
+  processJournal.conversation("session_start", {
+    session_id: id,
+    by: "renderer",
+    meta: { backend: info.backend, model: info.model },
+  });
+  return { ok: true, sessionId: id };
+});
+
+ipcMain.handle("workbuddy:conversation-event", (_event, sessionId, event) => {
+  const id = sessionId || activeConversationId || conversationStore.newSessionId();
+  activeConversationId = id;
+  conversationStore.recordEvent(id, event || {});
+  processJournal.conversation(event?.type || "event", {
+    session_id: id,
+    text: event?.text,
+    by: "renderer",
+    meta: event,
+  });
+  return { ok: true, sessionId: id };
+});
+
+ipcMain.handle("workbuddy:conversation-end", (_event, sessionId, extra = {}) => {
+  const id = sessionId || activeConversationId;
+  if (!id) return { ok: false, error: "no_session" };
+  const ended = conversationStore.endSession(id, extra);
+  processJournal.conversation("session_end", {
+    session_id: id,
+    by: "renderer",
+    meta: extra,
+  });
+  if (activeConversationId === id) activeConversationId = null;
+  return ended;
+});
+
+ipcMain.handle("workbuddy:process-recent", (_event, limit) => {
+  return { ok: true, events: processJournal.recent(limit || 80), dir: processJournal.dir() };
 });
 
 // The overlay is deliberately non-focusable so clicking Cog never pulls focus
@@ -1175,6 +1357,16 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     ensureToken();
+    processJournal.init({ projectRoot: __dirname });
+    conversationStore.init({ projectRoot: __dirname, userData: app.getPath("userData") });
+    localVoice.setJournal(processJournal);
+    wakeListener.setJournal(processJournal);
+    processJournal.started("workbuddy", {
+      pid: process.pid,
+      by: "main",
+      reason: "Electron app ready",
+      meta: { voiceBackend: voiceBackendPref() },
+    });
 
     // Cog needs the microphone to hold a conversation; nothing else.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
@@ -1191,7 +1383,7 @@ if (!gotTheLock) {
     // Prefer local AMD voice when configured; still start wake word either way.
     const pref = voiceBackendPref();
     if (pref === "local" || pref === "auto") {
-      localVoice.start(localVoiceEnv());
+      localVoice.start(localVoiceEnv(), { by: "main", reason: "startup local voice" });
     }
 
     wakeListener.init({
@@ -1206,7 +1398,7 @@ if (!gotTheLock) {
       path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
     );
     if (wakeWordEnabled() && (localInstalled || (apiKey && agentId))) {
-      wakeListener.start();
+      wakeListener.start("main", "startup wake word");
     }
     const cursorKey = cursorAgents.readApiKey(envFile);
     if (cursorKey) {
@@ -1232,9 +1424,21 @@ if (!gotTheLock) {
 
   app.on("before-quit", () => {
     app.isQuitting = true;
+    processJournal.record({
+      kind: "process",
+      type: "quit",
+      name: "workbuddy",
+      by: "main",
+      reason: "before-quit",
+      pid: process.pid,
+      kills: [
+        localVoice.pid() ? `local-voice:${localVoice.pid()}` : null,
+        "wake-listener",
+      ].filter(Boolean),
+    });
     if (topKeeper) clearInterval(topKeeper);
-    wakeListener.stop();
-    localVoice.stop();
+    wakeListener.stop("main", "app quitting");
+    localVoice.stop("app quitting", "main");
     cursorAgents.stopStatusPolling();
     recall.stop();
     if (server) {

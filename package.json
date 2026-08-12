@@ -14,8 +14,9 @@
     "model:qwen14": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 qwen2.5:14b",
     "model:gemma9": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 gemma2:9b",
     "model:qwen7": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 qwen2.5:7b",
-    "model:r1-14": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 deepseek-r1:14b"
-
+    "model:r1-14": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/switch-local-model.ps1 deepseek-r1:14b",
+    "process-log": "node ./scripts/process-log.js",
+    "conversations": "node ./scripts/process-log.js 80"
   },
   "author": "Jake",
   "license": "MIT",

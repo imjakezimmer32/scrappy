@@ -55,6 +55,24 @@ contextBridge.exposeInMainWorld("workbuddy", {
   voiceStatus() {
     return ipcRenderer.invoke("workbuddy:voice-status");
   },
+  processNote(text) {
+    return ipcRenderer.invoke("workbuddy:process-note", text);
+  },
+  processEvent(event) {
+    return ipcRenderer.invoke("workbuddy:process-event", event || {});
+  },
+  conversationStart(info) {
+    return ipcRenderer.invoke("workbuddy:conversation-start", info || {});
+  },
+  conversationEvent(sessionId, event) {
+    return ipcRenderer.invoke("workbuddy:conversation-event", sessionId, event || {});
+  },
+  conversationEnd(sessionId, extra) {
+    return ipcRenderer.invoke("workbuddy:conversation-end", sessionId, extra || {});
+  },
+  processRecent(limit) {
+    return ipcRenderer.invoke("workbuddy:process-recent", limit);
+  },
   onWake(callback) {
     ipcRenderer.on("workbuddy:wake", (_event, payload) => callback(payload));
   },

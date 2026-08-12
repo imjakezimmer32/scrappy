@@ -91,3 +91,19 @@ async def system_context() -> dict[str, Any]:
         if r.status_code != 200:
             return {"ok": False, "error": f"http_{r.status_code}"}
         return r.json()
+
+
+async def process_event(event: dict[str, Any]) -> dict[str, Any]:
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "no_token"}
+    url = f"{WORKBUDDY_URL}/local/process-event"
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        r = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            content=json.dumps(event),
+        )
+        if r.status_code != 200:
+            return {"ok": False, "error": f"http_{r.status_code}"}
+        return r.json()

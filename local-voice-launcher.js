@@ -15,6 +15,12 @@ const PORT = Number(process.env.COG_VOICE_PORT || 8790);
 let child = null;
 let wanted = false;
 let restartTimer = null;
+let journal = null;
+let lastEnv = {};
+
+function setJournal(j) {
+  journal = j;
+}
 
 function log(...args) {
   console.log("[local-voice]", ...args);
@@ -48,25 +54,59 @@ function clearRestart() {
   }
 }
 
-function stop() {
+function stop(reason = "stop requested", by = "main") {
   wanted = false;
   clearRestart();
-  if (!child) return;
+  if (!child) {
+    if (journal) {
+      journal.stopped("local-voice", { by, reason: `${reason} (already stopped)` });
+    }
+    return { ok: true, already: true };
+  }
   const proc = child;
+  const pid = proc.pid;
   child = null;
+  if (journal) {
+    journal.killed("local-voice", { pid, by, reason });
+  }
   try {
     proc.kill();
   } catch {
     /* ignore */
   }
+  return { ok: true, killed: pid };
 }
 
-function start(env = {}) {
+function start(env = {}, opts = {}) {
+  const by = opts.by || "main";
+  const reason = opts.reason || "start local voice";
   wanted = true;
-  if (child) return { ok: true, already: true };
+  lastEnv = env || {};
+  if (child) {
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "start_skipped",
+        name: "local-voice",
+        pid: child.pid,
+        by,
+        reason: "already running",
+      });
+    }
+    return { ok: true, already: true, pid: child.pid };
+  }
 
   if (!fs.existsSync(VENV_PY) || !fs.existsSync(SERVER)) {
     log("not installed — run: powershell -File scripts/setup-local-voice.ps1");
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "start_failed",
+        name: "local-voice",
+        by,
+        reason: "not_installed",
+      });
+    }
     return { ok: false, error: "not_installed" };
   }
 
@@ -85,6 +125,20 @@ function start(env = {}) {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  const pid = child.pid;
+  if (journal) {
+    journal.started("local-voice", {
+      pid,
+      by,
+      reason,
+      meta: {
+        model: env.OLLAMA_MODEL || null,
+        thinkModel: env.OLLAMA_THINK_MODEL || null,
+        port: PORT,
+      },
+    });
+  }
+
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
     String(chunk)
@@ -100,17 +154,33 @@ function start(env = {}) {
       .forEach((line) => console.warn(line));
   });
   child.on("exit", (code) => {
+    const wasWanted = wanted;
+    const exitedPid = pid;
     if (child) child = null;
     log("exited", code);
-    if (!wanted) return;
+    if (journal) {
+      journal.exited("local-voice", {
+        pid: exitedPid,
+        code,
+        by: "self",
+        reason: wasWanted ? "unexpected exit" : "stopped",
+      });
+    }
+    if (!wasWanted) return;
     clearRestart();
+    if (journal) {
+      journal.restartScheduled("local-voice", {
+        by: "auto-restart",
+        reason: `exited with code ${code}; restarting in 2s`,
+      });
+    }
     restartTimer = setTimeout(() => {
       restartTimer = null;
-      start(env);
+      start(lastEnv, { by: "auto-restart", reason: `respawn after exit ${code}` });
     }, 2000);
   });
 
-  return { ok: true, url: `ws://${HOST}:${PORT}/v1/voice` };
+  return { ok: true, url: `ws://${HOST}:${PORT}/v1/voice`, pid };
 }
 
 async function waitReady(ms = 90000) {
@@ -127,11 +197,17 @@ function wsUrl() {
   return `ws://${HOST}:${PORT}/v1/voice`;
 }
 
+function pid() {
+  return child ? child.pid : null;
+}
+
 module.exports = {
   start,
   stop,
   health,
   waitReady,
   wsUrl,
+  setJournal,
+  pid,
   PORT,
 };

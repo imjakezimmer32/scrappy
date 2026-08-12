@@ -2,7 +2,6 @@
 // Spawns a small PowerShell loop that listens for a short grammar and prints WAKE lines.
 
 const { spawn } = require("child_process");
-const path = require("path");
 
 const PHRASES = [
   // Longer phrases resist cough/throat-clear false wakes.
@@ -19,6 +18,11 @@ let wanted = false;
 let onWake = null;
 let restartTimer = null;
 let lastWakeAt = 0;
+let journal = null;
+
+function setJournal(j) {
+  journal = j;
+}
 
 function buildScript() {
   const choices = PHRASES.map((p) => p.replace(/'/g, "''")).map((p) => `'${p}'`).join(",");
@@ -68,11 +72,20 @@ function clearRestart() {
   }
 }
 
-function killChild() {
+function killChild(reason = "kill wake listener", by = "main") {
   clearRestart();
   if (!child) return;
   const proc = child;
+  const pid = proc.pid;
   child = null;
+  if (journal) {
+    journal.killed("wake-listener", {
+      pid,
+      by,
+      reason,
+      meta: { method: process.platform === "win32" ? "taskkill" : "sig" },
+    });
+  }
   try {
     proc.stdout.removeAllListeners();
     proc.stderr.removeAllListeners();
@@ -103,10 +116,29 @@ function handleLine(line) {
   if (!text) return;
   if (text === "WAKE_READY") {
     console.log("[wake] Windows speech listener ready");
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "ready",
+        name: "wake-listener",
+        pid: child ? child.pid : undefined,
+        by: "self",
+        reason: "WAKE_READY",
+      });
+    }
     return;
   }
   if (text.startsWith("WAKE_ERR:")) {
     console.warn("[wake]", text);
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "error",
+        name: "wake-listener",
+        by: "self",
+        reason: text,
+      });
+    }
     return;
   }
   if (!text.startsWith("WAKE:")) return;
@@ -116,12 +148,23 @@ function handleLine(line) {
   lastWakeAt = now;
   const parts = text.split(":");
   const phrase = parts[1] || "hey cog";
-  console.log("[wake] detected:", phrase, parts[2] || "");
+  const confidence = parts[2] || "";
+  console.log("[wake] detected:", phrase, confidence);
+  if (journal) {
+    journal.record({
+      kind: "process",
+      type: "wake",
+      name: "wake-listener",
+      by: "self",
+      reason: phrase,
+      meta: { confidence },
+    });
+  }
   if (typeof onWake === "function") onWake(phrase);
 }
 
-function spawnListener() {
-  killChild();
+function spawnListener(by = "main", reason = "start wake listener") {
+  killChild("replaced by new wake listener", by);
   if (!wanted || paused) return;
   if (process.platform !== "win32") {
     console.warn("[wake] System.Speech wake word is Windows-only");
@@ -138,6 +181,9 @@ function spawnListener() {
     }
   );
   child = proc;
+  if (journal) {
+    journal.started("wake-listener", { pid: proc.pid, by, reason });
+  }
 
   let buf = "";
   proc.stdout.setEncoding("utf8");
@@ -154,12 +200,26 @@ function spawnListener() {
   });
   proc.on("exit", (code) => {
     if (child === proc) child = null;
+    if (journal) {
+      journal.exited("wake-listener", {
+        pid: proc.pid,
+        code,
+        by: "self",
+        reason: wanted && !paused ? "unexpected exit" : "stopped",
+      });
+    }
     if (!wanted || paused) return;
     console.warn("[wake] listener exited", code, "— restarting");
+    if (journal) {
+      journal.restartScheduled("wake-listener", {
+        by: "auto-restart",
+        reason: `exited ${code}; restarting in 1.5s`,
+      });
+    }
     clearRestart();
     restartTimer = setTimeout(() => {
       restartTimer = null;
-      spawnListener();
+      spawnListener("auto-restart", `respawn after exit ${code}`);
     }, 1500);
   });
 }
@@ -168,24 +228,43 @@ module.exports = {
   init(hooks) {
     onWake = hooks && hooks.onWake;
   },
-  start() {
+  setJournal,
+  start(by = "main", reason = "wake word enabled") {
     wanted = true;
     paused = false;
-    spawnListener();
+    spawnListener(by, reason);
   },
-  stop() {
+  stop(by = "main", reason = "wake word disabled") {
     wanted = false;
     paused = false;
-    killChild();
+    killChild(reason, by);
   },
-  pause() {
+  pause(by = "main", reason = "pause for voice call") {
     paused = true;
-    killChild();
+    killChild(reason, by);
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "pause",
+        name: "wake-listener",
+        by,
+        reason,
+      });
+    }
   },
-  resume() {
+  resume(by = "main", reason = "resume after voice call") {
     if (!wanted) return;
     paused = false;
-    spawnListener();
+    if (journal) {
+      journal.record({
+        kind: "process",
+        type: "resume",
+        name: "wake-listener",
+        by,
+        reason,
+      });
+    }
+    spawnListener(by, reason);
   },
   phrases: PHRASES,
 };

@@ -710,13 +710,55 @@ function endCall() {
 // triggers a reply on its own). Meaningful chats auto-save into Recall.
 let contextTimer = null;
 let sessionLog = [];
+let conversationId = null;
 const SESSION_AUTO_SAVE_MIN_TURNS = 2;
 
-function trackSessionLine(role, text) {
+function trackSessionLine(role, text, extra = {}) {
   const line = String(text || "").trim();
   if (!line) return;
-  sessionLog.push({ role, text: line.slice(0, 500), at: Date.now() });
-  if (sessionLog.length > 40) sessionLog = sessionLog.slice(-40);
+  sessionLog.push({ role, text: line.slice(0, 4000), at: Date.now(), ...extra });
+  if (sessionLog.length > 200) sessionLog = sessionLog.slice(-200);
+  if (bridge.conversationEvent && conversationId) {
+    bridge
+      .conversationEvent(conversationId, {
+        type: role === "jake" ? "user" : "assistant",
+        role,
+        text: line.slice(0, 4000),
+        ...extra,
+      })
+      .catch(() => {});
+  }
+}
+
+async function beginConversationRecording(info = {}) {
+  if (!bridge.conversationStart) return;
+  try {
+    const out = await bridge.conversationStart({
+      backend: (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend()) || info.backend || null,
+      model: info.model || null,
+      sessionId: info.sessionId || null,
+    });
+    if (out && out.ok) conversationId = out.sessionId;
+  } catch {
+    conversationId = null;
+  }
+}
+
+async function endConversationRecording() {
+  if (!bridge.conversationEnd || !conversationId) {
+    conversationId = null;
+    return;
+  }
+  const id = conversationId;
+  conversationId = null;
+  try {
+    await bridge.conversationEnd(id, {
+      backend: window.CogVoice && window.CogVoice.backend ? window.CogVoice.backend() : null,
+      turns: sessionLog.filter((l) => l.role === "jake").length,
+    });
+  } catch {
+    // ignore
+  }
 }
 
 async function pushSystemContext(first) {
@@ -779,6 +821,7 @@ async function autoSaveSessionMemory() {
 function startContextFeed() {
   stopContextFeed(false);
   sessionLog = [];
+  beginConversationRecording();
   pushSystemContext(true);
   pushRecallBrief();
   contextTimer = setInterval(() => {
@@ -790,7 +833,10 @@ function startContextFeed() {
 function stopContextFeed(save = true) {
   if (contextTimer) clearInterval(contextTimer);
   contextTimer = null;
-  if (save) autoSaveSessionMemory().catch(() => {});
+  if (save) {
+    endConversationRecording().catch(() => {});
+    autoSaveSessionMemory().catch(() => {});
+  }
 }
 
 window.CogVoice.init({
@@ -848,6 +894,18 @@ window.CogVoice.init({
   ignored() {},
   status(s) {
     if (!inCall || !s) return;
+    if (bridge.processEvent) {
+      bridge
+        .processEvent({
+          kind: "conversation",
+          type: "status",
+          name: "voice",
+          session_id: conversationId,
+          reason: s.state,
+          meta: s,
+        })
+        .catch(() => {});
+    }
     if (s.state === "thinking") {
       setState("listen");
       setFace("focused");
@@ -860,8 +918,19 @@ window.CogVoice.init({
     }
   },
   // Recoverable brain hiccup — stay on the call.
-  turnError() {
+  turnError(err) {
     if (!inCall) return;
+    if (bridge.processEvent) {
+      bridge
+        .processEvent({
+          kind: "conversation",
+          type: "turn_error",
+          name: "voice",
+          session_id: conversationId,
+          reason: String(err || "turn_error"),
+        })
+        .catch(() => {});
+    }
     setState("listen");
     setFace("squint");
     bubbleText("Still here. Keep talking.", 3500, "click me to hang up");

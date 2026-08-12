@@ -8,3 +8,5 @@ local-token.txt
 .env
 local-voice/logs/
 local-voice/.venv/
+conversations/
+process-logs/

@@ -174,23 +174,49 @@ def load_persona() -> str:
     )
 
 
-def append_transcript(session_id: str, role: str, text: str) -> None:
+def append_transcript(session_id: str, role: str, text: str, **extra: Any) -> None:
     line = (text or "").strip()
     if not line:
         return
+    event = {
+        "ts": time.time(),
+        "role": role,
+        "type": "user" if role == "jake" else "assistant",
+        "text": line[:4000],
+        "session_id": session_id,
+        **extra,
+    }
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         path = LOG_DIR / f"{session_id}.jsonl"
         with path.open("a", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    {"ts": time.time(), "role": role, "text": line[:4000]},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
     except OSError as err:
         log(f"transcript write failed: {err}")
+    # Mirror into WorkBuddy process journal (best-effort).
+    try:
+        asyncio.get_running_loop().create_task(
+            memory_bridge.process_event(
+                {
+                    "kind": "conversation",
+                    "type": event["type"],
+                    "name": "local-voice",
+                    "session_id": session_id,
+                    "text": line[:4000],
+                    "by": "local-voice",
+                    "meta": {k: v for k, v in extra.items() if k not in ("text",)},
+                }
+            )
+        )
+    except RuntimeError:
+        pass
+
+
+async def journal(event: dict[str, Any]) -> None:
+    try:
+        await memory_bridge.process_event(event)
+    except Exception as err:  # noqa: BLE001
+        log(f"journal skip: {err}")
 
 
 def needs_memory_tools(user_text: str) -> bool:
@@ -455,6 +481,16 @@ async def rewrite_if_flat(reply: str, model: str) -> str:
     if not text or not ASSISTANT_TELLS.search(text):
         return text
     log(f"flat-assistant rewrite: {text[:80]}")
+    await journal(
+        {
+            "kind": "conversation",
+            "type": "rewrite",
+            "name": "local-voice",
+            "by": "local-voice",
+            "reason": "flat_assistant",
+            "meta": {"from": text[:500]},
+        }
+    )
     messages = [
         {
             "role": "system",
@@ -470,6 +506,16 @@ async def rewrite_if_flat(reply: str, model: str) -> str:
         msg = await ollama_chat(messages, model, stream=False)
         rewritten = strip_thinking((msg.get("content") or "").strip())
         if rewritten and not ASSISTANT_TELLS.search(rewritten):
+            await journal(
+                {
+                    "kind": "conversation",
+                    "type": "rewrite_done",
+                    "name": "local-voice",
+                    "by": "local-voice",
+                    "text": rewritten[:500],
+                    "meta": {"from": text[:500], "to": rewritten[:500]},
+                }
+            )
             return rewritten
     except Exception as err:  # noqa: BLE001
         log(f"rewrite failed: {err}")
@@ -560,6 +606,16 @@ async def run_tool_loop(
                 result: dict[str, Any] = {"ok": False, "error": "invalid_tool"}
             else:
                 result = await memory_bridge.call_tool(name, args)
+            await journal(
+                {
+                    "kind": "conversation",
+                    "type": "tool",
+                    "name": name,
+                    "by": "local-voice",
+                    "reason": name,
+                    "meta": {"args": args, "ok": result.get("ok"), "error": result.get("error")},
+                }
+            )
             working.append(
                 {
                     "role": "tool",
@@ -617,6 +673,17 @@ class Session:
             return
         line = "Hold up — I blanked for a second. Say that again?"
         log(f"recovering turn ({why}): {line}")
+        await journal(
+            {
+                "kind": "conversation",
+                "type": "recover",
+                "name": "local-voice",
+                "session_id": self.session_id,
+                "by": "local-voice",
+                "reason": why[:500],
+                "text": line,
+            }
+        )
         try:
             await self.send({"type": "status", "state": "speaking"})
             await self.speak(line)
@@ -798,6 +865,20 @@ class Session:
         log(
             f"route -> {'think' if use_think else 'fast'} ({model})"
             + (" +memory-tools" if force_memory else "")
+        )
+        await journal(
+            {
+                "kind": "conversation",
+                "type": "route",
+                "name": "local-voice",
+                "session_id": self.session_id,
+                "by": "local-voice",
+                "reason": "think" if use_think else "fast",
+                "meta": {
+                    "model": model,
+                    "memory_tools": force_memory,
+                },
+            }
         )
         await self.send(
             {
