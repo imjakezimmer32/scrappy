@@ -155,7 +155,7 @@ function voiceBackendPref() {
 
 function ollamaModel() {
   const file = readEnvFile();
-  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:14b";
+  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
 }
 
 function ollamaThinkModel() {
@@ -168,12 +168,44 @@ function ollamaThinkMode() {
   return (process.env.OLLAMA_THINK_MODE || file.OLLAMA_THINK_MODE || "auto").toLowerCase();
 }
 
+function llmBackendPref() {
+  const file = readEnvFile();
+  return (process.env.COG_LLM_BACKEND || file.COG_LLM_BACKEND || "cloud").toLowerCase();
+}
+
+function llmCloudModel() {
+  const file = readEnvFile();
+  return process.env.COG_LLM_MODEL || file.COG_LLM_MODEL || "gpt-4o-mini";
+}
+
+function llmCloudKeyPresent() {
+  const file = readEnvFile();
+  return Boolean(
+    process.env.COG_LLM_API_KEY ||
+      file.COG_LLM_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      file.OPENAI_API_KEY ||
+      process.env.GROQ_API_KEY ||
+      file.GROQ_API_KEY
+  );
+}
+
 function localVoiceEnv() {
   ensureToken();
+  const file = readEnvFile();
   return {
     OLLAMA_MODEL: ollamaModel(),
     OLLAMA_THINK_MODEL: ollamaThinkModel(),
     OLLAMA_THINK_MODE: ollamaThinkMode(),
+    COG_LLM_BACKEND: llmBackendPref(),
+    COG_LLM_MODEL: llmCloudModel(),
+    COG_LLM_THINK_MODEL:
+      process.env.COG_LLM_THINK_MODEL || file.COG_LLM_THINK_MODEL || llmCloudModel(),
+    COG_LLM_BASE_URL: process.env.COG_LLM_BASE_URL || file.COG_LLM_BASE_URL || "",
+    COG_LLM_API_KEY: process.env.COG_LLM_API_KEY || file.COG_LLM_API_KEY || "",
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || file.OPENAI_API_KEY || "",
+    GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
     COG_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.
     WORKBUDDY_URL: `http://${HOST}:${PORT}`,
@@ -238,6 +270,28 @@ function setThinkModel(model) {
   });
   rebuildTray();
   return started.ok ? { ok: true, model: name } : { ok: false, error: started.error || "local_voice_failed" };
+}
+
+function setLlmBackend(mode) {
+  const value = String(mode || "cloud").toLowerCase();
+  writeEnvKey("COG_LLM_BACKEND", value);
+  if (value === "ollama" || value === "local") {
+    writeEnvKey("OLLAMA_MODEL", ollamaModel() === "qwen2.5:14b" ? "qwen2.5:7b" : ollamaModel());
+  }
+  processJournal.record({
+    kind: "process",
+    type: "config",
+    name: "llm-backend",
+    by: "tray",
+    reason: `llm backend -> ${value}`,
+  });
+  localVoice.stop(`switch llm backend to ${value}`, "tray");
+  const started = localVoice.start(localVoiceEnv(), {
+    by: "tray",
+    reason: `restart after llm backend -> ${value}`,
+  });
+  rebuildTray();
+  return started.ok ? { ok: true, backend: value } : { ok: false, error: started.error || "local_voice_failed" };
 }
 
 function setThinkMode(mode) {
@@ -413,6 +467,8 @@ function rebuildTray() {
   const current = ollamaModel();
   const think = ollamaThinkModel();
   const mode = ollamaThinkMode();
+  const llmMode = llmBackendPref();
+  const cloudReady = llmCloudKeyPresent();
   const menu = Menu.buildFromTemplate([
     {
       label: "Show Cog",
@@ -444,7 +500,33 @@ function rebuildTray() {
     },
     { type: "separator" },
     {
-      label: `Fast brain: ${current}`,
+      label: cloudReady
+        ? `Brain: ${llmMode === "ollama" || llmMode === "local" ? "Local" : "Cloud"} (${llmMode === "ollama" || llmMode === "local" ? current : llmCloudModel()})`
+        : `Brain: Local fallback (${current}) — add API key`,
+      enabled: false,
+    },
+    {
+      label: "Switch brain",
+      submenu: [
+        {
+          label: cloudReady ? "Cloud API (recommended)" : "Cloud API (needs OPENAI_API_KEY)",
+          type: "radio",
+          checked: llmMode === "cloud" || llmMode === "openai" || llmMode === "api" || llmMode === "auto",
+          click: () => setLlmBackend("cloud"),
+        },
+        {
+          label: "Local light (qwen 7B)",
+          type: "radio",
+          checked: llmMode === "ollama" || llmMode === "local",
+          click: () => {
+            writeEnvKey("OLLAMA_MODEL", "qwen2.5:7b");
+            setLlmBackend("ollama");
+          },
+        },
+      ],
+    },
+    {
+      label: `Fast local model: ${current}`,
       enabled: false,
     },
     {

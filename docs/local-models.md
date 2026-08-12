@@ -16,13 +16,13 @@ Thinking traces are stripped so Cog does **not** read his homework out loud.
 
 ```
 VOICE_BACKEND=local
-OLLAMA_MODEL=qwen2.5:14b
-OLLAMA_THINK_MODEL=deepseek-r1:14b
-OLLAMA_THINK_MODE=auto
+COG_LLM_BACKEND=cloud
+COG_LLM_MODEL=gpt-4o-mini
+OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_THINK_MODE=off
 ```
 
-`qwen2.5:14b` is the default fast brain because 7B kept collapsing into bland chatbot voice.
-Use tray → **Switch fast brain → Qwen 2.5 7B** if you want speed over character.
+Prefer **cloud** for the brain (see `docs/cloud-brain.md`). Local 7B is only a lightweight fallback.
 
 Modes:
 - `auto` — router picks (recommended)

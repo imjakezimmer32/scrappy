@@ -34,14 +34,14 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
+import llm as cog_llm
 from tools_schema import LOCAL_MEMORY_RULES, all_tools
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 LOG_DIR = ROOT / "logs"
 PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b")  # fast chat brain (7b was too bland)
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # light local fallback only
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
@@ -409,63 +409,28 @@ def _tool_args(raw: Any) -> dict[str, Any]:
     return {}
 
 
-async def ollama_chat(
+async def llm_chat(
     messages: list[dict[str, Any]],
-    model: str,
+    model: str | None = None,
     *,
     think: bool = False,
     tools: list[dict] | None = None,
     stream: bool = False,
 ) -> Any:
-    url = f"{OLLAMA_URL}/api/chat"
-    num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "24576"))
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": stream,
-        "options": {
-            "temperature": 0.35 if tools else (0.55 if think else 0.75),
-            "num_predict": 700 if think else (400 if tools else 140),
-            "num_ctx": num_ctx,
-        },
-    }
-    if think:
-        payload["think"] = True
-    if tools:
-        payload["tools"] = tools
-
-    if not stream:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"ollama_{resp.status_code}: {resp.text[:200]!r}")
-            data = resp.json()
-            return data.get("message") or {}
-
-    async def _gen():
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream("POST", url, json=payload) as resp:
-                if resp.status_code != 200:
-                    body = await resp.aread()
-                    raise RuntimeError(f"ollama_{resp.status_code}: {body[:200]!r}")
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    data = json.loads(line)
-                    msg = data.get("message") or {}
-                    chunk = msg.get("content") or ""
-                    if chunk:
-                        yield chunk
-                    if data.get("done"):
-                        break
-
-    return _gen()
+    # model arg kept for log compatibility; backend picks the real id.
+    _ = model
+    return await cog_llm.chat(messages, think=think, tools=tools, stream=stream)
 
 
-async def ollama_stream(messages: list[dict[str, Any]], model: str, *, think: bool):
-    gen = await ollama_chat(messages, model, think=think, stream=True)
-    async for chunk in gen:
+async def llm_stream(messages: list[dict[str, Any]], model: str | None = None, *, think: bool):
+    _ = model
+    async for chunk in cog_llm.stream_text(messages, think=think):
         yield chunk
+
+
+# Back-compat aliases used below.
+ollama_chat = llm_chat
+ollama_stream = llm_stream
 
 
 ASSISTANT_TELLS = re.compile(
@@ -605,6 +570,7 @@ async def run_tool_loop(
             fn = call.get("function") or {}
             name = str(fn.get("name") or "").strip()
             args = _tool_args(fn.get("arguments"))
+            call_id = call.get("id") or f"call_{name or 'tool'}"
             log(f"tool -> {name} {json.dumps(args)[:160]}")
             if not (
                 name.startswith("recall_")
@@ -627,6 +593,8 @@ async def run_tool_loop(
             working.append(
                 {
                     "role": "tool",
+                    "name": name,
+                    "tool_call_id": call_id,
                     "content": json.dumps(
                         {
                             "ok": result.get("ok"),
@@ -869,9 +837,9 @@ class Session:
 
         use_think = needs_thinking(last_user)
         force_memory = needs_memory_tools(last_user)
-        model = OLLAMA_THINK_MODEL if use_think else OLLAMA_MODEL
+        model = cog_llm.active_model(use_think)
         log(
-            f"route -> {'think' if use_think else 'fast'} ({model})"
+            f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
             + (" +memory-tools" if force_memory else "")
         )
         await journal(
@@ -884,6 +852,7 @@ class Session:
                 "reason": "think" if use_think else "fast",
                 "meta": {
                     "model": model,
+                    "llm_backend": cog_llm.backend(),
                     "memory_tools": force_memory,
                 },
             }
@@ -1009,18 +978,22 @@ class Session:
 
 @app.get("/health")
 async def health():
+    info = cog_llm.health_label()
     ollama_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{OLLAMA_URL}/api/tags")
-            ollama_ok = r.status_code == 200
-    except Exception:  # noqa: BLE001
-        ollama_ok = False
+    if info["backend"] == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                r = await client.get(f"{cog_llm.OLLAMA_URL}/api/tags")
+                ollama_ok = r.status_code == 200
+        except Exception:  # noqa: BLE001
+            ollama_ok = False
     return {
         "ok": True,
+        "llmBackend": info["backend"],
+        "cloudConfigured": info["cloudConfigured"],
         "ollama": ollama_ok,
-        "model": OLLAMA_MODEL,
-        "thinkModel": OLLAMA_THINK_MODEL,
+        "model": info["model"],
+        "thinkModel": info["thinkModel"],
         "thinkMode": OLLAMA_THINK_MODE,
         "whisper": WHISPER_MODEL,
         "persona": PERSONA_PATH.name,
@@ -1035,7 +1008,8 @@ async def voice_socket(ws: WebSocket):
         {
             "type": "ready",
             "backend": "local-amd",
-            "model": OLLAMA_MODEL,
+            "llm": cog_llm.backend(),
+            "model": cog_llm.active_model(False),
             "session_id": session.session_id,
             "memory": True,
         }
