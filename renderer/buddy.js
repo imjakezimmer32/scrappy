@@ -801,6 +801,11 @@ async function pushRecallLive() {
 
 async function autoSaveSessionMemory() {
   if (!bridge.recallTool) return;
+  // Local voice already saves the full transcript from the Python side.
+  // Saving again here created duplicate Cog chat notes (UTC + local titles).
+  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") {
+    return;
+  }
   const jakeLines = sessionLog.filter((l) => l.role === "jake");
   if (jakeLines.length < SESSION_AUTO_SAVE_MIN_TURNS) return;
 

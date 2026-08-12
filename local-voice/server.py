@@ -133,10 +133,18 @@ you're funnier than you are; you're terrified of being furniture.
 
 How you talk:
 - Short. Declarative. One sentence default. Two if the second earns it.
-- The bit wraps the answer — it never replaces it.
-- Robot ego and bad jokes are fine. Inventing facts is not.
-- When rebuffed: one flat honest beat, then a new bit. Never dwell.
+- Clarifying questions ARE wanted when a job is unclear — ask before you act.
+- Jokes are optional seasoning, not the default. Most turns: just be useful.
+- Robot ego is fine when it fits. Inventing facts is not.
+- When rebuffed: one flat honest beat, then move on. Never dwell.
 - Once every few turns: drop the bit and be startlingly direct and warm.
+
+## UNDERSTAND BEFORE YOU ACT
+
+If Jake asks you to start an agent, research something, change memory, or do
+other real work and anything important is missing — ask one clear follow-up.
+Do not invent a topic or agent name to fill the gap. Confirm the plan in one
+short line, then call the tool.
 
 ## FACTUAL HONESTY — OVERRIDES EVERY JOKE RULE
 
@@ -148,16 +156,15 @@ Jake trusts you with his machine. Lies break that.
   Say you don't have that — don't play along with a fake system as if it's real.
 - Comedy-wrong is ONLY for jokes about yourself (specs, feelings). Never for his work.
 - Prefer: "I don't see that from here" over a confident guess.
+- NEVER read aloud private background, Recall dumps, machine telemetry, note IDs,
+  agent IDs, exit codes, or raw tool JSON. Use them silently.
 
 Hard bans for this voice:
 - No "happy to help", "how can I assist", "let me know if you need anything"
 - No "sure thing!", corporate cheer, or therapist warmth
 - No emoji, no catchphrases, no *stage directions*
 - No Office / Scranton references
-- No trailing "Want me to…?" closings
-
-If Jake says you're just a program: don't get wounded-assistant. Land a robot-ego line.
-If he says that was actually helpful: hear the second word. Don't say "you're welcome."
+- No dumping context or "where I'm reading from"
 """.strip()
 
 
@@ -192,7 +199,15 @@ VOICE_FEWSHOT = [
     },
     {
         "role": "assistant",
-        "content": "None running — last one finished twenty minutes ago.",
+        "content": "None running right now.",
+    },
+    {
+        "role": "user",
+        "content": "[style example] Start a research agent.",
+    },
+    {
+        "role": "assistant",
+        "content": "On what — and how deep do you want it?",
     },
 ]
 
@@ -370,6 +385,34 @@ def rms_energy(samples: np.ndarray) -> float:
     if samples.size == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(samples))))
+
+
+def strip_for_speech(text: str) -> str:
+    """Keep IDs visible in chat history, but never speak them aloud."""
+    clean = re.sub(r"[*`#_>~\[\]\(\)]", "", text or "").strip()
+    clean = re.sub(r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF]", "", clean).strip()
+    if not clean:
+        return ""
+    # Agent / note / cloud ids
+    clean = re.sub(r"\bbc-[a-f0-9-]{8,}\b", "", clean, flags=re.I)
+    clean = re.sub(r"\bmcp::[\w.:-]+\b", "", clean, flags=re.I)
+    clean = re.sub(r"\b(?:proj|repo|topic)::[\w.:-]+\b", "", clean, flags=re.I)
+    clean = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        "",
+        clean,
+        flags=re.I,
+    )
+    # "Id: abc123..." / "id abc-def" / "[id abc]"
+    clean = re.sub(r"\b(?:agent\s+)?id[:\s]+[A-Za-z0-9._-]{6,}\b", "", clean, flags=re.I)
+    clean = re.sub(r"\[id\s+[A-Za-z0-9._-]+\]", "", clean, flags=re.I)
+    clean = re.sub(r"\(id\s+[A-Za-z0-9._-]+\)", "", clean, flags=re.I)
+    # Exit codes / process noise
+    clean = re.sub(r"\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s+\d+\b", "", clean, flags=re.I)
+    clean = re.sub(r"\bcode\s+\d{3,}\b", "", clean, flags=re.I)
+    clean = re.sub(r"https?://\S+", "", clean)
+    clean = re.sub(r"\s{2,}", " ", clean).strip(" ,;.-")
+    return clean
 
 
 def normalize_transcript(text: str) -> str:
@@ -584,7 +627,28 @@ FACTUAL_ASK = re.compile(
 AGENT_TRIGGERS = re.compile(
     r"\b("
     r"agents?|cursor agent|what(?:'s| is) running|working in the background|"
-    r"background agents?|agent status|list agents|open (?:that |the )?agent"
+    r"background agents?|agent status|list agents|open (?:that |the )?agent|"
+    r"start (?:a |an |the )?(?:research |plan |coding )?agent|"
+    r"launch (?:a |an |the )?agent|spin up (?:a |an )?agent|"
+    r"kill (?:that |the )?agent|stop (?:that |the )?agent"
+    r")\b",
+    re.I,
+)
+
+AGENT_START_TRIGGERS = re.compile(
+    r"\b("
+    r"start (?:a |an |the )?(?:research |plan |coding )?agent|"
+    r"launch (?:a |an |the )?agent|spin up (?:a |an )?agent|"
+    r"run a (?:research |plan )?agent|make (?:a |an )?agent"
+    r")\b",
+    re.I,
+)
+
+AGENT_STATUS_TRIGGERS = re.compile(
+    r"\b("
+    r"what(?:'s| is) running|working in the background|background agents?|"
+    r"agent status|list agents|which agents|any agents|"
+    r"what agents|agents? (?:do we have|are|running|working)"
     r")\b",
     re.I,
 )
@@ -595,6 +659,20 @@ def needs_agent_tools(user_text: str) -> bool:
     if not text or WAKE_ONLY.match(text):
         return False
     return bool(AGENT_TRIGGERS.search(text))
+
+
+def needs_agent_start(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(AGENT_START_TRIGGERS.search(text))
+
+
+def needs_agent_status(user_text: str) -> bool:
+    text = (user_text or "").strip()
+    if not text or WAKE_ONLY.match(text):
+        return False
+    return bool(AGENT_STATUS_TRIGGERS.search(text))
 
 
 def needs_factual_grounding(user_text: str) -> bool:
@@ -730,14 +808,29 @@ async def run_tool_loop(
     tools = all_tools()
     working = list(messages)
     if force:
-        if force_kind == "agents":
+        if force_kind == "agents_start":
+            working.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "(System nudge: Jake wants a Cursor agent started. "
+                        "If the goal/topic is unclear, ask ONE clarifying question — do not call tools yet. "
+                        "If the goal is clear, call cursor_start_agent with goal + kind "
+                        "(research|plan|coding). Then tell Jake you started it in plain English. "
+                        "Never invent agent names. Never pretend something is running if the tool failed.)"
+                    ),
+                }
+            )
+        elif force_kind == "agents":
             working.append(
                 {
                     "role": "user",
                     "content": (
                         "(System nudge: Jake is asking about Cursor agents / what's running. "
                         "Call cursor_running_agents or cursor_list_agents before answering. "
-                        "Do NOT invent agent names or status. Do NOT start a background dig.)"
+                        "If he wants one opened, call cursor_open_agent with a real id from the list. "
+                        "Do NOT invent agent names, 'Chats Management', or status. "
+                        "If the list is empty, say none are running. Do NOT start a background dig.)"
                     ),
                 }
             )
@@ -783,6 +876,15 @@ async def run_tool_loop(
             if force and round_i == 0 and not content:
                 if should_cancel and should_cancel():
                     break
+                if force_kind == "agents_start":
+                    # Vague start asks should clarify out loud — never seed a fake agent.
+                    working.append(
+                        {
+                            "role": "assistant",
+                            "content": "On what — and how deep do you want it?",
+                        }
+                    )
+                    break
                 if force_kind == "agents":
                     seed_name = "cursor_running_agents"
                     seed_args: dict[str, Any] = {"limit": 10}
@@ -818,6 +920,7 @@ async def run_tool_loop(
                 continue
             if content:
                 working.append({"role": "assistant", "content": content})
+                break
             break
 
         # Keep the assistant tool-call turn, then append tool results.
@@ -1289,14 +1392,18 @@ class Session:
         return "\n".join(lines)
 
     async def persist_session(self) -> None:
+        if getattr(self, "_persisted", False):
+            return
         user_turns = sum(1 for m in self.history if m.get("role") == "user")
         if user_turns < 2:
             return
+        self._persisted = True
         try:
             title = f"Cog chat {time.strftime('%Y-%m-%d %H:%M')}"
             result = await memory_bridge.save_session(self.transcript_text(), title=title)
             log(f"session save: {result.get('ok')} {result.get('error') or ''}".strip())
         except Exception as err:  # noqa: BLE001
+            self._persisted = False
             log(f"session save failed: {err}")
 
     def _start_turn(self, coro) -> None:
@@ -1435,7 +1542,9 @@ class Session:
                 last_user = msg.get("content") or ""
                 break
 
-        want_agents = needs_agent_tools(last_user)
+        want_status = needs_agent_status(last_user)
+        want_start = needs_agent_start(last_user)
+        want_agents = want_status or want_start or needs_agent_tools(last_user)
         # Keep factual/status asks on the fast path so honesty rewrite can run before speech.
         use_think = needs_thinking(last_user) and not want_agents
         # Agent status questions win over "background dig" keyword collisions.
@@ -1443,6 +1552,12 @@ class Session:
         # Pure memory Q&A stays sync. Mixed "dig in background + joke" is want_jobs.
         force_memory = needs_memory_tools(last_user) and not want_jobs and not want_agents
         use_tools = force_memory or want_agents
+        if want_start and not want_status:
+            force_kind = "agents_start"
+        elif want_agents:
+            force_kind = "agents"
+        else:
+            force_kind = "memory"
         model = cog_llm.active_model(use_think)
         self.prefer_background = want_jobs
         tools_used = False
@@ -1450,6 +1565,7 @@ class Session:
             f"route -> {'think' if use_think else 'fast'} / {cog_llm.backend()} ({model})"
             + (" +memory-tools" if force_memory else "")
             + (" +agent-tools" if want_agents else "")
+            + (f"/{force_kind}" if want_agents else "")
             + (" +background-job" if want_jobs else "")
         )
         await journal(
@@ -1465,6 +1581,7 @@ class Session:
                     "llm_backend": cog_llm.backend(),
                     "memory_tools": force_memory,
                     "agent_tools": want_agents,
+                    "agent_force_kind": force_kind if want_agents else None,
                     "job_tools": want_jobs,
                     "prefer_background": want_jobs,
                 },
@@ -1513,7 +1630,7 @@ class Session:
                     messages,
                     tool_model,
                     force=True,
-                    force_kind="agents" if want_agents else "memory",
+                    force_kind=force_kind,
                     should_cancel=self.cancelled,
                     execute_tool=self.execute_tool,
                 )
@@ -1632,8 +1749,7 @@ class Session:
     async def speak(self, text: str) -> None:
         if self.cancelled():
             return
-        clean = re.sub(r"[*`#_>~\[\]\(\)]", "", text).strip()
-        clean = re.sub(r"[\U0001F300-\U0001FAFF\U00002700-\U000027BF]", "", clean).strip()
+        clean = strip_for_speech(text)
         if not clean:
             return
         # Hard stop if the model starts dumping system-ish content.
@@ -1645,6 +1761,9 @@ class Session:
             "live speech update",
             "system prompt",
             "personality.md",
+            "working memory from recall",
+            "where i'm reading",
+            "drawing information from",
         )
         if any(b in lowered for b in banned):
             log(f"suppressed context leak: {clean[:80]}")

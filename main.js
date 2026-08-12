@@ -1185,8 +1185,10 @@ function formatAgentsText(agents) {
     .slice(0, 12)
     .map((a) => {
       const status = a.friendlyStatus || a.status || "unknown";
+      const kind = a.kind || "agent";
       const goal = clip(a.goal || "(no goal)", 80);
-      return `- ${status}: ${goal} (id ${a.id || "?"})`;
+      // Put id last so spoken summaries can strip it; chat UI still sees it.
+      return `- ${status}: ${kind} — ${goal} [id ${a.id || "?"}]`;
     })
     .join("\n");
 }
@@ -1222,8 +1224,8 @@ async function runCursorAgentAction(action, args) {
         return {
           ...out,
           text: out.ok
-            ? `Started ${out.kind || "agent"} (${out.status || "running"}). Id ${out.id}.`
-            : out.error || "failed",
+            ? `Started ${out.kind || "agent"} (${out.status || "running"}). [id ${out.id}]`
+            : out.error || out.hint || "failed",
         };
       }
       case "continue": {
@@ -1355,19 +1357,36 @@ ipcMain.handle("workbuddy:local-tool", async (_event, name, args) => runLocalToo
 // Cursor planning/research agents — start, continue, list, status, open.
 ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => runCursorAgentAction(action, args));
 
+let lastCogChatFingerprint = "";
+let lastCogChatAt = 0;
+
 async function saveCogChatSession(body = {}) {
   const transcript = String(body.transcript || body.summary || "").trim();
   if (!transcript) return { ok: false, error: "empty" };
+  const fingerprint = crypto
+    .createHash("sha1")
+    .update(transcript.slice(0, 3500).replace(/\s+/g, " ").trim())
+    .digest("hex");
+  const now = Date.now();
+  // Local voice + renderer used to double-save the same chat within milliseconds.
+  if (fingerprint === lastCogChatFingerprint && now - lastCogChatAt < 120000) {
+    return { ok: true, deduped: true, fingerprint };
+  }
   const title =
     String(body.title || "").trim() ||
-    `Cog chat ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    `Cog chat ${new Date().toLocaleString("en-CA", { hour12: false }).slice(0, 16)}`;
   const summary = String(body.summary || transcript).slice(0, 3500);
-  return runRecallTool("recall_save_note", {
+  const result = await runRecallTool("recall_save_note", {
     title,
     summary,
     tags: ["cog", "conversation", "relationship"],
     project: "WorkBuddy",
   });
+  if (result && result.ok !== false) {
+    lastCogChatFingerprint = fingerprint;
+    lastCogChatAt = now;
+  }
+  return result;
 }
 
 function clip(text, max) {

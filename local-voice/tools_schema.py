@@ -186,7 +186,7 @@ def cursor_tools() -> list[dict]:
     return [
         _fn(
             "cursor_list_agents",
-            "List Cursor agents Cog knows about. Use when Jake asks what agents exist.",
+            "List Cursor agents Cog knows about. Use when Jake asks what agents exist. Never invent names.",
             {
                 "limit": {**i, "description": "How many (default 10)"},
                 "running_only": {**b, "description": "If true, only agents working now"},
@@ -195,8 +195,27 @@ def cursor_tools() -> list[dict]:
         ),
         _fn(
             "cursor_running_agents",
-            "Agents working right now. Use for 'what's running' / 'background agents'.",
+            "Agents working right now. Use for 'what's running' / 'background agents'. If empty, say none are running.",
             {"limit": {**i, "description": "How many (default 10)"}},
+        ),
+        _fn(
+            "cursor_start_agent",
+            "Start a Cursor agent for Jake. ONLY after the goal is clear. kind: research|plan|coding.",
+            {
+                "goal": {**s, "description": "What the agent should do (required, be specific)"},
+                "kind": {**s, "description": "research | plan | coding (default research)"},
+                "cwd": {**s, "description": "Optional project folder path"},
+            },
+            ["goal"],
+        ),
+        _fn(
+            "cursor_continue_agent",
+            "Send a follow-up to an existing Cursor agent. Use a real id from list/running tools.",
+            {
+                "id": {**s, "description": "Agent id"},
+                "message": {**s, "description": "Follow-up instructions"},
+            },
+            ["id", "message"],
         ),
         _fn(
             "cursor_list_cloud_agents",
@@ -220,7 +239,13 @@ def cursor_tools() -> list[dict]:
         ),
         _fn(
             "cursor_open_agent",
-            "Open the agent in the browser for Jake.",
+            "Open the agent in Jake's browser. Use a real id from list/running. If open fails, say so.",
+            {"id": {**s, "description": "Agent id"}},
+            ["id"],
+        ),
+        _fn(
+            "cursor_stop_agent",
+            "Stop/kill a running Cursor agent by id.",
             {"id": {**s, "description": "Agent id"}},
             ["id"],
         ),
@@ -264,5 +289,10 @@ you'll be cued when the dig finishes (or it waits in a queue if you're busy).
 When Jake asks what agents are running / working / in the background / status —
 call cursor_running_agents or cursor_list_agents. Never invent agent names or status.
 If tools return empty, say none are running. If a tool errors, say you couldn't check.
+
+When Jake wants to START an agent: if the topic/goal is unclear, ask first.
+When clear, call cursor_start_agent (kind research|plan|coding). Do not pretend
+you started one unless the tool succeeded. To open one in the browser, call
+cursor_open_agent with a real id from the list — if you can't, say so plainly.
 """.strip()
 
