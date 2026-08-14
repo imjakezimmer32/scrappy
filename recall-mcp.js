@@ -1,4 +1,4 @@
-// A minimal MCP client so Cog can read Jake's Recall knowledge base.
+// A minimal MCP client so Scrappy can read Jake's Recall knowledge base.
 //
 // Recall ships a stdio MCP server (`recall.exe --mcp`) that is safe to run
 // alongside the GUI — its own notes say WAL plus busy_timeout make concurrent
@@ -105,7 +105,7 @@ function start(override) {
     request("initialize", {
       protocolVersion: "2024-11-05",
       capabilities: {},
-      clientInfo: { name: "workbuddy-cog", version: "1.0.0" },
+      clientInfo: { name: "scrappy-scrappy", version: "1.0.0" },
     }).then((res) => {
       if (res.error) {
         teardown();

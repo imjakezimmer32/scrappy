@@ -1,4 +1,4 @@
-# Sets up Cog's free local AMD-friendly voice stack:
+# Sets up Scrappy's free local AMD-friendly voice stack:
 # - Python venv + deps
 # - Kokoro TTS model files
 # - Ollama chat model
@@ -67,7 +67,7 @@ $model = if ($env:OLLAMA_MODEL) { $env:OLLAMA_MODEL } else { "qwen2.5:7b" }
 Write-Host "    ollama pull $model (this can take a few minutes)..."
 & $ollama pull $model
 
-# Flip Cog to local voice by default in .env.local (keep ElevenLabs keys for fallback).
+# Flip Scrappy to local voice by default in .env.local (keep ElevenLabs keys for fallback).
 $envFile = Join-Path $Root ".env.local"
 $lines = @()
 if (Test-Path $envFile) {
@@ -79,7 +79,7 @@ $lines += "OLLAMA_MODEL=$model"
 Set-Content -Path $envFile -Value $lines -Encoding UTF8
 
 Write-Host ""
-Write-Host "Done. Start Cog with npm start - local voice will boot automatically."
+Write-Host "Done. Start Scrappy with npm start - local voice will boot automatically."
 Write-Host "Test server alone with:"
 $serverPy = Join-Path $Voice "server.py"
 Write-Host ("  " + $python + " " + $serverPy)

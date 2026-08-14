@@ -2,29 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Workbuddy</title>
+    <title>Scrappy</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div id="stage">
-      <div id="cog" class="cog" hidden data-state="idle" data-facing="right">
-        <div class="cog-flip"></div>
+      <div id="scrappy" class="scrappy" hidden data-state="idle" data-facing="right">
+        <div class="scrappy-flip"></div>
         <div class="bubble" id="bubble"></div>
         <div class="say-box" id="sayBox">
           <input id="sayInput" type="text" autocomplete="off" spellcheck="false" placeholder="say something…" maxlength="500" />
         </div>
       </div>
-      <div id="cogMenu" class="cog-menu" hidden>
-        <button type="button" data-act="off">Turn off Cog</button>
-        <button type="button" data-act="type">Type to Cog</button>
-        <button type="button" data-act="talk">Talk to Cog</button>
-        <button type="button" data-act="quit" class="is-quiet">Quit Workbuddy</button>
+      <div id="scrappyMenu" class="scrappy-menu" hidden>
+        <button type="button" data-act="off">Turn off Scrappy</button>
+        <button type="button" data-act="type">Type to Scrappy</button>
+        <button type="button" data-act="talk">Talk to Scrappy</button>
+        <button type="button" data-act="quit" class="is-quiet">Quit Scrappy</button>
       </div>
     </div>
-    <script src="cog.js"></script>
+    <script src="rig.js"></script>
     <script src="lines.js"></script>
     <script src="wake.js"></script>
     <script src="voice.js"></script>
-    <script src="buddy.js"></script>
+    <script src="scrappy.js"></script>
   </body>
 </html>

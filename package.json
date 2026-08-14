@@ -1,7 +1,7 @@
 {
-  "name": "workbuddy",
+  "name": "scrappy",
   "version": "1.0.0",
-  "description": "Cog — an articulated robot desktop buddy that fetches you when a Cursor agent finishes",
+  "description": "Scrappy — an articulated robot desk companion that fetches you when a Cursor agent finishes",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

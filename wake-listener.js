@@ -1,13 +1,13 @@
-// Offline "Hey Cog" wake word using Windows System.Speech (no cloud, no API key).
+// Offline "Hey Scrappy" wake word using Windows System.Speech (no cloud, no API key).
 // Spawns a small PowerShell loop that listens for a short grammar and prints WAKE lines.
 
 const { spawn } = require("child_process");
 
 const PHRASES = [
   // Longer phrases resist cough/throat-clear false wakes.
-  "hey there cog",
-  "okay then cog",
-  "wake up cog",
+  "hey there scrappy",
+  "okay then scrappy",
+  "wake up scrappy",
 ];
 
 const MIN_CONFIDENCE = 0.8;
@@ -147,7 +147,7 @@ function handleLine(line) {
   if (now - lastWakeAt < 2500) return;
   lastWakeAt = now;
   const parts = text.split(":");
-  const phrase = parts[1] || "hey cog";
+  const phrase = parts[1] || "hey scrappy";
   const confidence = parts[2] || "";
   console.log("[wake] detected:", phrase, confidence);
   if (journal) {

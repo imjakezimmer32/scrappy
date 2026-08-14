@@ -1,15 +1,15 @@
 # Listening dictionary (Wispr Flow-style)
 
-This fixes what Cog **hears**, not how he talks.
+This fixes what Scrappy **hears**, not how he talks.
 
-When Whisper mishears your words (like “Cog” → “carp” / “car”), the listening
-dictionary rewrites the transcript **before** Cog thinks about it.
+When Whisper mishears your words (like “Scrappy” → “carp” / “car”), the listening
+dictionary rewrites the transcript **before** Scrappy thinks about it.
 
 ## File
 
 `local-voice/listening-dictionary.json`
 
-Edit that file anytime. Cog hot-reloads it — usually within a couple seconds.
+Edit that file anytime. Scrappy hot-reloads it — usually within a couple seconds.
 No system-prompt changes needed.
 
 ## Two kinds of entries
@@ -18,7 +18,7 @@ No system-prompt changes needed.
 Names and terms Whisper should expect:
 
 ```json
-"vocabulary": ["Cog", "Chief", "Recall", "WorkBuddy"]
+"vocabulary": ["Scrappy", "Chief", "Recall", "ArrayBud"]
 ```
 
 These also get fed into Whisper’s listening hint.
@@ -28,30 +28,31 @@ Persistent mishearings:
 
 ```json
 "replacements": [
-  { "from": "carp", "to": "Cog" }
+  { "from": "crappy", "to": "Scrappy" }
 ],
 "phrases": [
-  { "from": "hey car", "to": "hey Cog" }
+  { "from": "scrap he", "to": "Scrappy" }
 ]
 ```
 
-- **replacements** = whole words (`carp` → `Cog`)
-- **phrases** = short word groups, especially wake-style (`hey car` → `hey Cog`)
+- **replacements** = whole words (`crappy` → `Scrappy`)
+- **phrases** = short word groups, especially wake-style (`hey scrap` → `hey Scrappy`)
 
-We intentionally do **not** blindly replace every “car” in a sentence (so “my car”
-stays “my car”). Wake phrases and rare mishearings like `carp` / `kog` are safe.
+We intentionally do **not** blindly replace every “scrap” in a sentence (so “scrap
+that” stays “scrap that”). Wake phrases and rare mishearings like `scrapy` / `scrabby`
+are safe.
 
 ## Seeded already
 
-Includes Cog / carp / car wake phrases, plus WorkBuddy, ArrayBud, Recall,
-Cloudflare, Wrangler, etc.
+Includes Scrappy wake phrases and its common mishearings (`scrapy`, `crappy`,
+`scrabby`, `snappy`, `scrap he`), plus ArrayBud, Recall, Cloudflare, Wrangler, etc.
 
 ## Add your own
 
 1. Open `local-voice/listening-dictionary.json`
 2. Add a replacement or phrase
 3. Save
-4. Talk to Cog again
+4. Talk to Scrappy again
 
 Example:
 

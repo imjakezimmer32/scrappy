@@ -1,10 +1,10 @@
-// Creates/updates the ElevenLabs agent that Cog speaks through, then records
+// Creates/updates the ElevenLabs agent that Scrappy speaks through, then records
 // its id in .env.local. Run:
 //
 //   npm run setup-voice
 //
 // Uploads personality.md as the system prompt and registers Recall client
-// tools so Cog can search/save/complete against Jake's local Recall MCP.
+// tools so Scrappy can search/save/complete against Jake's local Recall MCP.
 
 const fs = require("fs");
 const path = require("path");
@@ -83,7 +83,7 @@ function recallTools() {
       {
         query: str("What to look for"),
         limit: integer("Max results (default 10)"),
-        brain: str('Brain id: "notes", "repo::workbuddy", etc. Omit to search all.'),
+        brain: str('Brain id: "notes", "repo::scrappy", etc. Omit to search all.'),
         project: str("Optional project id/name/alias filter for notes"),
       },
       ["query"]
@@ -102,10 +102,10 @@ function recallTools() {
     ),
     clientTool(
       "recall_recent",
-      "Newest ready notes plus recent recording sessions. Filter with project WorkBuddy for your relationship notes.",
+      "Newest ready notes plus recent recording sessions. Filter with project Scrappy for your relationship notes.",
       {
         limit: integer("Max notes (default 10)"),
-        project: str("Optional project filter, e.g. WorkBuddy"),
+        project: str("Optional project filter, e.g. Scrappy"),
       },
       []
     ),
@@ -135,15 +135,15 @@ function recallTools() {
       []
     ),
     clientTool("recall_brains", "List connected Recall brains and their status.", {}, []),
-    clientTool("recall_projects", "List Jake's projects (ArrayBud, WorkBuddy, etc).", {}, []),
+    clientTool("recall_projects", "List Jake's projects (ArrayBud, Scrappy, etc).", {}, []),
     clientTool(
       "recall_save_note",
-      "WRITE: create a note in Recall. Use when Jake asks to remember something, OR quietly when he shares a lasting preference, decision, or relationship fact worth keeping. File those under project WorkBuddy with tags like cog, relationship, preference. Pass tags as a comma-separated string. Do not ask permission for quiet preference saves — just do it.",
+      "WRITE: create a note in Recall. Use when Jake asks to remember something, OR quietly when he shares a lasting preference, decision, or relationship fact worth keeping. File those under project Scrappy with tags like scrappy, relationship, preference. Pass tags as a comma-separated string. Do not ask permission for quiet preference saves — just do it.",
       {
         title: str("Short note title"),
         summary: str("Note body / summary"),
         tags: str("Optional comma-separated lowercase tags"),
-        project: str("Project id/name/alias, e.g. WorkBuddy"),
+        project: str("Project id/name/alias, e.g. Scrappy"),
       },
       ["title", "summary"]
     ),
@@ -245,7 +245,7 @@ function recallTools() {
     ),
     clientTool(
       "process_recent",
-      "Read Cog's timestamped process journal: starts, stops, kills, restarts, wake events. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
+      "Read Scrappy's timestamped process journal: starts, stops, kills, restarts, wake events. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
       {
         limit: integer("Max events (default 40)"),
         kind: str('Optional filter: "process", "conversation", "note", "system"'),
@@ -273,7 +273,7 @@ function recallTools() {
     ),
     clientTool(
       "conversation_recent",
-      "List recent saved Cog voice conversations (ids + turn counts).",
+      "List recent saved Scrappy voice conversations (ids + turn counts).",
       { limit: integer("Max sessions (default 10)") },
       []
     ),
@@ -308,7 +308,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_list_agents",
-      "List Cursor agents Cog has started. Returns friendly status (Working, Done, Stopped). Optional filters: status, kind, runtime, running_only, search.",
+      "List Cursor agents Scrappy has started. Returns friendly status (Working, Done, Stopped). Optional filters: status, kind, runtime, running_only, search.",
       {
         limit: integer("How many to list (default 10)"),
         status: str('Optional filter: "running", "finished", "cancelled", "error"'),
@@ -327,7 +327,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_list_cloud_agents",
-      "List Jake's cloud agents from Cursor (not just ones Cog started). Good overview of everything in the Agents window.",
+      "List Jake's cloud agents from Cursor (not just ones Scrappy started). Good overview of everything in the Agents window.",
       {
         limit: integer("How many to list (default 15)"),
         include_archived: bool("Include archived agents"),
@@ -402,7 +402,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_list_chats",
-      "List Jake's recent Cursor chats (titles + ids) across his projects — not only agents Cog started. Use when he asks what he's been working on in Cursor.",
+      "List Jake's recent Cursor chats (titles + ids) across his projects — not only agents Scrappy started. Use when he asks what he's been working on in Cursor.",
       {
         limit: integer("How many chats (default 15)"),
         include_archived: bool("Include archived chats"),
@@ -446,7 +446,7 @@ async function main() {
   const llm = process.env.ELEVENLABS_LLM || env.ELEVENLABS_LLM || "claude-sonnet-4-5";
 
   const body = {
-    name: "Cog",
+    name: "Scrappy",
     conversation_config: {
       agent: {
         prompt: {
@@ -471,7 +471,7 @@ async function main() {
   const updating = Boolean(existing);
 
   console.log(
-    updating ? `Updating agent ${existing}…` : "Creating the Cog agent on ElevenLabs…"
+    updating ? `Updating agent ${existing}…` : "Creating the Scrappy agent on ElevenLabs…"
   );
   console.log(`Registering ${body.conversation_config.agent.prompt.tools.length} Recall client tools…`);
 
@@ -512,7 +512,7 @@ async function main() {
 
   writeEnvValue("ELEVENLABS_AGENT_ID", agentId);
   console.log(`\nDone. Agent ${agentId} saved to .env.local.`);
-  console.log("Restart Workbuddy and click Cog to talk to him.");
+  console.log("Restart Scrappy and click Scrappy to talk to him.");
 }
 
 main().catch((err) => {

@@ -1,9 +1,9 @@
-"""Listening dictionary for Cog's ears (Wispr Flow-style).
+"""Listening dictionary for Scrappy's ears (Wispr Flow-style).
 
 Two layers, applied AFTER Whisper transcribes — not in the system prompt:
 
 1. vocabulary  — names/terms we also feed Whisper as an initial_prompt boost
-2. replacements / phrases — fix persistent mishearings (carp → Cog)
+2. replacements / phrases — fix persistent mishearings (carp → Scrappy)
 
 Edit local-voice/listening-dictionary.json anytime. Changes hot-reload.
 """
@@ -19,7 +19,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 DICT_PATH = Path(
     __import__("os").environ.get(
-        "COG_LISTENING_DICTIONARY",
+        "SCRAPPY_LISTENING_DICTIONARY",
         str(ROOT / "listening-dictionary.json"),
     )
 )
@@ -33,15 +33,15 @@ _cache: dict[str, Any] = {
 
 def _default_data() -> dict[str, Any]:
     return {
-        "vocabulary": ["Cog", "Chief", "Jake", "Recall", "WorkBuddy", "ArrayBud"],
+        "vocabulary": ["Scrappy", "Chief", "Jake", "Recall", "ArrayBud"],
         "replacements": [
-            {"from": "carp", "to": "Cog"},
-            {"from": "kog", "to": "Cog"},
-            {"from": "cogg", "to": "Cog"},
+            {"from": "scrapy", "to": "Scrappy"},
+            {"from": "crappy", "to": "Scrappy"},
+            {"from": "scrabby", "to": "Scrappy"},
         ],
         "phrases": [
-            {"from": "hey car", "to": "hey Cog"},
-            {"from": "okay car", "to": "okay Cog"},
+            {"from": "scrap he", "to": "Scrappy"},
+            {"from": "hey scrap", "to": "hey Scrappy"},
         ],
     }
 
@@ -93,7 +93,7 @@ def vocabulary_prompt(extra: str = "") -> str:
         seen.add(key)
         ordered.append(w)
     base = (
-        "Jake talking to Cog. Names and words: "
+        "Jake talking to Scrappy. Names and words: "
         + ", ".join(ordered[:40])
         + "."
     )
@@ -164,9 +164,9 @@ def apply(text: str) -> str:
             str(entry.get("to") or "").strip(),
         )
 
-    # Lone "car" / "card" / "cop" as the whole utterance → Cog (wake-ish).
+    # Lone "car" / "card" / "cop" as the whole utterance → Scrappy (wake-ish).
     if re.fullmatch(r"\s*(car|card|cop|cork)\s*[!?.]*\s*", cleaned, flags=re.I):
         punct = re.search(r"[!?.]+$", cleaned.strip())
-        cleaned = "Cog" + (punct.group(0) if punct else "")
+        cleaned = "Scrappy" + (punct.group(0) if punct else "")
 
     return re.sub(r"\s{2,}", " ", cleaned).strip()

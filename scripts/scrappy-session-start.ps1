@@ -1,4 +1,4 @@
-# Records when a Cursor agent session/generation starts so Workbuddy can measure duration.
+# Records when a Cursor agent session/generation starts so Scrappy can measure duration.
 $ErrorActionPreference = "Continue"
 
 try {
@@ -9,7 +9,7 @@ try {
   if (-not $id) { $id = $payload.generation_id }
   if (-not $id) { exit 0 }
 
-  $dir = Join-Path $env:LOCALAPPDATA "Workbuddy\sessions"
+  $dir = Join-Path $env:LOCALAPPDATA "Scrappy\sessions"
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   $path = Join-Path $dir "$id.json"
   $record = @{

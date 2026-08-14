@@ -1,26 +1,26 @@
 // Thin bridge: main process owns the Windows wake-word mic loop.
 // Renderer just pauses/resumes it around voice calls and reacts to hits.
 
-window.CogWake = {
+window.ScrappyWake = {
   init(hooks) {
-    const bridge = window.workbuddy;
+    const bridge = window.scrappy;
     if (!bridge || !bridge.onWake) return;
     bridge.onWake((payload) => {
       const phrase = payload && payload.phrase;
-      if (typeof hooks.onWake === "function") hooks.onWake(phrase || "hey cog");
+      if (typeof hooks.onWake === "function") hooks.onWake(phrase || "hey scrappy");
     });
   },
   start() {
-    if (window.workbuddy && window.workbuddy.wakeResume) {
-      window.workbuddy.wakeResume();
+    if (window.scrappy && window.scrappy.wakeResume) {
+      window.scrappy.wakeResume();
     }
   },
   stop() {
-    if (window.workbuddy && window.workbuddy.wakePause) {
-      window.workbuddy.wakePause();
+    if (window.scrappy && window.scrappy.wakePause) {
+      window.scrappy.wakePause();
     }
   },
   available() {
-    return Boolean(window.workbuddy && window.workbuddy.onWake);
+    return Boolean(window.scrappy && window.scrappy.onWake);
   },
 };

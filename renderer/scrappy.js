@@ -1,18 +1,18 @@
-// cog.js and lines.js are classic scripts sharing one global scope, so we
+// rig.js and lines.js are classic scripts sharing one global scope, so we
 // alias rather than destructure — a bare `pick`/`FACES` here would redeclare.
-const RIG = window.CogRig;
-const pickLine = window.CogLines.pick;
+const RIG = window.ScrappyRig;
+const pickLine = window.ScrappyLines.pick;
 
 // Stub the preload bridge so renderer/index.html can be opened in a plain
 // browser while iterating on the animation.
-const bridge = window.workbuddy || {
+const bridge = window.scrappy || {
   onGrow() {},
   onAck() {},
   onLayout() {},
   ack() {},
   testGrow() {},
   setInteractive() {},
-  hideBuddy() {},
+  hideScrappy() {},
   quitApp() {},
   isVisible: () => true,
   onVisible() {},
@@ -36,12 +36,12 @@ const SLEEP_AFTER_MS = 10 * 60 * 1000;
 const ESCALATE_MS = 22 * 1000;
 
 const stage = document.getElementById("stage");
-const el = document.getElementById("cog");
-const flip = el.querySelector(".cog-flip");
+const el = document.getElementById("scrappy");
+const flip = el.querySelector(".scrappy-flip");
 const bubble = document.getElementById("bubble");
 
 flip.innerHTML = RIG.buildCog();
-const faceEl = document.getElementById("cog-face");
+const faceEl = document.getElementById("scrappy-face");
 
 let x = 80;
 let target = null;
@@ -614,7 +614,7 @@ async function sendToBrain(text) {
   setFace("curious", true);
   bubbleText("…", 0);
 
-  const sent = await window.CogVoice.sendText(text);
+  const sent = await window.ScrappyVoice.sendText(text);
   if (sent && sent.ok) return;
 
   faceLockUntil = 0;
@@ -690,7 +690,7 @@ async function startCall() {
   stopWatching();
   forgetAnnoyance();
   target = null;
-  if (window.CogWake) window.CogWake.stop();
+  if (window.ScrappyWake) window.ScrappyWake.stop();
   // Give Windows a beat to release the wake-word mic before ElevenLabs grabs it.
   await new Promise((r) => setTimeout(r, 350));
   await wakeUp();
@@ -702,18 +702,18 @@ async function startCall() {
   setFace("listen", true);
   bubbleText("Listening…", 0, "click me to stop");
 
-  const result = await window.CogVoice.start({ mic: true });
+  const result = await window.ScrappyVoice.start({ mic: true });
   if (!result || !result.ok) {
     const trouble = VOICE_TROUBLE[result && result.error] || ["Something went wrong.", ""];
     inCall = false;
     setState("idle");
     say(trouble[0], 4200, "squint", trouble[1]);
-    if (window.CogWake && voiceReady) window.CogWake.start();
+    if (window.ScrappyWake && voiceReady) window.ScrappyWake.start();
   }
 }
 
 function endCall() {
-  window.CogVoice.stop();
+  window.ScrappyVoice.stop();
 }
 
 // Feed him machine telemetry + Recall memory as background context (never
@@ -744,7 +744,7 @@ async function beginConversationRecording(info = {}) {
   if (!bridge.conversationStart) return;
   try {
     const out = await bridge.conversationStart({
-      backend: (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend()) || info.backend || null,
+      backend: (window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend()) || info.backend || null,
       model: info.model || null,
       sessionId: info.sessionId || null,
     });
@@ -763,7 +763,7 @@ async function endConversationRecording() {
   conversationId = null;
   try {
     await bridge.conversationEnd(id, {
-      backend: window.CogVoice && window.CogVoice.backend ? window.CogVoice.backend() : null,
+      backend: window.ScrappyVoice && window.ScrappyVoice.backend ? window.ScrappyVoice.backend() : null,
       turns: sessionLog.filter((l) => l.role === "jake").length,
     });
   } catch {
@@ -775,45 +775,45 @@ async function pushSystemContext(first) {
   if (!bridge.systemContext) return;
   const snap = await bridge.systemContext();
   if (!snap || !snap.ok || !snap.text) return;
-  const local = window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local";
+  const local = window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local";
   const text = local ? String(snap.text).slice(0, 500) : snap.text;
-  window.CogVoice.sendContext(
+  window.ScrappyVoice.sendContext(
     first ? `Current state of Jake's machine: ${text}` : `Machine update: ${text}`
   );
 }
 
 async function pushRecallBrief() {
   // Local voice loads a full Recall brief itself over the Electron bridge.
-  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") return;
+  if (window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local") return;
   if (bridge.recallBrief) {
     const r = await bridge.recallBrief();
     if (r && r.ok && r.text) {
-      const local = window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local";
+      const local = window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local";
       const text = local ? String(r.text).slice(0, 700) : r.text;
-      window.CogVoice.sendContext(`From Jake's Recall:\n${text}`);
+      window.ScrappyVoice.sendContext(`From Jake's Recall:\n${text}`);
       return;
     }
   }
   if (!bridge.recallContext) return;
   const r = await bridge.recallContext();
   if (!r || !r.ok || !r.text) return;
-  window.CogVoice.sendContext(`From Jake's Recall notes — ${r.text}`);
+  window.ScrappyVoice.sendContext(`From Jake's Recall notes — ${r.text}`);
 }
 
 async function pushRecallLive() {
   // Local models overfit on live dumps and start reading them aloud.
-  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") return;
+  if (window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local") return;
   if (!bridge.recallTool) return;
   const r = await bridge.recallTool("recall_live_context", { minutes: 10 });
   if (!r || !r.ok || !r.text) return;
-  window.CogVoice.sendContext(`Live speech update from Recall: ${r.text}`.slice(0, 4000));
+  window.ScrappyVoice.sendContext(`Live speech update from Recall: ${r.text}`.slice(0, 4000));
 }
 
 async function autoSaveSessionMemory() {
   if (!bridge.recallTool) return;
   // Local voice already saves the full transcript from the Python side.
-  // Saving again here created duplicate Cog chat notes (UTC + local titles).
-  if (window.CogVoice && window.CogVoice.backend && window.CogVoice.backend() === "local") {
+  // Saving again here created duplicate Scrappy chat notes (UTC + local titles).
+  if (window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local") {
     return;
   }
   const jakeLines = sessionLog.filter((l) => l.role === "jake");
@@ -821,15 +821,15 @@ async function autoSaveSessionMemory() {
 
   const summaryParts = [];
   for (const line of sessionLog.slice(-16)) {
-    summaryParts.push(`${line.role === "jake" ? "Jake" : "Cog"}: ${line.text}`);
+    summaryParts.push(`${line.role === "jake" ? "Jake" : "Scrappy"}: ${line.text}`);
   }
   const summary = summaryParts.join("\n").slice(0, 3500);
-  const title = `Cog chat ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+  const title = `Scrappy chat ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
   await bridge.recallTool("recall_save_note", {
     title,
     summary,
-    tags: ["cog", "conversation", "relationship"],
-    project: "WorkBuddy",
+    tags: ["scrappy", "conversation", "relationship"],
+    project: "Scrappy",
   });
 }
 
@@ -860,10 +860,10 @@ function stopContextFeed(save = true) {
   }
 }
 
-window.CogVoice.init({
+window.ScrappyVoice.init({
   open() {
     inCall = true;
-    if (window.CogWake) window.CogWake.stop();
+    if (window.ScrappyWake) window.ScrappyWake.stop();
     cancelAll();
     target = null;
     setState("listen");
@@ -879,7 +879,7 @@ window.CogVoice.init({
     setState("idle");
     setFace("focused");
     lastPoke = Date.now();
-    if (window.CogWake && voiceReady) window.CogWake.start();
+    if (window.ScrappyWake && voiceReady) window.ScrappyWake.start();
   },
   speakStart() {
     setState("speak");
@@ -895,7 +895,7 @@ window.CogVoice.init({
     if (text) bubbleText(text, 0);
   },
   said(text) {
-    trackSessionLine("cog", text);
+    trackSessionLine("scrappy", text);
     if (!text) return;
     faceLockUntil = 0;
     // Typed conversations have no call open, so clear the bubble ourselves.
@@ -958,11 +958,11 @@ window.CogVoice.init({
   },
   error(code) {
     // Fatal only — hang up cleanly so he doesn't wander with the mic still open.
-    if (window.CogVoice && window.CogVoice.isActive()) window.CogVoice.stop();
+    if (window.ScrappyVoice && window.ScrappyVoice.isActive()) window.ScrappyVoice.stop();
     inCall = false;
     const trouble = VOICE_TROUBLE[code] || ["Something went wrong.", ""];
     say(trouble[0], 5200, "squint", trouble[1]);
-    if (window.CogWake && voiceReady) window.CogWake.start();
+    if (window.ScrappyWake && voiceReady) window.ScrappyWake.start();
   },
 });
 
@@ -991,7 +991,7 @@ function aimEyes(box) {
   const hy = (box.top + box.bottom) / 2;
   const nx = Math.max(-1, Math.min(1, (pointer.x - hx) / Math.max(box.width / 2, 1)));
   const ny = Math.max(-1, Math.min(1, (pointer.y - hy) / Math.max(box.height / 2, 1)));
-  // .eye-track lives inside .cog-flip, which is mirrored when he faces left,
+  // .eye-track lives inside .scrappy-flip, which is mirrored when he faces left,
   // so the horizontal sense has to be inverted or his eyes track backwards.
   const sign = el.dataset.facing === "left" ? -1 : 1;
   el.style.setProperty("--eye-x", `${(nx * EYE_RANGE_X * sign).toFixed(1)}px`);
@@ -1252,7 +1252,7 @@ async function live() {
   await wait(600);
   if (!hiddenAway) {
     setState("wave");
-    await say("Hi. I'm Cog.", 2600, "pleased", "I'll tell you when the agent's done.");
+    await say("Hi. I'm Scrappy.", 2600, "pleased", "I'll tell you when the agent's done.");
     setState("idle");
   }
 
@@ -1376,7 +1376,10 @@ setInterval(nag, NAG_EVERY_MS);
 
 // ---------- body awareness (tell the voice brain what Jake is doing to him) ----------
 
-const THROW_COUNT_KEY = "cog_throw_count";
+const THROW_COUNT_KEY = "scrappy_throw_count";
+// Pre-rename key. Read it once so the lifetime throw count survives the
+// Cog -> Scrappy rename instead of silently resetting to zero.
+const LEGACY_THROW_COUNT_KEY = "cog_throw_count";
 let sessionThrows = 0;
 let lastBodyLabel = "";
 let lastBodyPushAt = 0;
@@ -1385,7 +1388,11 @@ let bodyTickTimer = null;
 
 function lifetimeThrows() {
   try {
-    const n = Number(localStorage.getItem(THROW_COUNT_KEY) || "0");
+    const raw =
+      localStorage.getItem(THROW_COUNT_KEY) ||
+      localStorage.getItem(LEGACY_THROW_COUNT_KEY) ||
+      "0";
+    const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
   } catch {
     return 0;
@@ -1438,7 +1445,7 @@ function describeBodyState() {
 }
 
 function pushBodyAwareness(force = false) {
-  if (!inCall || !window.CogVoice || !window.CogVoice.sendContext) return;
+  if (!inCall || !window.ScrappyVoice || !window.ScrappyVoice.sendContext) return;
   const line = describeBodyState();
   const now = Date.now();
   // Don't spam identical idle desk updates.
@@ -1449,7 +1456,7 @@ function pushBodyAwareness(force = false) {
   }
   lastBodyLabel = line;
   lastBodyPushAt = now;
-  window.CogVoice.sendContext(`BODY: ${line}`);
+  window.ScrappyVoice.sendContext(`BODY: ${line}`);
 }
 
 function noteThrow(impactVy, impactOmega) {
@@ -1576,7 +1583,7 @@ window.addEventListener("pointercancel", () => {
 // ---------- click-through plumbing ----------
 
 // The window is click-through by default; we only claim the mouse while the
-// pointer is actually over Cog or his bubble.
+// pointer is actually over Scrappy or his bubble.
 let interactive = false;
 
 function hits(rect, pad) {
@@ -1609,7 +1616,7 @@ function refreshInteractive() {
 
 // ---------- right-click menu ----------
 
-const menu = document.getElementById("cogMenu");
+const menu = document.getElementById("scrappyMenu");
 
 function menuOpen() {
   return Boolean(menu) && !menu.hidden;
@@ -1659,7 +1666,7 @@ function applyVisible(on) {
 function hush() {
   if (inCall) endCall();
   if (chatting) closeChat();
-  if (window.CogWake) window.CogWake.stop();
+  if (window.ScrappyWake) window.ScrappyWake.stop();
   cancelAll();
   closeMenu();
 }
@@ -1670,7 +1677,7 @@ function turnOff() {
   setFace("pleased", true);
   bubbleText(pickLine("off"), 900);
   wait(700).then(() => {
-    if (bridge.hideBuddy) bridge.hideBuddy();
+    if (bridge.hideScrappy) bridge.hideScrappy();
   });
 }
 
@@ -1707,7 +1714,7 @@ window.addEventListener("pointerdown", (e) => {
 if (bridge.onVisible) bridge.onVisible(applyVisible);
 applyVisible(!bridge.isVisible || bridge.isVisible());
 
-// Cog moves under a stationary cursor too, so re-test on a slow tick.
+// Scrappy moves under a stationary cursor too, so re-test on a slow tick.
 setInterval(refreshInteractive, 140);
 
 window.addEventListener("resize", () => {
@@ -1746,8 +1753,8 @@ window.__cog = {
   }),
 };
 
-if (window.CogWake) {
-  window.CogWake.init({
+if (window.ScrappyWake) {
+  window.ScrappyWake.init({
     onWake(phrase) {
       if (hiddenAway || inCall || alerting) return;
       console.log("[wake] heard:", phrase);
@@ -1762,9 +1769,9 @@ if (bridge.voiceStatus) {
     .voiceStatus()
     .then((s) => {
       voiceReady = Boolean(s && s.configured);
-      if (voiceReady && !hiddenAway && s.wakeWord !== false && s.wakeSupported && window.CogWake) {
-        window.CogWake.start();
-        console.log("[wake] listening for:", (s.wakePhrases || ["hey cog"]).join(", "));
+      if (voiceReady && !hiddenAway && s.wakeWord !== false && s.wakeSupported && window.ScrappyWake) {
+        window.ScrappyWake.start();
+        console.log("[wake] listening for:", (s.wakePhrases || ["hey scrappy"]).join(", "));
       }
     })
     .catch(() => {

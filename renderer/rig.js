@@ -1,4 +1,4 @@
-// Cog — the rig. Bobblehead proportions, gear-toothed joints, one SVG.
+// Scrappy — the rig. Bobblehead proportions, gear-toothed joints, one SVG.
 // Every joint is a nested <g> with its transform-origin baked in, so CSS
 // keyframes on .j-* classes drive the whole character.
 
@@ -229,7 +229,7 @@ function mouth(inner) {
 }
 
 const FACES = {
-  // The resting face. Eyes live in .eye-track so buddy.js can slide them
+  // The resting face. Eyes live in .eye-track so scrappy.js can slide them
   // around to follow your cursor without re-rendering the face.
   focused: () =>
     `<g class="blinker"><g class="eye-track">${pair(slab(EYE_MID, EW, EH, INK.mint))}</g></g>`,
@@ -299,7 +299,7 @@ const FACES = {
     `<g class="blinker">${pair(slab(S.y + S.h * 0.34, EW * 1.2, EH * 1.08, INK.mint))}</g>`,
 
   // Listening: his eyes light up. Bright cores with a halo behind them that
-  // buddy.js swells with your actual microphone level, so the glow IS the
+  // scrappy.js swells with your actual microphone level, so the glow IS the
   // recording indicator — no separate icon needed.
   listen: () => {
     const w = EW * 1.16;
@@ -321,8 +321,8 @@ const FACES = {
 
 function buildCog() {
   return `
-<svg class="cog-svg" viewBox="0 0 ${GEO.width} ${GEO.height}" aria-hidden="true">
-  <ellipse class="cog-shadow" cx="${C}" cy="${GROUND + 3}" rx="26" ry="4.5" fill="#000" opacity="0.18"/>
+<svg class="scrappy-svg" viewBox="0 0 ${GEO.width} ${GEO.height}" aria-hidden="true">
+  <ellipse class="scrappy-shadow" cx="${C}" cy="${GROUND + 3}" rx="26" ry="4.5" fill="#000" opacity="0.18"/>
   <g class="j-body">
     <!-- Depth order, back to front: far arm, far leg, torso, near leg, near arm. -->
     ${arm("r", ARM_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5E6C8C")}
@@ -352,13 +352,13 @@ function buildCog() {
       <rect x="${HEAD_X + P.headW - 2}" y="${HEAD_TOP + P.headH * 0.32}" width="7" height="${P.headH * 0.38}" rx="3.5" fill="${INK.shellFar}"/>
       <rect x="${HEAD_X}" y="${HEAD_TOP}" width="${P.headW}" height="${P.headH}" rx="16" fill="${INK.shellNear}"/>
       <rect x="${S.x}" y="${S.y}" width="${S.w}" height="${S.h}" rx="10" fill="${INK.screen}"/>
-      <clipPath id="cogScreenClip">
+      <clipPath id="scrappyScreenClip">
         <rect x="${S.x}" y="${S.y}" width="${S.w}" height="${S.h}" rx="10"/>
       </clipPath>
-      <g id="cog-face" clip-path="url(#cogScreenClip)">${FACES.focused()}</g>
+      <g id="scrappy-face" clip-path="url(#scrappyScreenClip)">${FACES.focused()}</g>
     </g>
   </g>
 </svg>`;
 }
 
-window.CogRig = { GEO, FACES, buildCog };
+window.ScrappyRig = { GEO, FACES, buildCog };

@@ -1,11 +1,11 @@
-# Notifies local Workbuddy when a Cursor agent stops. Fail-open always.
+# Notifies local Scrappy when a Cursor agent stops. Fail-open always.
 $ErrorActionPreference = "Continue"
 
-function Get-WorkbuddyToken {
+function Get-ScrappyToken {
   $candidates = @(
-    (Join-Path $env:USERPROFILE ".cursor\hooks\workbuddy-token.txt"),
-    (Join-Path $env:APPDATA "workbuddy\local-token.txt"),
-    (Join-Path $env:LOCALAPPDATA "workbuddy\local-token.txt")
+    (Join-Path $env:USERPROFILE ".cursor\hooks\scrappy-token.txt"),
+    (Join-Path $env:APPDATA "scrappy\local-token.txt"),
+    (Join-Path $env:LOCALAPPDATA "scrappy\local-token.txt")
   )
   foreach ($p in $candidates) {
     if (Test-Path $p) {
@@ -19,7 +19,7 @@ function Get-WorkbuddyToken {
 function Get-SessionDurationMs($payload) {
   $id = $payload.conversation_id
   if (-not $id) { $id = $payload.generation_id }
-  $dir = Join-Path $env:LOCALAPPDATA "Workbuddy\sessions"
+  $dir = Join-Path $env:LOCALAPPDATA "Scrappy\sessions"
   if ($id) {
     $path = Join-Path $dir "$id.json"
     if (Test-Path $path) {
@@ -48,9 +48,9 @@ function Get-SessionDurationMs($payload) {
 
 function Get-HookDurationMs($payload, $eventName) {
   $hooksDir = Join-Path $env:USERPROFILE ".cursor\hooks"
-  $startPath = Join-Path $hooksDir "workbuddy-session-start.txt"
+  $startPath = Join-Path $hooksDir "scrappy-session-start.txt"
   if ($eventName -match "subagent") {
-    $startPath = Join-Path $hooksDir "workbuddy-subagent-start.txt"
+    $startPath = Join-Path $hooksDir "scrappy-subagent-start.txt"
   }
 
   if (Test-Path $startPath) {
@@ -83,7 +83,7 @@ try {
   if ($payload.hook_event_name) { $eventName = [string]$payload.hook_event_name }
   elseif ($payload.event) { $eventName = [string]$payload.event }
 
-  $token = Get-WorkbuddyToken
+  $token = Get-ScrappyToken
   if (-not $token) { exit 0 }
 
   $durationMs = Get-HookDurationMs $payload $eventName
@@ -105,6 +105,6 @@ try {
 
   Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8787/agent-done" -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 2 | Out-Null
 } catch {
-  # Workbuddy not running or network blip — ignore
+  # Scrappy not running or network blip — ignore
 }
 exit 0

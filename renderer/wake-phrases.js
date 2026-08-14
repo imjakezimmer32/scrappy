@@ -1,9 +1,9 @@
-// Shared wake-phrase matching for Cog (browser + node tests).
+// Shared wake-phrase matching for Scrappy (browser + node tests).
 
 const WAKE_PHRASES = [
-  /\bhey[\s,]+there[\s,]+cog\b/i,
-  /\bokay[\s,]+then[\s,]+cog\b/i,
-  /\bwake[\s,]+up[\s,]+cog\b/i,
+  /\bhey[\s,]+there[\s,]+scrappy\b/i,
+  /\bokay[\s,]+then[\s,]+scrappy\b/i,
+  /\bwake[\s,]+up[\s,]+scrappy\b/i,
 ];
 
 function matchesWakePhrase(text) {
@@ -17,5 +17,5 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 if (typeof window !== "undefined") {
-  window.CogWakePhrases = { matchesWakePhrase };
+  window.ScrappyWakePhrases = { matchesWakePhrase };
 }

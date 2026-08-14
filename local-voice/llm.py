@@ -1,4 +1,4 @@
-"""LLM backends for Cog local voice: Ollama (local) or OpenAI-compatible cloud API."""
+"""LLM backends for Scrappy local voice: Ollama (local) or OpenAI-compatible cloud API."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 
 
 def backend() -> str:
-    raw = (os.environ.get("COG_LLM_BACKEND") or "auto").strip().lower()
+    raw = (os.environ.get("SCRAPPY_LLM_BACKEND") or "auto").strip().lower()
     if raw in ("cloud", "openai", "api"):
         # Soft-fallback to local if Jake hasn't pasted a key yet.
         return "cloud" if _cloud_key() else "ollama"
@@ -26,7 +26,7 @@ def backend() -> str:
 
 def _cloud_key() -> str:
     return (
-        os.environ.get("COG_LLM_API_KEY")
+        os.environ.get("SCRAPPY_LLM_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GROQ_API_KEY")
         or ""
@@ -35,7 +35,7 @@ def _cloud_key() -> str:
 
 def _cloud_base() -> str:
     base = (
-        os.environ.get("COG_LLM_BASE_URL")
+        os.environ.get("SCRAPPY_LLM_BASE_URL")
         or os.environ.get("OPENAI_BASE_URL")
         or ""
     ).strip()
@@ -50,11 +50,11 @@ def _cloud_base() -> str:
 def cloud_model(think: bool = False) -> str:
     if think:
         return (
-            os.environ.get("COG_LLM_THINK_MODEL")
-            or os.environ.get("COG_LLM_MODEL")
+            os.environ.get("SCRAPPY_LLM_THINK_MODEL")
+            or os.environ.get("SCRAPPY_LLM_MODEL")
             or "gpt-4o"
         ).strip()
-    return (os.environ.get("COG_LLM_MODEL") or "gpt-4o").strip()
+    return (os.environ.get("SCRAPPY_LLM_MODEL") or "gpt-4o").strip()
 
 
 def ollama_model(think: bool = False) -> str:

@@ -3,7 +3,7 @@
      carrying a planted foot 35.9px backwards — and it does that over the
      STANCE phase only, which is the first 58% of the cycle. So the body speed
      that keeps the foot from slipping is 35.9 / (0.58 * step) = 77px/s.
-     SPEED in buddy.js must match, or he skates. */
+     SPEED in scrappy.js must match, or he skates. */
   --step: 0.8s;
   --ink: #eaf3ff;
   --bubble-bg: #222c42;
@@ -38,7 +38,7 @@ body {
 
 /* ---------- character shell ---------- */
 
-.cog {
+.scrappy {
   position: absolute;
   bottom: -14px;
   left: 0;
@@ -52,33 +52,33 @@ body {
   z-index: 2;
 }
 
-.cog[hidden] {
+.scrappy[hidden] {
   display: none !important;
 }
 
-.cog[data-state="held"],
-.cog[data-state="fly"] {
+.scrappy[data-state="held"],
+.scrappy[data-state="fly"] {
   cursor: grabbing;
 }
 
-.cog-flip {
+.scrappy-flip {
   width: 100%;
   height: 100%;
   transition: transform 0.18s ease;
 }
 
-.cog[data-facing="left"] .cog-flip {
+.scrappy[data-facing="left"] .scrappy-flip {
   transform: scaleX(-1);
 }
 
-.cog-svg {
+.scrappy-svg {
   width: 100%;
   height: 100%;
   display: block;
   overflow: visible;
 }
 
-.cog-shadow {
+.scrappy-shadow {
   transition: opacity 0.3s ease;
 }
 
@@ -100,7 +100,7 @@ body {
   transition: transform 0.2s cubic-bezier(0.3, 1, 0.4, 1);
 }
 
-.cog-shadow {
+.scrappy-shadow {
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -120,53 +120,53 @@ body {
 
 /* ---------- idle ---------- */
 
-.cog[data-state="idle"] .j-body {
+.scrappy[data-state="idle"] .j-body {
   animation: idleServo 5.2s ease-in-out infinite;
 }
-.cog[data-state="idle"] .j-head {
+.scrappy[data-state="idle"] .j-head {
   animation: idleHead 6.5s ease-in-out infinite;
 }
-.cog[data-state="idle"] .j-shoulder-l,
-.cog[data-state="idle"] .j-shoulder-r {
+.scrappy[data-state="idle"] .j-shoulder-l,
+.scrappy[data-state="idle"] .j-shoulder-r {
   animation: idleArm 3.4s ease-in-out infinite;
 }
-.cog[data-state="idle"] .j-shoulder-r {
+.scrappy[data-state="idle"] .j-shoulder-r {
   animation-delay: -1.1s;
 }
 
 /* ---------- walk ---------- */
 
-.cog[data-state="walk"] .j-body {
+.scrappy[data-state="walk"] .j-body {
   rotate: 3.5deg;
   animation: bodyBob var(--step) linear infinite;
 }
-.cog[data-state="walk"] .j-hip-l,
-.cog[data-state="walk"] .j-hip-r {
+.scrappy[data-state="walk"] .j-hip-l,
+.scrappy[data-state="walk"] .j-hip-r {
   animation: hip var(--step) infinite;
 }
-.cog[data-state="walk"] .j-knee-l,
-.cog[data-state="walk"] .j-knee-r {
+.scrappy[data-state="walk"] .j-knee-l,
+.scrappy[data-state="walk"] .j-knee-r {
   animation: knee var(--step) infinite;
 }
-.cog[data-state="walk"] .j-shoulder-l,
-.cog[data-state="walk"] .j-shoulder-r {
+.scrappy[data-state="walk"] .j-shoulder-l,
+.scrappy[data-state="walk"] .j-shoulder-r {
   animation: shoulder var(--step) infinite;
 }
-.cog[data-state="walk"] .j-elbow-l,
-.cog[data-state="walk"] .j-elbow-r {
+.scrappy[data-state="walk"] .j-elbow-l,
+.scrappy[data-state="walk"] .j-elbow-r {
   animation: elbow var(--step) infinite;
 }
-.cog[data-state="walk"] .j-hip-r,
-.cog[data-state="walk"] .j-knee-r,
-.cog[data-state="walk"] .j-shoulder-l,
-.cog[data-state="walk"] .j-elbow-l {
+.scrappy[data-state="walk"] .j-hip-r,
+.scrappy[data-state="walk"] .j-knee-r,
+.scrappy[data-state="walk"] .j-shoulder-l,
+.scrappy[data-state="walk"] .j-elbow-l {
   animation-delay: calc(var(--step) / -2);
 }
-.cog[data-state="walk"] .j-head {
+.scrappy[data-state="walk"] .j-head {
   animation: headWobble var(--step) ease-in-out infinite;
 }
 /* Contact shadow spreads on each footfall — cheap, but it plants him. */
-.cog[data-state="walk"] .cog-shadow {
+.scrappy[data-state="walk"] .scrappy-shadow {
   animation: shadowStep var(--step) ease-in-out infinite;
 }
 
@@ -181,30 +181,30 @@ body {
    instead would override this declaration outright and he'd sit in mid-air —
    which is exactly what used to happen. The pivot moves to his hip so the
    servo twitch rotates around where he's actually resting. */
-.cog[data-state="sit"] .j-body,
-.cog[data-state="sleep"] .j-body {
+.scrappy[data-state="sit"] .j-body,
+.scrappy[data-state="sleep"] .j-body {
   transform: translateY(32px);
   transform-origin: 60px 139px;
   animation: idleServo 6.4s ease-in-out infinite;
 }
 
-.cog[data-state="sit"] .cog-shadow,
-.cog[data-state="sleep"] .cog-shadow {
+.scrappy[data-state="sit"] .scrappy-shadow,
+.scrappy[data-state="sleep"] .scrappy-shadow {
   opacity: 0;
 }
 /* Head tipped back to look up at the empty desktop. .j-head already
    transitions `rotate`, so this eases in and out on its own. */
-.cog.is-gazing .j-head {
+.scrappy.is-gazing .j-head {
   rotate: -22deg;
 }
 
 /* Feet kicking over the edge. The two legs run at deliberately mismatched
    periods so they drift in and out of sync — a metronome reads as a machine,
    this reads as someone idly swinging their legs. */
-.cog[data-state="sit"] .j-knee-l {
+.scrappy[data-state="sit"] .j-knee-l {
   animation: dangleFootL 1.15s ease-in-out infinite;
 }
-.cog[data-state="sit"] .j-knee-r {
+.scrappy[data-state="sit"] .j-knee-r {
   animation: dangleFootR 1.43s ease-in-out infinite;
 }
 
@@ -227,85 +227,85 @@ body {
     transform: rotate(65deg);
   }
 }
-.cog[data-state="sit"] .j-hip-l,
-.cog[data-state="sit"] .j-hip-r,
-.cog[data-state="sleep"] .j-hip-l,
-.cog[data-state="sleep"] .j-hip-r {
+.scrappy[data-state="sit"] .j-hip-l,
+.scrappy[data-state="sit"] .j-hip-r,
+.scrappy[data-state="sleep"] .j-hip-l,
+.scrappy[data-state="sleep"] .j-hip-r {
   transform: rotate(-78deg);
 }
-.cog[data-state="sit"] .j-knee-l,
-.cog[data-state="sit"] .j-knee-r,
-.cog[data-state="sleep"] .j-knee-l,
-.cog[data-state="sleep"] .j-knee-r {
+.scrappy[data-state="sit"] .j-knee-l,
+.scrappy[data-state="sit"] .j-knee-r,
+.scrappy[data-state="sleep"] .j-knee-l,
+.scrappy[data-state="sleep"] .j-knee-r {
   transform: rotate(76deg);
 }
-.cog[data-state="sit"] .j-shoulder-l,
-.cog[data-state="sit"] .j-shoulder-r {
+.scrappy[data-state="sit"] .j-shoulder-l,
+.scrappy[data-state="sit"] .j-shoulder-r {
   transform: rotate(-14deg);
 }
-.cog[data-state="sit"] .j-elbow-l,
-.cog[data-state="sit"] .j-elbow-r {
+.scrappy[data-state="sit"] .j-elbow-l,
+.scrappy[data-state="sit"] .j-elbow-r {
   transform: rotate(-22deg);
 }
-.cog[data-state="sleep"] .j-head {
+.scrappy[data-state="sleep"] .j-head {
   rotate: -13deg;
   animation: snooze 4.6s ease-in-out infinite;
 }
-.cog[data-state="sleep"] .j-shoulder-l,
-.cog[data-state="sleep"] .j-shoulder-r {
+.scrappy[data-state="sleep"] .j-shoulder-l,
+.scrappy[data-state="sleep"] .j-shoulder-r {
   transform: rotate(-6deg);
 }
 
 /* ---------- alert: he wants you back ---------- */
 
-.cog[data-state="alert"] .j-body {
+.scrappy[data-state="alert"] .j-body {
   animation: jump 0.72s cubic-bezier(0.3, 0, 0.2, 1) infinite;
 }
-.cog[data-state="alert"] .j-shoulder-l {
+.scrappy[data-state="alert"] .j-shoulder-l {
   animation: armUpL 0.72s ease-in-out infinite;
 }
-.cog[data-state="alert"] .j-shoulder-r {
+.scrappy[data-state="alert"] .j-shoulder-r {
   animation: armUpR 0.72s ease-in-out infinite;
 }
-.cog[data-state="alert"] .j-elbow-l,
-.cog[data-state="alert"] .j-elbow-r {
+.scrappy[data-state="alert"] .j-elbow-l,
+.scrappy[data-state="alert"] .j-elbow-r {
   transform: rotate(-28deg);
 }
-.cog[data-state="alert"] .j-knee-l,
-.cog[data-state="alert"] .j-knee-r {
+.scrappy[data-state="alert"] .j-knee-l,
+.scrappy[data-state="alert"] .j-knee-r {
   animation: tuck 0.72s ease-in-out infinite;
 }
-.cog[data-state="alert"] .j-head {
+.scrappy[data-state="alert"] .j-head {
   animation: headShake 0.72s ease-in-out infinite;
 }
 
 /* ---------- wave (the greeting / the ack) ---------- */
 
-.cog[data-state="wave"] .j-body {
+.scrappy[data-state="wave"] .j-body {
   animation: idleServo 4.6s ease-in-out infinite;
 }
-.cog[data-state="wave"] .j-shoulder-l {
+.scrappy[data-state="wave"] .j-shoulder-l {
   transform: rotate(-148deg);
 }
-.cog[data-state="wave"] .j-elbow-l {
+.scrappy[data-state="wave"] .j-elbow-l {
   animation: waveArm 0.42s ease-in-out infinite;
 }
-.cog[data-state="wave"] .j-head {
+.scrappy[data-state="wave"] .j-head {
   rotate: -4deg;
 }
 
 /* ---------- point (nagging you at your work) ---------- */
 
-.cog[data-state="point"] .j-shoulder-l {
+.scrappy[data-state="point"] .j-shoulder-l {
   transform: rotate(-96deg);
 }
-.cog[data-state="point"] .j-elbow-l {
+.scrappy[data-state="point"] .j-elbow-l {
   transform: rotate(4deg);
 }
-.cog[data-state="point"] .j-body {
+.scrappy[data-state="point"] .j-body {
   rotate: 2.5deg;
 }
-.cog[data-state="point"] .j-head {
+.scrappy[data-state="point"] .j-head {
   rotate: -6deg;
 }
 
@@ -314,7 +314,7 @@ body {
 /* Body swung almost flat about the hip, then dropped so his head comes to
    rest on the bar. The head counter-rotates by the same amount so his screen
    stays upright and readable while everything else lies horizontal. */
-.cog[data-state="lie"] .j-body {
+.scrappy[data-state="lie"] .j-body {
   /* Swept empirically. At 45 his torso sank 26px into the taskbar and he read
      as sliding off it; 28 rests his head on the lip with only the underside
      of his back below the line. */
@@ -322,38 +322,38 @@ body {
   transform-origin: 60px 139px;
   animation: idleServo 7.6s ease-in-out infinite;
 }
-.cog[data-state="lie"] .j-head {
+.scrappy[data-state="lie"] .j-head {
   rotate: 58deg;
 }
 /* Every so often he picks his head up to look at something. */
-.cog[data-state="lie"].is-headup .j-head {
+.scrappy[data-state="lie"].is-headup .j-head {
   rotate: 76deg;
 }
 /* Perspective. Rotating the standing torso 90deg would present him as taller
    than he is long, which never reads as a body lying down. Squashing across
    and stretching along the spine turns the silhouette into something we're
    looking at from above-ish instead of a tipped-over standing pose. */
-.cog[data-state="lie"] .j-torso {
+.scrappy[data-state="lie"] .j-torso {
   transform: scale(0.78, 1.22);
 }
 /* Near arm and near leg hang straight down over the lip. +82 cancels the
    body's rotation, so they point at the floor in world space. */
-.cog[data-state="lie"] .j-shoulder-l {
+.scrappy[data-state="lie"] .j-shoulder-l {
   animation: lieDangleArm 2.9s ease-in-out infinite;
 }
-.cog[data-state="lie"] .j-hip-l {
+.scrappy[data-state="lie"] .j-hip-l {
   animation: lieDangleLeg 3.4s ease-in-out infinite;
 }
 /* Only a light bend now. The old 72deg folded the shin right back under him
    and it crossed his hanging arm, which read as broken rather than relaxed. */
-.cog[data-state="lie"] .j-knee-l {
+.scrappy[data-state="lie"] .j-knee-l {
   transform: rotate(38deg);
 }
 /* Upper arm hangs off the edge, forearm folded back up so his hand rests on
    his own chest. The elbow's local rotation has to be nearly a full fold
    because the body is already lying at -82deg: upper arm down plus -150 at
    the elbow lands the hand back up above the shoulder. */
-.cog[data-state="lie"] .j-elbow-l {
+.scrappy[data-state="lie"] .j-elbow-l {
   animation: lieHandOnChest 4.1s ease-in-out infinite;
 }
 
@@ -368,19 +368,19 @@ body {
 }
 /* Far leg stretched out lengthwise along the bar, far arm folded up behind
    the torso where it barely shows. */
-.cog[data-state="lie"] .j-hip-r {
+.scrappy[data-state="lie"] .j-hip-r {
   transform: translateX(-4px) rotate(4deg);
 }
-.cog[data-state="lie"] .j-knee-r {
+.scrappy[data-state="lie"] .j-knee-r {
   transform: rotate(-2deg);
 }
-.cog[data-state="lie"] .j-shoulder-r {
+.scrappy[data-state="lie"] .j-shoulder-r {
   transform: translateX(-3px) rotate(-104deg);
 }
-.cog[data-state="lie"] .j-elbow-r {
+.scrappy[data-state="lie"] .j-elbow-r {
   transform: rotate(-24deg);
 }
-.cog[data-state="lie"] .cog-shadow {
+.scrappy[data-state="lie"] .scrappy-shadow {
   opacity: 0;
 }
 
@@ -478,93 +478,93 @@ body {
 
 /* ---------- held: dangling from your cursor ---------- */
 
-.cog[data-state="held"] .j-shoulder-l {
+.scrappy[data-state="held"] .j-shoulder-l {
   animation: dangleL 0.33s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-shoulder-r {
+.scrappy[data-state="held"] .j-shoulder-r {
   animation: dangleR 0.41s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-elbow-l {
+.scrappy[data-state="held"] .j-elbow-l {
   animation: elbowFlail 0.27s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-elbow-r {
+.scrappy[data-state="held"] .j-elbow-r {
   animation: elbowFlail 0.36s ease-in-out infinite reverse;
 }
-.cog[data-state="held"] .j-hip-l {
+.scrappy[data-state="held"] .j-hip-l {
   animation: kickL 0.39s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-hip-r {
+.scrappy[data-state="held"] .j-hip-r {
   animation: kickR 0.48s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-knee-l {
+.scrappy[data-state="held"] .j-knee-l {
   animation: kneeFlail 0.31s ease-in-out infinite;
 }
-.cog[data-state="held"] .j-knee-r {
+.scrappy[data-state="held"] .j-knee-r {
   animation: kneeFlail 0.44s ease-in-out infinite reverse;
 }
-.cog[data-state="held"] .cog-shadow,
-.cog[data-state="fly"] .cog-shadow {
+.scrappy[data-state="held"] .scrappy-shadow,
+.scrappy[data-state="fly"] .scrappy-shadow {
   opacity: 0;
 }
 
 /* ---------- airborne ---------- */
 
-.cog[data-state="fly"] .j-shoulder-l {
+.scrappy[data-state="fly"] .j-shoulder-l {
   animation: flyArmL 0.36s ease-in-out infinite;
 }
-.cog[data-state="fly"] .j-shoulder-r {
+.scrappy[data-state="fly"] .j-shoulder-r {
   animation: flyArmR 0.44s ease-in-out infinite;
 }
-.cog[data-state="fly"] .j-elbow-l {
+.scrappy[data-state="fly"] .j-elbow-l {
   animation: elbowFlail 0.29s ease-in-out infinite;
 }
-.cog[data-state="fly"] .j-elbow-r {
+.scrappy[data-state="fly"] .j-elbow-r {
   animation: elbowFlail 0.38s ease-in-out infinite reverse;
 }
-.cog[data-state="fly"] .j-hip-l {
+.scrappy[data-state="fly"] .j-hip-l {
   animation: flyLegL 0.42s ease-in-out infinite;
 }
-.cog[data-state="fly"] .j-hip-r {
+.scrappy[data-state="fly"] .j-hip-r {
   animation: flyLegR 0.35s ease-in-out infinite;
 }
-.cog[data-state="fly"] .j-knee-l {
+.scrappy[data-state="fly"] .j-knee-l {
   animation: kneeFlail 0.33s ease-in-out infinite reverse;
 }
-.cog[data-state="fly"] .j-knee-r {
+.scrappy[data-state="fly"] .j-knee-r {
   animation: kneeFlail 0.46s ease-in-out infinite;
 }
 
-.cog.is-landing .j-body {
+.scrappy.is-landing .j-body {
   animation: landSquash 0.42s cubic-bezier(0.2, 1.2, 0.3, 1);
 }
 
 /* ---------- conversation ---------- */
 
-.cog[data-state="listen"] .j-body {
+.scrappy[data-state="listen"] .j-body {
   animation: idleServo 4.6s ease-in-out infinite;
 }
-.cog[data-state="listen"] .j-head {
+.scrappy[data-state="listen"] .j-head {
   rotate: -6deg;
 }
-.cog[data-state="listen"] .j-shoulder-l,
-.cog[data-state="listen"] .j-shoulder-r {
+.scrappy[data-state="listen"] .j-shoulder-l,
+.scrappy[data-state="listen"] .j-shoulder-r {
   transform: rotate(-7deg);
 }
 
-.cog[data-state="speak"] .j-body {
+.scrappy[data-state="speak"] .j-body {
   animation: idleServo 3.6s ease-in-out infinite;
 }
-.cog[data-state="speak"] .j-head {
+.scrappy[data-state="speak"] .j-head {
   animation: talkNod 1.5s ease-in-out infinite;
 }
-.cog[data-state="speak"] .j-shoulder-l {
+.scrappy[data-state="speak"] .j-shoulder-l {
   animation: talkArmL 1.7s ease-in-out infinite;
 }
-.cog[data-state="speak"] .j-shoulder-r {
+.scrappy[data-state="speak"] .j-shoulder-r {
   animation: talkArmR 2.1s ease-in-out infinite;
 }
-.cog[data-state="speak"] .j-elbow-l,
-.cog[data-state="speak"] .j-elbow-r {
+.scrappy[data-state="speak"] .j-elbow-l,
+.scrappy[data-state="speak"] .j-elbow-r {
   transform: rotate(-26deg);
 }
 
@@ -680,7 +680,7 @@ body {
   bottom: 152px;
   left: 50%;
   transform: translateX(-50%) translateY(6px) scale(0.94);
-  /* The bubble is absolutely positioned inside .cog, which is only 120px
+  /* The bubble is absolutely positioned inside .scrappy, which is only 120px
      wide, so shrink-to-fit was sizing it against that and wrapping every
      sentence into a narrow column. max-content sizes to the text instead. */
   width: max-content;
@@ -714,7 +714,7 @@ body {
   transform: rotate(45deg);
 }
 
-.cog.is-talking .bubble {
+.scrappy.is-talking .bubble {
   opacity: 1;
   transform: translateX(-50%) translateY(0) scale(1);
   pointer-events: auto;
@@ -729,7 +729,7 @@ body {
 
 /* ---------- right-click menu ---------- */
 
-.cog-menu {
+.scrappy-menu {
   position: absolute;
   z-index: 20;
   pointer-events: auto;
@@ -741,11 +741,11 @@ body {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
-.cog-menu[hidden] {
+.scrappy-menu[hidden] {
   display: none;
 }
 
-.cog-menu button {
+.scrappy-menu button {
   display: block;
   width: 100%;
   margin: 0;
@@ -761,13 +761,13 @@ body {
   cursor: pointer;
 }
 
-.cog-menu button:hover,
-.cog-menu button:focus-visible {
+.scrappy-menu button:hover,
+.scrappy-menu button:focus-visible {
   background: #31405c;
   outline: none;
 }
 
-.cog-menu button.is-quiet {
+.scrappy-menu button.is-quiet {
   color: #8ea2c4;
 }
 
@@ -1150,13 +1150,13 @@ body {
 }
 
 /* Alert now reads on the chest lamps instead of a head antenna. */
-.cog[data-state="alert"] .led {
+.scrappy[data-state="alert"] .led {
   animation: ledFlash 0.42s steps(1) infinite;
 }
-.cog[data-state="alert"] .led-2 {
+.scrappy[data-state="alert"] .led-2 {
   animation-delay: 0.14s;
 }
-.cog[data-state="alert"] .led-3 {
+.scrappy[data-state="alert"] .led-3 {
   animation-delay: 0.28s;
 }
 
@@ -1239,17 +1239,17 @@ body {
 }
 
 /* ---------- watching the cursor ----------
-   buddy.js writes --head-aim every frame. This has to come last in the file:
+   scrappy.js writes --head-aim every frame. This has to come last in the file:
    it ties on specificity with the per-state head rules, so source order is
    what lets it win, and `animation: none` clears any state animation that
    would otherwise override a static rotate. */
-.cog.is-watching .j-head {
+.scrappy.is-watching .j-head {
   animation: none;
   rotate: var(--head-aim, 0deg);
   transition: rotate 0.13s linear;
 }
 
-/* Eyes slide within the screen to follow the cursor. buddy.js writes these
+/* Eyes slide within the screen to follow the cursor. scrappy.js writes these
    two custom properties; `translate` is its own property so it composes with
    the blink scale on the parent instead of fighting it. */
 .eye-track {
@@ -1267,7 +1267,7 @@ body {
   initial-value: 0deg;
 }
 
-.cog {
+.scrappy {
   --neck-bend: 0deg;
   transition: --neck-bend 0.38s cubic-bezier(0.2, 1.1, 0.4, 1);
 }
@@ -1277,25 +1277,25 @@ body {
 }
 
 /* The neck leans wherever the head goes, so the two never pull apart. */
-.cog[data-state="lie"] {
+.scrappy[data-state="lie"] {
   --neck-bend: 54deg;
 }
-.cog[data-state="lie"].is-headup {
+.scrappy[data-state="lie"].is-headup {
   --neck-bend: 72deg;
 }
-.cog[data-state="sleep"] {
+.scrappy[data-state="sleep"] {
   --neck-bend: -11deg;
 }
-.cog[data-state="listen"] {
+.scrappy[data-state="listen"] {
   --neck-bend: -6deg;
 }
-.cog[data-state="point"] {
+.scrappy[data-state="point"] {
   --neck-bend: -6deg;
 }
-.cog.is-gazing {
+.scrappy.is-gazing {
   --neck-bend: -18deg;
 }
-.cog.is-watching {
+.scrappy.is-watching {
   --neck-bend: var(--head-aim, 0deg);
 }
 
@@ -1313,7 +1313,7 @@ body {
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.cog.is-chatting .say-box {
+.scrappy.is-chatting .say-box {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
   pointer-events: auto;
@@ -1346,14 +1346,14 @@ body {
    single shadow at this opacity either reads as a hard outline or as nothing.
    drop-shadow follows the alpha, so it traces his actual outline — gears,
    dangling legs and all — instead of a box. */
-.cog-svg {
+.scrappy-svg {
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.32)) drop-shadow(0 5px 11px rgba(0, 0, 0, 0.22));
 }
 
 /* Off the ground he's further from the surface, so the ambient shadow throws
    longer and softer. */
-.cog[data-state="held"] .cog-svg,
-.cog[data-state="fly"] .cog-svg {
+.scrappy[data-state="held"] .scrappy-svg,
+.scrappy[data-state="fly"] .scrappy-svg {
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.28)) drop-shadow(0 13px 24px rgba(0, 0, 0, 0.26));
 }
 
@@ -1361,7 +1361,7 @@ body {
    order must not mirror with the rest of him. Counter-flipping the group
    about its own centre restores red-yellow-green while leaving the panel
    where the three-quarter yaw put it. */
-.cog[data-facing="left"] .chest-lights {
+.scrappy[data-facing="left"] .chest-lights {
   transform: scaleX(-1);
 }
 

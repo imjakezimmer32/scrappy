@@ -1,6 +1,6 @@
 # Process + conversation logs
 
-Cog now keeps a timestamped diary of **everything that runs**, not just chat text.
+Scrappy now keeps a timestamped diary of **everything that runs**, not just chat text.
 
 ## Where it lives
 
@@ -11,10 +11,10 @@ Cog now keeps a timestamped diary of **everything that runs**, not just chat tex
 
 ## How to add your own note (easiest)
 
-1. Right-click the Workbuddy tray icon  
+1. Right-click the Scrappy tray icon  
 2. Click **Add note to process log…**  
 3. Notepad opens — type under the `#` lines, **Save**  
-4. Within a few seconds Cog pulls it into the log
+4. Within a few seconds Scrappy pulls it into the log
 
 Or open the folder from tray → **Open process logs folder**.
 
@@ -34,7 +34,7 @@ You’ll see lines like:
 
 That `kills=[...]` line is how you see **what stopped what**.
 
-## Cog can read this too
+## Scrappy can read this too
 
 Ask him out loud:
 - “What just killed local voice?”
@@ -45,7 +45,7 @@ He has tools: `process_recent`, `process_search`, `process_note`, `conversation_
 
 ## Background jobs
 
-Cog can dig (Recall search, etc.) **while still talking to you**. When the dig finishes:
+Scrappy can dig (Recall search, etc.) **while still talking to you**. When the dig finishes:
 
 - If he’s free → he speaks the result
 - If he’s mid-sentence / mid-turn → it waits in a **cue** and he pipes up when idle
@@ -54,8 +54,8 @@ Those show up in the journal as `kind: job` (`start` / `done` / `error` / `spoke
 
 ## What gets recorded automatically
 
-- WorkBuddy / local-voice / wake-listener **start, stop, kill, exit, auto-restart**
+- Scrappy / local-voice / wake-listener **start, stop, kill, exit, auto-restart**
 - Why it happened (`by` + `reason`) — tray, auto-restart, voice call, quit, etc.
-- Conversation beats: what you said, what Cog said, model route, tools, rewrites, recoveries
+- Conversation beats: what you said, what Scrappy said, model route, tools, rewrites, recoveries
 - Background job start/finish/spoken cues
 - Notes you add by hand

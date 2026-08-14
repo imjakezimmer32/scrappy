@@ -10,7 +10,7 @@ const VOICE_DIR = path.join(ROOT, "local-voice");
 const VENV_PY = path.join(VOICE_DIR, ".venv", "Scripts", "python.exe");
 const SERVER = path.join(VOICE_DIR, "server.py");
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.COG_VOICE_PORT || 8790);
+const PORT = Number(process.env.SCRAPPY_VOICE_PORT || 8790);
 
 let child = null;
 let wanted = false;
@@ -113,8 +113,8 @@ function start(env = {}, opts = {}) {
   const childEnv = {
     ...process.env,
     ...env,
-    COG_VOICE_HOST: HOST,
-    COG_VOICE_PORT: String(PORT),
+    SCRAPPY_VOICE_HOST: HOST,
+    SCRAPPY_VOICE_PORT: String(PORT),
     PYTHONUTF8: "1",
   };
 

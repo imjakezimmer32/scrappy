@@ -1,12 +1,12 @@
-# Workbuddy
+# Scrappy
 
-Cog — a small articulated robot who lives on your desktop, walks around above the
+Scrappy — a small articulated robot who lives on your desktop, walks around above the
 taskbar, and comes to get you when a Cursor agent finishes.
 
 ## What you do
 
-1. Keep Workbuddy running (it starts with Windows after install).
-2. Cog wanders, sits, dozes off, and pings you now and then to keep you honest.
+1. Keep Scrappy running (it starts with Windows after install).
+2. Scrappy wanders, sits, dozes off, and pings you now and then to keep you honest.
 3. When an agent finishes (sessions ≥ 2 minutes), he walks to the middle of the
    screen, goes orange, and jumps until you notice.
 4. Click him. He waves, says something, and goes back to wandering.
@@ -28,17 +28,17 @@ Short sessions under 2 minutes are ignored (unless `force: true`).
 
 ## The character
 
-Cog is one inline SVG with a real skeleton: shoulder, elbow, hip and knee joints,
+Scrappy is one inline SVG with a real skeleton: shoulder, elbow, hip and knee joints,
 each a squared-tooth gear that turns as the limb turns, joined to his head by a
 corrugated flex pipe. His face is the screen and it is eyes only — every
 expression is carried by the eyes, and a mouth appears only in the states that
 animate one (talking, panic, dizzy).
 
-- `renderer/cog.js` — the rig. Proportions, gear geometry, and the face set.
+- `renderer/rig.js` — the rig. Proportions, gear geometry, and the face set.
 - `renderer/style.css` — every state (`idle`, `walk`, `sit`, `sleep`, `alert`,
   `wave`, `point`) as CSS keyframes on the `.j-*` joint classes.
 - `renderer/lines.js` — what he says.
-- `renderer/buddy.js` — behaviour loop, movement, and mouse hit-testing.
+- `renderer/scrappy.js` — behaviour loop, movement, and mouse hit-testing.
 
 The walk is a proper gait, not a pendulum: the planted leg tracks backwards at a
 constant rate while the free leg snaps forward with a bent knee, and he's drawn
@@ -49,7 +49,7 @@ Two rules keep it from looking wrong:
 - **Sign.** Positive rotation swings a downward-pointing limb backwards, so heel
   strike is the negative extreme of the hip. Flip that and he moonwalks.
 - **Stride vs speed.** The planted foot tracks back 87px/s across the stance
-  phase (the first 58% of the cycle, *not* the whole cycle). SPEED in buddy.js
+  phase (the first 58% of the cycle, *not* the whole cycle). SPEED in scrappy.js
   must match that or the feet skate. Measured, not derived — the contact point
   traces an arc and the knee flexes under load, so geometry alone underestimates
   it by 13%.
@@ -62,12 +62,12 @@ they read as foreground and the whole three-quarter illusion inverts.
 
 | What | Where |
 | --- | --- |
-| Walk speed, nag interval, sleep timeout | constants at the top of `renderer/buddy.js` |
+| Walk speed, nag interval, sleep timeout | constants at the top of `renderer/scrappy.js` |
 | Step cadence | `--step` in `renderer/style.css` |
-| Size, head-to-body ratio | `P` in `renderer/cog.js` |
-| Colours | `INK` in `renderer/cog.js` |
+| Size, head-to-body ratio | `P` in `renderer/rig.js` |
+| Colours | `INK` in `renderer/rig.js` |
 | What he says | `renderer/lines.js` |
-| Throw feel (spring, inertia, bounce) | the rigid body constants in `renderer/buddy.js` |
+| Throw feel (spring, inertia, bounce) | the rigid body constants in `renderer/scrappy.js` |
 
 Open `renderer/index.html` straight in a browser to iterate on the animation
 without launching Electron — the preload bridge is stubbed. Press `n` to fake a
@@ -116,7 +116,7 @@ npm run model:qwen14
 npm run model:gemma9
 ```
 
-Or right-click the Workbuddy tray icon → **Switch fast brain** / **Switch think brain**.
+Or right-click the Scrappy tray icon → **Switch fast brain** / **Switch think brain**.
 
 One-time install:
 
@@ -124,7 +124,7 @@ One-time install:
 npm run setup-local-voice
 ```
 
-Then restart Workbuddy. Cog boots the local voice server on `127.0.0.1:8790`.
+Then restart Scrappy. Scrappy boots the local voice server on `127.0.0.1:8790`.
 
 ### Optional: ElevenLabs
 
@@ -138,25 +138,25 @@ ELEVENLABS_API_KEY=your_key_here
 Or `VOICE_BACKEND=auto` to prefer local when installed and fall back to ElevenLabs.
 
 `npm run setup-voice` uploads `personality.md` to an ElevenLabs agent.
-For local mode, Cog reads `personality.md` directly.
+For local mode, Scrappy reads `personality.md` directly.
 
 ### Using it
 
-- **Right-click him** → **Turn off Cog**. He hides until you click **Show Cog**
-  on the Workbuddy tray icon (near the clock). He will not listen or nudge
+- **Right-click him** → **Turn off Scrappy**. He hides until you click **Show Scrappy**
+  on the Scrappy tray icon (near the clock). He will not listen or nudge
   while he is off.
 - **Click him** to open the text box. Type, press enter, he replies out loud.
   This never touches the microphone.
-- **Tray, Talk to Cog (voice)** starts a full voice conversation with
+- **Tray, Talk to Scrappy (voice)** starts a full voice conversation with
   turn-taking and barge-in. Click him to hang up.
-- **Say "hey there Cog"** (when voice is set up) to start talking hands-free —
-  Workbuddy listens passively in the background until it hears the wake phrase.
-  Also works: **"okay then Cog"** or **"wake up Cog"**.
-  Disable with `COG_WAKE_WORD=off` in `.env.local`.
+- **Say "hey there Scrappy"** (when voice is set up) to start talking hands-free —
+  Scrappy listens passively in the background until it hears the wake phrase.
+  Also works: **"okay then Scrappy"** or **"wake up Scrappy"**.
+  Disable with `SCRAPPY_WAKE_WORD=off` in `.env.local`.
 
 Opening the mic on a stray click would be obnoxious, so voice is a deliberate
 choice rather than the default — except the wake phrase, which only opens the
-full mic after you say hey there Cog.
+full mic after you say hey there Scrappy.
 
 His nudge and check-in lines stay in `renderer/lines.js`. ElevenLabs has no
 cheap one-shot text endpoint, and spinning up an agent session to generate a
@@ -195,7 +195,7 @@ secondary one.
 
 ## The window
 
-Cog sits on a frameless, transparent, always-on-top window covering every
+Scrappy sits on a frameless, transparent, always-on-top window covering every
 display's combined work area. It's click-through everywhere except where he actually is: the
 renderer hit-tests the pointer against his bounding box and toggles
 `setIgnoreMouseEvents` accordingly. The window is non-focusable, so clicking him
@@ -205,11 +205,11 @@ never steals focus from your editor.
 
 - `main.js` — overlay window, tray, localhost server
 - `preload.js` — the IPC bridge
-- `renderer/` — Cog
+- `renderer/` — Scrappy
 - `scripts/` — Windows Startup + Cursor hook helpers
 - `cursor-agents.js` — Cursor agent lifecycle (start, status, stop)
 - `cursor-agent-status.js` — status/timeout logic (unit tested)
-- `docs/cog-debugging-playbook.md` — how Cog can debug Workbuddy issues
+- `docs/scrappy-debugging-playbook.md` — how Scrappy can debug Scrappy issues
 
 ### Cursor agent status tuning (`.env.local`)
 
@@ -217,7 +217,7 @@ never steals focus from your editor.
 | --- | --- | --- |
 | `CURSOR_AGENT_RUN_TIMEOUT_MS` | `0` (off) | Stop a run after this many ms |
 | `CURSOR_AGENT_STALE_MS` | `900000` (15 min) | Treat saved "running" as stuck after this |
-| `COG_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Cog walks over |
-| `COG_WAKE_WORD` | `on` | Enable "hey there Cog" listener when voice is configured |
+| `SCRAPPY_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Scrappy walks over |
+| `SCRAPPY_WAKE_WORD` | `on` | Enable "hey there Scrappy" listener when voice is configured |
 
 Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.

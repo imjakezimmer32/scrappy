@@ -1,4 +1,4 @@
-"""Intent gate for Cog (architectures A + C).
+"""Intent gate for Scrappy (architectures A + C).
 
 A — Clarify, then act: decide chat / clarify / act before tools.
 C — Two lanes: Talk (speak now) vs Work (tools/agents, maybe in background).
@@ -29,7 +29,7 @@ class Intent:
 
 
 WAKE_ONLY = re.compile(
-    r"^\s*(hey\s+there|okay\s+then|wake\s+up)\s+cog[!?.,\s]*$",
+    r"^\s*(hey\s+there|okay\s+then|wake\s+up)\s+scrappy[!?.,\s]*$",
     re.I,
 )
 

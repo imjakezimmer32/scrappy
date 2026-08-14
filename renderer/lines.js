@@ -1,4 +1,4 @@
-// Cog's voice. Short, earnest, a little dry. Never mean, never a paragraph.
+// Scrappy's voice. Short, earnest, a little dry. Never mean, never a paragraph.
 
 const LINES = {
   done: [
@@ -80,4 +80,4 @@ function pick(bucket) {
   return line;
 }
 
-window.CogLines = { LINES, pick };
+window.ScrappyLines = { LINES, pick };

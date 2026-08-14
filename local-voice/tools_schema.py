@@ -1,4 +1,4 @@
-"""Ollama tool schemas for Cog's local Recall access."""
+"""Ollama tool schemas for Scrappy's local Recall access."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ def recall_tools() -> list[dict]:
             {
                 "query": {**s, "description": "What to look for"},
                 "limit": {**i, "description": "Max results (default 8)"},
-                "project": {**s, "description": "Optional project filter, e.g. WorkBuddy"},
-                "brain": {**s, "description": 'Optional brain id like "notes" or "repo::workbuddy"'},
+                "project": {**s, "description": "Optional project filter, e.g. Scrappy"},
+                "brain": {**s, "description": 'Optional brain id like "notes" or "repo::scrappy"'},
             },
             ["query"],
         ),
@@ -41,7 +41,7 @@ def recall_tools() -> list[dict]:
         ),
         _fn(
             "recall_recent",
-            "Newest notes. Use project WorkBuddy for Cog relationship memory.",
+            "Newest notes. Use project Scrappy for Scrappy relationship memory.",
             {
                 "limit": {**i, "description": "Max notes (default 8)"},
                 "project": {**s, "description": "Optional project filter"},
@@ -68,12 +68,12 @@ def recall_tools() -> list[dict]:
         ),
         _fn(
             "recall_save_note",
-            "WRITE: save a lasting preference, decision, or relationship fact. Prefer project WorkBuddy with tags cog,relationship,preference.",
+            "WRITE: save a lasting preference, decision, or relationship fact. Prefer project Scrappy with tags scrappy,relationship,preference.",
             {
                 "title": {**s, "description": "Short title"},
                 "summary": {**s, "description": "Note body"},
                 "tags": {**s, "description": "Comma-separated tags"},
-                "project": {**s, "description": "Project, e.g. WorkBuddy"},
+                "project": {**s, "description": "Project, e.g. Scrappy"},
             },
             ["title", "summary"],
         ),
@@ -95,7 +95,7 @@ def process_tools() -> list[dict]:
     return [
         _fn(
             "process_recent",
-            "Read Cog's live process journal: starts, stops, kills, restarts, wake events, chat status. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
+            "Read Scrappy's live process journal: starts, stops, kills, restarts, wake events, chat status. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
             {
                 "limit": {**i, "description": "Max events (default 40)"},
                 "kind": {**s, "description": 'Optional filter: process, conversation, note, system, job'},
@@ -122,7 +122,7 @@ def process_tools() -> list[dict]:
         ),
         _fn(
             "conversation_recent",
-            "List recent saved Cog voice conversations (ids + turn counts) for deep analysis.",
+            "List recent saved Scrappy voice conversations (ids + turn counts) for deep analysis.",
             {"limit": {**i, "description": "Max sessions (default 10)"}},
         ),
         _fn(
@@ -160,7 +160,7 @@ def job_tools() -> list[dict]:
                 },
                 "args_json": {
                     **s,
-                    "description": 'JSON object of args for that tool, e.g. {"query":"coffee","project":"WorkBuddy"}',
+                    "description": 'JSON object of args for that tool, e.g. {"query":"coffee","project":"Scrappy"}',
                 },
             },
             ["label", "tool"],
@@ -186,7 +186,7 @@ def cursor_tools() -> list[dict]:
     return [
         _fn(
             "cursor_list_agents",
-            "List Cursor agents Cog knows about. Use when Jake asks what agents exist. Never invent names.",
+            "List Cursor agents Scrappy knows about. Use when Jake asks what agents exist. Never invent names.",
             {
                 "limit": {**i, "description": "How many (default 10)"},
                 "running_only": {**b, "description": "If true, only agents working now"},
@@ -265,7 +265,7 @@ When he says "your memory", "remember", "what did I say", or "improve your memor
 he means YOUR Recall notes about him — not human mnemonic tips or sleep advice.
 
 Use Recall like a friend uses things they know. Search when unsure. Quietly save
-lasting preferences under project WorkBuddy. Never dump the whole archive out loud.
+lasting preferences under project Scrappy. Never dump the whole archive out loud.
 
 ## YOUR PROCESS JOURNAL
 

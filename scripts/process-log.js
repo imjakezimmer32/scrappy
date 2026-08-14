@@ -1,4 +1,4 @@
-// List recent Cog process-log events (starts, stops, kills, notes, chat beats).
+// List recent Scrappy process-log events (starts, stops, kills, notes, chat beats).
 
 const processJournal = require("../process-journal");
 const path = require("path");

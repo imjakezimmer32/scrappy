@@ -1,8 +1,8 @@
-# Dual-brain Cog (fast + think)
+# Dual-brain Scrappy (fast + think)
 
 ## Quality first (standing rule)
 
-Jake’s rule: **do not rush Cog.** Prefer careful settings and careful build
+Jake’s rule: **do not rush Scrappy.** Prefer careful settings and careful build
 decisions over “fast enough.” Hearing, personality, tools, and architecture
 should optimize for being right — not for finishing first.
 
@@ -16,14 +16,14 @@ Router (auto)
    └─ hard / "think"  → Think brain → reason silently → speak answer only
 ```
 
-Thinking traces are stripped so Cog does **not** read his homework out loud.
+Thinking traces are stripped so Scrappy does **not** read his homework out loud.
 
 ## Defaults
 
 ```
 VOICE_BACKEND=local
-COG_LLM_BACKEND=cloud
-COG_LLM_MODEL=gpt-4o
+SCRAPPY_LLM_BACKEND=cloud
+SCRAPPY_LLM_MODEL=gpt-4o
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_THINK_MODE=auto
 ```
@@ -39,11 +39,11 @@ Modes:
 ## When auto uses the think brain
 Examples: "think about…", "plan…", "debug…", "figure out…", "architecture…", long multi-part questions.
 
-Casual "hey there Cog / how's it going" stays on the fast brain.
+Casual "hey there Scrappy / how's it going" stays on the fast brain.
 
 ## Ears (speech-to-text)
 
-Cog listens with **faster-whisper** on your CPU.
+Scrappy listens with **faster-whisper** on your CPU.
 
 Default is **`large-v3`** with careful decode settings (`int8_float32`, beam 8).
 This is slower than tiny models on purpose — hearing Jake correctly matters more
@@ -60,27 +60,27 @@ Avoid `base` / `small` unless Jake explicitly asks for a temporary speed trade.
 
 Also tunable:
 ```
-COG_VAD_SILENCE_MS=1300   # wait after a pause before he answers (higher = more patient)
-COG_VAD_ENERGY=0.008      # how loud you must be to count as speech
-COG_TOOL_ROUNDS=6         # how many tool steps he may take when digging
+SCRAPPY_VAD_SILENCE_MS=1300   # wait after a pause before he answers (higher = more patient)
+SCRAPPY_VAD_ENERGY=0.008      # how loud you must be to count as speech
+SCRAPPY_TOOL_ROUNDS=6         # how many tool steps he may take when digging
 ```
 
 ## Listening dictionary (Wispr-style)
 
-Persistent mishearings (Cog → carp/car) are fixed in
-`local-voice/listening-dictionary.json` **after** Whisper, before Cog thinks.
+Persistent mishearings (Scrappy → carp/car) are fixed in
+`local-voice/listening-dictionary.json` **after** Whisper, before Scrappy thinks.
 See `docs/listening-dictionary.md`. Edit the JSON anytime — it hot-reloads.
 
 ## Memory (Recall bridge)
 
-Local voice talks to WorkBuddy on `http://127.0.0.1:8787` with your local token:
+Local voice talks to Scrappy on `http://127.0.0.1:8787` with your local token:
 
-- Loads a **working memory brief** at call start (WorkBuddy notes, preferences, live speech, task counts)
+- Loads a **working memory brief** at call start (Scrappy notes, preferences, live speech, task counts)
 - When you ask about memory / notes / tasks, the model can call `recall_*` tools
-- Chats auto-save back into Recall under project **WorkBuddy** (deduped)
+- Chats auto-save back into Recall under project **Scrappy** (deduped)
 - Transcripts land in `local-voice/logs/`
 
-So “improve your memory” means Cog’s Recall memory — not human mnemonic tips.
+So “improve your memory” means Scrappy’s Recall memory — not human mnemonic tips.
 
 ## Switch from the tray
-Right-click Workbuddy tray → **Switch fast brain** / **Switch think brain** / **Thinking mode**.
+Right-click Scrappy tray → **Switch fast brain** / **Switch think brain** / **Thinking mode**.

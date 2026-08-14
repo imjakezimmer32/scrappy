@@ -1,4 +1,4 @@
-// Durable Cog conversation store for deep analysis.
+// Durable Scrappy conversation store for deep analysis.
 //
 // Every call writes:
 //   conversations/<sessionId>.jsonl   — full event stream
@@ -28,7 +28,7 @@ function init({ projectRoot, userData }) {
 
 function newSessionId() {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  return `cog-${stamp}-${crypto.randomBytes(3).toString("hex")}`;
+  return `scrappy-${stamp}-${crypto.randomBytes(3).toString("hex")}`;
 }
 
 function pathsFor(sessionId) {
@@ -96,7 +96,7 @@ function readEvents(sessionId, limit = 5000) {
 function buildMeta(sessionId, extra = {}) {
   const events = readEvents(sessionId);
   const users = events.filter((e) => e.type === "user" || e.role === "jake");
-  const assistants = events.filter((e) => e.type === "assistant" || e.role === "cog");
+  const assistants = events.filter((e) => e.type === "assistant" || e.role === "scrappy");
   const tools = events.filter((e) => e.type === "tool");
   const errors = events.filter((e) => e.type === "error" || e.type === "recover" || e.type === "turn_error");
   const rewrites = events.filter((e) => e.type === "rewrite");
@@ -105,9 +105,9 @@ function buildMeta(sessionId, extra = {}) {
   const transcript = [];
   for (const e of events) {
     if (e.type === "user" || e.role === "jake") transcript.push({ role: "jake", text: e.text || "", ts: e.ts });
-    if (e.type === "assistant" || e.role === "cog") {
+    if (e.type === "assistant" || e.role === "scrappy") {
       transcript.push({
-        role: "cog",
+        role: "scrappy",
         text: e.text || "",
         ts: e.ts,
         route: e.route,
@@ -199,7 +199,7 @@ function getSession(sessionId) {
 function formatSessionList(sessions) {
   return (sessions || [])
     .map((s) => {
-      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} cog=${s.turns_cog || 0} | ${s.backend || "?"} | ${s.model || "?"}`;
+      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} scrappy=${s.turns_cog || 0} | ${s.backend || "?"} | ${s.model || "?"}`;
     })
     .join("\n");
 }
@@ -209,7 +209,7 @@ function formatTranscript(meta, maxTurns = 40) {
   const lines = [`Session ${meta.session_id}`, `Started ${meta.started_at || "?"}`, ""];
   const turns = (meta.transcript || []).slice(-maxTurns);
   for (const t of turns) {
-    lines.push(`${t.role === "jake" ? "Jake" : "Cog"}: ${t.text || ""}`);
+    lines.push(`${t.role === "jake" ? "Jake" : "Scrappy"}: ${t.text || ""}`);
   }
   return lines.join("\n");
 }

@@ -1,7 +1,7 @@
-// Cursor agents Cog can start for planning/research, then continue later.
+// Cursor agents Scrappy can start for planning/research, then continue later.
 // Uses @cursor/sdk. Needs CURSOR_API_KEY in .env.local (from cursor.com/settings).
 //
-// Runs stay alive in a registry so Cog can resume them. Cloud runs (ids
+// Runs stay alive in a registry so Scrappy can resume them. Cloud runs (ids
 // starting with "bc-") also show up in Cursor's Agents Window so Jake can
 // keep chatting there.
 
@@ -12,13 +12,13 @@ const statusHelpers = require("./cursor-agent-status");
 
 const REGISTRY_PATH = path.join(
   process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming"),
-  "workbuddy",
+  "scrappy",
   "cursor-agents.json"
 );
 
 const MAX_AGENTS = 40;
 
-/** In-memory handles for background runs Cog started this session (fast stop). */
+/** In-memory handles for background runs Scrappy started this session (fast stop). */
 const activeRuns = new Map();
 
 function ensureDir(filePath) {
@@ -89,7 +89,7 @@ function missingApiKeyResponse() {
   return {
     ok: false,
     error: "missing_api_key",
-    hint: "Add CURSOR_API_KEY to workbuddy/.env.local (create one at https://cursor.com/settings).",
+    hint: "Add CURSOR_API_KEY to scrappy/.env.local (create one at https://cursor.com/settings).",
   };
 }
 
@@ -271,7 +271,7 @@ function buildPrompt(kind, goal) {
   ].join(" ");
   if (kind === "plan") {
     return [
-      "You are a planning agent started by Cog (Jake's desk robot).",
+      "You are a planning agent started by Scrappy (Jake's desk robot).",
       "Make a clear, practical plan. Do not implement code unless Jake asks.",
       "Prefer short sections and concrete next steps.",
       exhaustRule,
@@ -281,7 +281,7 @@ function buildPrompt(kind, goal) {
     ].join("\n");
   }
   return [
-    "You are a research agent started by Cog (Jake's desk robot).",
+    "You are a research agent started by Scrappy (Jake's desk robot).",
     "Investigate the codebase / context. Summarize findings clearly.",
     "Do not make code changes unless Jake explicitly asks you to.",
     "Prefer evidence (file paths, quotes) over guesses.",
@@ -308,7 +308,7 @@ async function startAgent({
     return {
       ok: false,
       error: "missing_api_key",
-      hint: "Add CURSOR_API_KEY to workbuddy/.env.local (create one at https://cursor.com/settings).",
+      hint: "Add CURSOR_API_KEY to scrappy/.env.local (create one at https://cursor.com/settings).",
     };
   }
   const text = String(goal || "").trim();
@@ -327,7 +327,7 @@ async function startAgent({
   const options = {
     apiKey: key,
     model,
-    name: `Cog ${kind}: ${text.slice(0, 48)}`,
+    name: `Scrappy ${kind}: ${text.slice(0, 48)}`,
   };
 
   if (runtime === "cloud") {
@@ -370,7 +370,7 @@ async function startAgent({
         : null,
   });
 
-  // Background run — do not block Cog's voice tool call.
+  // Background run — do not block Scrappy's voice tool call.
   (async () => {
     try {
       const run = await agent.send(buildPrompt(kind, text));
@@ -405,7 +405,7 @@ async function continueAgent({ id, message, apiKey }) {
     return {
       ok: false,
       error: "missing_api_key",
-      hint: "Add CURSOR_API_KEY to workbuddy/.env.local.",
+      hint: "Add CURSOR_API_KEY to scrappy/.env.local.",
     };
   }
   const agentId = String(id || "").trim();
@@ -489,7 +489,7 @@ async function stopAgent({ id, apiKey }) {
     return {
       ok: false,
       error: "missing_api_key",
-      hint: "Add CURSOR_API_KEY to workbuddy/.env.local.",
+      hint: "Add CURSOR_API_KEY to scrappy/.env.local.",
     };
   }
 
@@ -783,7 +783,7 @@ async function agentStatusDetailed({ id, apiKey, autoFixStale = true }) {
   else if (effectiveStatus === "cancelled") whatNext = "It was stopped. Use cursor_restart_agent to pick back up.";
   else if (effectiveStatus === "finished") whatNext = "It finished. Use cursor_continue_agent if you want more.";
   else if (effectiveStatus === "timeout") whatNext = "It ran too long and stopped. Use cursor_restart_agent to try again.";
-  else if (effectiveStatus === "stale") whatNext = "It may have stopped while Workbuddy was closed. Use cursor_agent_details or cursor_restart_agent.";
+  else if (effectiveStatus === "stale") whatNext = "It may have stopped while Scrappy was closed. Use cursor_agent_details or cursor_restart_agent.";
 
   const statusNote = statusHelpers.buildStatusNote({
     isStale,
@@ -889,7 +889,7 @@ async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) 
     ok: true,
     agents,
     count: agents.length,
-    hint: "These are Jake's cloud agents in Cursor. startedByCog=true means Cog started them.",
+    hint: "These are Jake's cloud agents in Cursor. startedByCog=true means Scrappy started them.",
   };
 }
 
@@ -902,7 +902,7 @@ async function archiveAgent({ id, apiKey }) {
     return {
       ok: false,
       error: "cloud_only",
-      message: "Only cloud agents (bc-...) can be archived. Local agents stay in Cog's list.",
+      message: "Only cloud agents (bc-...) can be archived. Local agents stay in Scrappy's list.",
     };
   }
 
@@ -979,7 +979,7 @@ async function deleteAgent({ id, confirm, apiKey }) {
     id: agentId,
     message: isCloudAgentId(agentId)
       ? "Agent permanently deleted from Cursor."
-      : "Agent removed from Cog's list.",
+      : "Agent removed from Scrappy's list.",
   };
 }
 

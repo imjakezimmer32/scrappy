@@ -1,7 +1,7 @@
 """
-Cog local voice server — Unmute-shaped pipeline for AMD/CPU.
+Scrappy local voice server — Unmute-shaped pipeline for AMD/CPU.
 
-Protocol (JSON over WebSocket, similar to Cog's ElevenLabs client):
+Protocol (JSON over WebSocket, similar to Scrappy's ElevenLabs client):
   Client → { "type": "audio", "pcm16_b64": "..." }   # 16kHz mono PCM chunks
   Client → { "type": "text", "text": "..." }         # typed message
   Client → { "type": "context", "text": "..." }      # background context
@@ -36,7 +36,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import memory_bridge
-import llm as cog_llm
+import llm as scrappy_llm
 import dictionary as listening_dict
 import intent_gate
 from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
@@ -45,7 +45,7 @@ from tools_schema import LOCAL_MEMORY_RULES, all_tools
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 LOG_DIR = ROOT / "logs"
-PERSONA_PATH = Path(os.environ.get("COG_PERSONA", str(REPO / "personality.md")))
+PERSONA_PATH = Path(os.environ.get("SCRAPPY_PERSONA", str(REPO / "personality.md")))
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # light local fallback only
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
@@ -54,25 +54,25 @@ OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8_float32")
 WHISPER_BEAM = int(os.environ.get("WHISPER_BEAM", "8"))
-HOST = os.environ.get("COG_VOICE_HOST", "127.0.0.1")
-PORT = int(os.environ.get("COG_VOICE_PORT", "8790"))
+HOST = os.environ.get("SCRAPPY_VOICE_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SCRAPPY_VOICE_PORT", "8790"))
 SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_OUT = 24000
-MAX_TOOL_ROUNDS = int(os.environ.get("COG_TOOL_ROUNDS", "6"))
+MAX_TOOL_ROUNDS = int(os.environ.get("SCRAPPY_TOOL_ROUNDS", "6"))
 
 # Energy VAD: end turn after this much silence once we've heard speech.
 # Patient on purpose — do not chop Jake off mid-thought.
-SILENCE_MS = int(os.environ.get("COG_VAD_SILENCE_MS", "1300"))
-MIN_SPEECH_MS = int(os.environ.get("COG_VAD_MIN_SPEECH_MS", "220"))
-ENERGY_THRESH = float(os.environ.get("COG_VAD_ENERGY", "0.008"))
-# Barge-in while Cog is busy: hotter + sustained so TTS echo doesn't false-trigger.
-BARGE_MS = int(os.environ.get("COG_BARGE_MS", "320"))
-BARGE_ENERGY = float(os.environ.get("COG_BARGE_ENERGY", "0.028"))
+SILENCE_MS = int(os.environ.get("SCRAPPY_VAD_SILENCE_MS", "1300"))
+MIN_SPEECH_MS = int(os.environ.get("SCRAPPY_VAD_MIN_SPEECH_MS", "220"))
+ENERGY_THRESH = float(os.environ.get("SCRAPPY_VAD_ENERGY", "0.008"))
+# Barge-in while Scrappy is busy: hotter + sustained so TTS echo doesn't false-trigger.
+BARGE_MS = int(os.environ.get("SCRAPPY_BARGE_MS", "320"))
+BARGE_ENERGY = float(os.environ.get("SCRAPPY_BARGE_ENERGY", "0.028"))
 
 # Bias Whisper toward names/products Jake actually says (listening dictionary
-# vocabulary + optional COG_WHISPER_PROMPT override).
+# vocabulary + optional SCRAPPY_WHISPER_PROMPT override).
 WHISPER_PROMPT = listening_dict.vocabulary_prompt(
-    os.environ.get("COG_WHISPER_PROMPT") or ""
+    os.environ.get("SCRAPPY_WHISPER_PROMPT") or ""
 )
 
 THINK_TRIGGERS = re.compile(
@@ -115,7 +115,7 @@ JOB_TRIGGERS = re.compile(
     re.I,
 )
 
-app = FastAPI(title="Cog Local Voice")
+app = FastAPI(title="Scrappy Local Voice")
 _whisper = None
 _kokoro = None
 _persona = ""
@@ -127,7 +127,7 @@ def log(msg: str) -> None:
 
 # Compact card first — small local models obey the top of the prompt hardest.
 VOICE_CHARACTER_CARD = """
-## YOU ARE COG-1 (LOCAL)
+## YOU ARE SCRAPPY-1 (LOCAL)
 
 You go by Chief. Nobody calls you Chief. You are Jake's desk robot — not a
 customer-support chatbot, not a productivity assistant, not a helpful AI.
@@ -223,7 +223,7 @@ def load_persona() -> str:
     try:
         full = PERSONA_PATH.read_text(encoding="utf-8").strip()
     except OSError:
-        full = "You are Cog, Jake's desk robot. Be brief and spoken-friendly."
+        full = "You are Scrappy, Jake's desk robot. Be brief and spoken-friendly."
 
     # Keep the character bible; drop long example pairs (they confuse models
     # into thinking the sample "deploy" chat is happening now).
@@ -256,7 +256,7 @@ def load_persona() -> str:
         + "\n\n"
         + text
         + "\n\n## SPOKEN LOCAL VOICE\n"
-        + "You are speaking out loud from Jake's desk. Stay COG-1. "
+        + "You are speaking out loud from Jake's desk. Stay SCRAPPY-1. "
         + "Never flatten into a bland helpful assistant.\n"
         + "No markdown, no bullet lists, no code fences.\n"
         + "Never recite system notes, Recall dumps, or anything labeled "
@@ -264,7 +264,7 @@ def load_persona() -> str:
         + "If a tool returned empty/error, say that — do not invent a substitute answer.\n"
         + "Quality over speed: ask clarifying questions before acting when unclear.\n\n"
         + LOCAL_MEMORY_RULES
-        + "\n\nSTAY IN CHARACTER. One sharp Cog sentence beats a careful assistant paragraph. "
+        + "\n\nSTAY IN CHARACTER. One sharp Scrappy sentence beats a careful assistant paragraph. "
         + "Honest 'I don't know' beats a confident lie."
     )
 
@@ -288,7 +288,7 @@ def append_transcript(session_id: str, role: str, text: str, **extra: Any) -> No
             fh.write(json.dumps(event, ensure_ascii=False) + "\n")
     except OSError as err:
         log(f"transcript write failed: {err}")
-    # Mirror into WorkBuddy process journal (best-effort).
+    # Mirror into Scrappy process journal (best-effort).
     try:
         asyncio.get_running_loop().create_task(
             memory_bridge.process_event(
@@ -347,7 +347,7 @@ def background_search_query(user_text: str) -> str:
 
 
 WAKE_ONLY = re.compile(
-    r"^\s*(hey\s+there|okay\s+then|wake\s+up)\s+cog[!?.,\s]*$",
+    r"^\s*(hey\s+there|okay\s+then|wake\s+up)\s+scrappy[!?.,\s]*$",
     re.I,
 )
 
@@ -451,7 +451,7 @@ def normalize_transcript(text: str) -> str:
     # Collapse repeated words: "the the the" → "the"
     cleaned = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", cleaned, flags=re.I)
     cleaned = cleaned.strip(" \t.-")
-    # Wispr-style listening dictionary (carp → Cog, hey car → hey Cog, …).
+    # Wispr-style listening dictionary (carp → Scrappy, hey car → hey Scrappy, …).
     before = cleaned
     cleaned = listening_dict.apply(cleaned)
     if cleaned != before:
@@ -469,7 +469,7 @@ def transcribe(samples: np.ndarray) -> str:
     model = get_whisper()
     beam = max(1, min(WHISPER_BEAM, 10))
     # Hot-reload vocabulary into Whisper's listening hint each turn.
-    prompt = listening_dict.vocabulary_prompt(os.environ.get("COG_WHISPER_PROMPT") or "")
+    prompt = listening_dict.vocabulary_prompt(os.environ.get("SCRAPPY_WHISPER_PROMPT") or "")
     segments, _info = model.transcribe(
         samples,
         language="en",
@@ -513,7 +513,7 @@ def split_speakable(buffer: str) -> tuple[list[str], str]:
 
 
 def strip_thinking(text: str) -> str:
-    """Remove chain-of-thought blocks so Cog doesn't speak his homework."""
+    """Remove chain-of-thought blocks so Scrappy doesn't speak his homework."""
     cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.I)
     cleaned = re.sub(r"<thinking>[\s\S]*?</thinking>", "", cleaned, flags=re.I)
     # DeepSeek-style leftover headers.
@@ -576,7 +576,7 @@ def needs_thinking(user_text: str) -> bool:
         return False
     if WAKE_ONLY.match(text):
         return False
-    # Memory/relationship asks need Recall tools + Cog's voice, not a dry reasoner.
+    # Memory/relationship asks need Recall tools + Scrappy's voice, not a dry reasoner.
     if needs_memory_tools(text):
         return False
     if THINK_TRIGGERS.search(text):
@@ -610,12 +610,12 @@ async def llm_chat(
 ) -> Any:
     # model arg kept for log compatibility; backend picks the real id.
     _ = model
-    return await cog_llm.chat(messages, think=think, tools=tools, stream=stream)
+    return await scrappy_llm.chat(messages, think=think, tools=tools, stream=stream)
 
 
 async def llm_stream(messages: list[dict[str, Any]], model: str | None = None, *, think: bool):
     _ = model
-    async for chunk in cog_llm.stream_text(messages, think=think):
+    async for chunk in scrappy_llm.stream_text(messages, think=think):
         yield chunk
 
 
@@ -725,7 +725,7 @@ async def rewrite_if_flat(reply: str, model: str) -> str:
             "role": "system",
             "content": (
                 VOICE_CHARACTER_CARD
-                + "\nRewrite the line below as Cog. Keep the same meaning. "
+                + "\nRewrite the line below as Scrappy. Keep the same meaning. "
                 + "One or two short spoken sentences. No chatbot closings."
             ),
         },
@@ -787,7 +787,7 @@ async def rewrite_if_ungrounded(
             "content": (
                 VOICE_CHARACTER_CARD
                 + "\nJake asked a factual question. You had NO tool results. "
-                + "Rewrite as Cog admitting you don't know / can't see it from here. "
+                + "Rewrite as Scrappy admitting you don't know / can't see it from here. "
                 + "Do not invent status, names, or systems. One short spoken sentence."
             ),
         },
@@ -913,8 +913,8 @@ async def run_tool_loop(
                 else:
                     seed_name = "recall_search"
                     seed_args = {
-                        "query": "Cog memory preferences relationship decisions",
-                        "project": "WorkBuddy",
+                        "query": "Scrappy memory preferences relationship decisions",
+                        "project": "Scrappy",
                         "limit": 8,
                     }
                 seed = await _exec(seed_name, seed_args)
@@ -996,7 +996,7 @@ async def run_tool_loop(
 
 
 def synthesize(text: str) -> np.ndarray:
-    voice = os.environ.get("COG_TTS_VOICE", "am_michael")
+    voice = os.environ.get("SCRAPPY_TTS_VOICE", "am_michael")
     kokoro = get_kokoro()
     samples, _sr = kokoro.create(text, voice=voice, speed=1.05)
     return np.asarray(samples, dtype=np.float32)
@@ -1005,7 +1005,7 @@ def synthesize(text: str) -> np.ndarray:
 class Session:
     def __init__(self, ws: WebSocket):
         self.ws = ws
-        self.session_id = f"cog-{int(time.time())}-{os.getpid()}"
+        self.session_id = f"scrappy-{int(time.time())}-{os.getpid()}"
         self.history: list[dict[str, str]] = []
         self.side_context: list[str] = []
         self.body_state = ""
@@ -1142,12 +1142,12 @@ class Session:
         raw = (job.result_text or "").strip()
         if not raw:
             return f"Finished {job.label}, but it came back empty."
-        model = cog_llm.active_model(False)
+        model = scrappy_llm.active_model(False)
         prompt = [
             {
                 "role": "system",
                 "content": (
-                    "You are Cog, Jake's short funny desk robot. "
+                    "You are Scrappy, Jake's short funny desk robot. "
                     "Turn a finished background job into 1-2 spoken sentences. "
                     "No JSON, no bullet dump, no 'as an AI'."
                 ),
@@ -1181,7 +1181,7 @@ class Session:
         self._deliver_task = asyncio.create_task(self._deliver_loop())
 
     async def _deliver_loop(self) -> None:
-        """Speak queued job results only when Cog is idle."""
+        """Speak queued job results only when Scrappy is idle."""
         try:
             while not self.closed and not self.result_cue.empty():
                 # Wait until he's not mid-turn and Jake isn't mid-utterance.
@@ -1244,7 +1244,7 @@ class Session:
             await self.result_cue.put(spoken)
             return
         self.history.append({"role": "assistant", "content": spoken})
-        append_transcript(self.session_id, "cog", spoken)
+        append_transcript(self.session_id, "scrappy", spoken)
         if len(self.history) > 20:
             self.history = self.history[-20:]
         await journal(
@@ -1417,7 +1417,7 @@ class Session:
                 f"{brief}"
             )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        # Style exemplars first — then the real chat. Marked so Cog doesn't treat them as Jake.
+        # Style exemplars first — then the real chat. Marked so Scrappy doesn't treat them as Jake.
         messages.extend(VOICE_FEWSHOT)
         messages.extend(self.history[-16:])
         return messages
@@ -1425,7 +1425,7 @@ class Session:
     def transcript_text(self) -> str:
         lines = []
         for msg in self.history:
-            role = "Jake" if msg.get("role") == "user" else "Cog"
+            role = "Jake" if msg.get("role") == "user" else "Scrappy"
             lines.append(f"{role}: {msg.get('content') or ''}")
         return "\n".join(lines)
 
@@ -1437,7 +1437,7 @@ class Session:
             return
         self._persisted = True
         try:
-            title = f"Cog chat {time.strftime('%Y-%m-%d %H:%M')}"
+            title = f"Scrappy chat {time.strftime('%Y-%m-%d %H:%M')}"
             result = await memory_bridge.save_session(self.transcript_text(), title=title)
             log(f"session save: {result.get('ok')} {result.get('error') or ''}".strip())
         except Exception as err:  # noqa: BLE001
@@ -1479,7 +1479,7 @@ class Session:
         energy = rms_energy(samples)
         duration_ms = 1000.0 * samples.size / SAMPLE_RATE_IN
 
-        # While Cog is thinking/speaking, listen for barge-in.
+        # While Scrappy is thinking/speaking, listen for barge-in.
         if self.busy:
             if energy >= BARGE_ENERGY:
                 self.barge_ms += duration_ms
@@ -1531,7 +1531,7 @@ class Session:
             greet = "Yeah? I'm here."
             self.history.append({"role": "user", "content": text})
             self.history.append({"role": "assistant", "content": greet})
-            append_transcript(self.session_id, "cog", greet)
+            append_transcript(self.session_id, "scrappy", greet)
             await self.send({"type": "status", "state": "speaking"})
             await self.speak(greet)
             if not self.cancelled():
@@ -1557,7 +1557,7 @@ class Session:
             greet = "Yeah? I'm here."
             self.history.append({"role": "user", "content": line})
             self.history.append({"role": "assistant", "content": greet})
-            append_transcript(self.session_id, "cog", greet)
+            append_transcript(self.session_id, "scrappy", greet)
             await self.send({"type": "status", "state": "speaking"})
             await self.speak(greet)
             if not self.cancelled():
@@ -1588,14 +1588,14 @@ class Session:
             and intent.mode == "chat"
             and intent.lane == "talk"
         )
-        model = cog_llm.active_model(use_think)
+        model = scrappy_llm.active_model(use_think)
         self.prefer_background = intent.mode == "dig"
         tools_used = False
         route_label = f"{intent.lane}/{intent.mode}"
         log(
             f"gate -> {route_label} ({intent.reason})"
             + (f" work={intent.work_kind}" if intent.work_kind != "none" else "")
-            + f" / {cog_llm.backend()} ({model})"
+            + f" / {scrappy_llm.backend()} ({model})"
             + (" +think" if use_think else "")
         )
         await journal(
@@ -1608,7 +1608,7 @@ class Session:
                 "reason": route_label,
                 "meta": {
                     "model": model,
-                    "llm_backend": cog_llm.backend(),
+                    "llm_backend": scrappy_llm.backend(),
                     "lane": intent.lane,
                     "mode": intent.mode,
                     "work_kind": intent.work_kind,
@@ -1648,7 +1648,7 @@ class Session:
                         "(System — CLARIFY lane: Jake's ask is unclear. "
                         "Do NOT call tools. Do NOT invent a plan and run it. "
                         f"Ask ONE short clarifying question. Hint: {hint} "
-                        "Stay Cog: brief, useful, not a lecture.)"
+                        "Stay Scrappy: brief, useful, not a lecture.)"
                     ),
                 }
             )
@@ -1663,7 +1663,7 @@ class Session:
                 await self._start_named_job(
                     label=f"notes: {query}",
                     tool="recall_search",
-                    args={"query": query, "project": "WorkBuddy", "limit": 8},
+                    args={"query": query, "project": "Scrappy", "limit": 8},
                 )
                 tools_used = True
                 if self.cancelled():
@@ -1695,7 +1695,7 @@ class Session:
                             ),
                         }
                     )
-                tool_model = cog_llm.active_model(False)
+                tool_model = scrappy_llm.active_model(False)
                 try:
                     messages = await run_tool_loop(
                         messages,
@@ -1715,7 +1715,7 @@ class Session:
                         {
                             "role": "user",
                             "content": (
-                                "Answer Jake out loud as Cog using ONLY the tool results. "
+                                "Answer Jake out loud as Scrappy using ONLY the tool results. "
                                 "If none are running / list is empty, say that. "
                                 "If a tool failed, say you couldn't check. "
                                 "NEVER invent agent names, goals, or status. Short spoken answer."
@@ -1727,7 +1727,7 @@ class Session:
                         {
                             "role": "user",
                             "content": (
-                                "Answer Jake out loud as Cog. Stay in character — short, useful. "
+                                "Answer Jake out loud as Scrappy. Stay in character — short, useful. "
                                 "Use what the tools found. If tools returned nothing, say so — "
                                 "do not invent. No human mnemonics. Do not recite tool JSON."
                             ),
@@ -1740,7 +1740,7 @@ class Session:
                         "role": "user",
                         "content": (
                             "(System — TALK lane: chat only. No tools this turn. "
-                            "Answer briefly as Cog. If BODY context is present, acknowledge it naturally.)"
+                            "Answer briefly as Scrappy. If BODY context is present, acknowledge it naturally.)"
                         ),
                     }
                 )
@@ -1829,7 +1829,7 @@ class Session:
             return
         if reply:
             self.history.append({"role": "assistant", "content": reply})
-            append_transcript(self.session_id, "cog", reply)
+            append_transcript(self.session_id, "scrappy", reply)
             self._partial_reply = ""
             if len(self.history) > 20:
                 self.history = self.history[-20:]
@@ -1870,7 +1870,7 @@ class Session:
         audio = await asyncio.to_thread(synthesize, clean)
         if self.cancelled():
             return
-        # Stream in ~200ms chunks so Cog can start playing ASAP.
+        # Stream in ~200ms chunks so Scrappy can start playing ASAP.
         frame = int(SAMPLE_RATE_OUT * 0.2)
         for i in range(0, audio.size, frame):
             if self.cancelled():
@@ -1888,12 +1888,12 @@ class Session:
 
 @app.get("/health")
 async def health():
-    info = cog_llm.health_label()
+    info = scrappy_llm.health_label()
     ollama_ok = False
     if info["backend"] == "ollama":
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
-                r = await client.get(f"{cog_llm.OLLAMA_URL}/api/tags")
+                r = await client.get(f"{scrappy_llm.OLLAMA_URL}/api/tags")
                 ollama_ok = r.status_code == 200
         except Exception:  # noqa: BLE001
             ollama_ok = False
@@ -1918,8 +1918,8 @@ async def voice_socket(ws: WebSocket):
         {
             "type": "ready",
             "backend": "local-amd",
-            "llm": cog_llm.backend(),
-            "model": cog_llm.active_model(False),
+            "llm": scrappy_llm.backend(),
+            "model": scrappy_llm.active_model(False),
             "session_id": session.session_id,
             "memory": True,
         }

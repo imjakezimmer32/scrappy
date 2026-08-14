@@ -1,9 +1,9 @@
-// What Cog can actually see about the machine he lives on.
+// What Scrappy can actually see about the machine he lives on.
 //
 // This is fed to him as ElevenLabs "contextual_update" events during a
 // conversation, so he can talk about what's really happening instead of
 // inventing it. Window titles leave the machine when he's in a call — see the
-// privacy note in the README, and COG_SYSTEM_CONTEXT=off to disable.
+// privacy note in the README, and SCRAPPY_SYSTEM_CONTEXT=off to disable.
 
 const os = require("os");
 const { execFile } = require("child_process");
@@ -71,7 +71,7 @@ foreach ($r in $roots) {
       $v = Get-ItemProperty $k.PSPath
       if ($null -eq $v.LastUsedTimeStart) { continue }
       $full = $k.PSChildName
-      if ($full -like '*workbuddy*') { continue }
+      if ($full -like '*scrappy*') { continue }
       $leaf = ($full -split '#')[-1] -replace '\.exe$',''
       if (-not $leaf) { continue }
       $key = $leaf.ToLower()

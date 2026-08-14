@@ -1,101 +1,101 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("workbuddy", {
+contextBridge.exposeInMainWorld("scrappy", {
   onGrow(callback) {
-    ipcRenderer.on("workbuddy:grow", (_event, payload) => callback(payload));
+    ipcRenderer.on("scrappy:grow", (_event, payload) => callback(payload));
   },
   onAck(callback) {
-    ipcRenderer.on("workbuddy:ack", (_event, payload) => callback(payload));
+    ipcRenderer.on("scrappy:ack", (_event, payload) => callback(payload));
   },
   // Every display's rectangle in overlay-local coordinates.
   onLayout(callback) {
-    ipcRenderer.on("workbuddy:layout", (_event, screens) => callback(screens));
+    ipcRenderer.on("scrappy:layout", (_event, screens) => callback(screens));
   },
   ack() {
-    ipcRenderer.send("workbuddy:ack-from-ui");
+    ipcRenderer.send("scrappy:ack-from-ui");
   },
   testGrow() {
-    ipcRenderer.send("workbuddy:test-grow");
+    ipcRenderer.send("scrappy:test-grow");
   },
-  // The overlay is click-through except where Cog actually is.
+  // The overlay is click-through except where Scrappy actually is.
   setInteractive(value) {
-    ipcRenderer.send("workbuddy:set-interactive", Boolean(value));
+    ipcRenderer.send("scrappy:set-interactive", Boolean(value));
   },
-  hideBuddy() {
-    ipcRenderer.send("workbuddy:hide");
+  hideScrappy() {
+    ipcRenderer.send("scrappy:hide");
   },
   quitApp() {
-    ipcRenderer.send("workbuddy:quit");
+    ipcRenderer.send("scrappy:quit");
   },
   isVisible() {
     try {
-      return ipcRenderer.sendSync("workbuddy:pref-visible") !== false;
+      return ipcRenderer.sendSync("scrappy:pref-visible") !== false;
     } catch {
       return true;
     }
   },
   onVisible(callback) {
-    ipcRenderer.on("workbuddy:set-visible", (_event, on) => callback(Boolean(on)));
+    ipcRenderer.on("scrappy:set-visible", (_event, on) => callback(Boolean(on)));
   },
   onChatOpen(callback) {
-    ipcRenderer.on("workbuddy:chat-open", () => callback());
+    ipcRenderer.on("scrappy:chat-open", () => callback());
   },
   onVoiceStart(callback) {
-    ipcRenderer.on("workbuddy:voice-start", () => callback());
+    ipcRenderer.on("scrappy:voice-start", () => callback());
   },
   chatFocus(on) {
-    ipcRenderer.send("workbuddy:chat-focus", Boolean(on));
+    ipcRenderer.send("scrappy:chat-focus", Boolean(on));
   },
   // Voice: the renderer only ever sees an expiring signed URL, never the key.
   voiceSignedUrl() {
-    return ipcRenderer.invoke("workbuddy:voice-signed-url");
+    return ipcRenderer.invoke("scrappy:voice-signed-url");
   },
   systemContext() {
-    return ipcRenderer.invoke("workbuddy:system-context");
+    return ipcRenderer.invoke("scrappy:system-context");
   },
   recallContext() {
-    return ipcRenderer.invoke("workbuddy:recall-context");
+    return ipcRenderer.invoke("scrappy:recall-context");
   },
   recallBrief() {
-    return ipcRenderer.invoke("workbuddy:recall-brief");
+    return ipcRenderer.invoke("scrappy:recall-brief");
   },
   recallTool(name, args) {
-    return ipcRenderer.invoke("workbuddy:recall-tool", name, args || {});
+    return ipcRenderer.invoke("scrappy:recall-tool", name, args || {});
   },
   cursorAgent(action, args) {
-    return ipcRenderer.invoke("workbuddy:cursor-agent", action, args || {});
+    return ipcRenderer.invoke("scrappy:cursor-agent", action, args || {});
   },
   cursorChats(action, args) {
-    return ipcRenderer.invoke("workbuddy:cursor-chats", action, args || {});
+    return ipcRenderer.invoke("scrappy:cursor-chats", action, args || {});
   },
   voiceStatus() {
-    return ipcRenderer.invoke("workbuddy:voice-status");
+    return ipcRenderer.invoke("scrappy:voice-status");
   },
   processNote(text) {
-    return ipcRenderer.invoke("workbuddy:process-note", text);
+    return ipcRenderer.invoke("scrappy:process-note", text);
   },
   processEvent(event) {
-    return ipcRenderer.invoke("workbuddy:process-event", event || {});
+    return ipcRenderer.invoke("scrappy:process-event", event || {});
   },
   conversationStart(info) {
-    return ipcRenderer.invoke("workbuddy:conversation-start", info || {});
+    return ipcRenderer.invoke("scrappy:conversation-start", info || {});
   },
   conversationEvent(sessionId, event) {
-    return ipcRenderer.invoke("workbuddy:conversation-event", sessionId, event || {});
+    return ipcRenderer.invoke("scrappy:conversation-event", sessionId, event || {});
   },
   conversationEnd(sessionId, extra) {
-    return ipcRenderer.invoke("workbuddy:conversation-end", sessionId, extra || {});
+    return ipcRenderer.invoke("scrappy:conversation-end", sessionId, extra || {});
   },
   processRecent(limit) {
-    return ipcRenderer.invoke("workbuddy:process-recent", limit);
+    return ipcRenderer.invoke("scrappy:process-recent", limit);
   },
   onWake(callback) {
-    ipcRenderer.on("workbuddy:wake", (_event, payload) => callback(payload));
+    ipcRenderer.on("scrappy:wake", (_event, payload) => callback(payload));
   },
   wakePause() {
-    ipcRenderer.send("workbuddy:wake-pause");
+    ipcRenderer.send("scrappy:wake-pause");
   },
   wakeResume() {
-    ipcRenderer.send("workbuddy:wake-resume");
+    ipcRenderer.send("scrappy:wake-resume");
   },
 });

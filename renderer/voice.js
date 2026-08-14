@@ -260,8 +260,8 @@ async function start(opts) {
   allowSpeech = false;
   suppressTurn = false;
 
-  const auth = window.workbuddy
-    ? await window.workbuddy.voiceSignedUrl()
+  const auth = window.scrappy
+    ? await window.scrappy.voiceSignedUrl()
     : { ok: false, error: "no_api_key" };
   if (!auth || !auth.ok) {
     emit("error", auth && auth.error ? auth.error : "voice_not_configured");
@@ -504,8 +504,8 @@ async function softReconnect() {
   }
   ws = null;
   try {
-    const auth = window.workbuddy
-      ? await window.workbuddy.voiceSignedUrl()
+    const auth = window.scrappy
+      ? await window.scrappy.voiceSignedUrl()
       : { ok: false };
     if (!auth || !auth.ok || auth.backend !== "local") {
       throw new Error("no_local");
@@ -664,7 +664,7 @@ async function handleClientToolCall(msg) {
       String(toolName).startsWith("process_") ||
       String(toolName).startsWith("conversation_")
     ) {
-      const bridge = window.workbuddy;
+      const bridge = window.scrappy;
       if (!bridge || !bridge.recallTool) {
         reply("Local tool bridge unavailable", true);
         return;
@@ -679,9 +679,9 @@ async function handleClientToolCall(msg) {
       return;
     }
 
-    // Cursor planning/research agents Cog can start and continue.
+    // Cursor planning/research agents Scrappy can start and continue.
     if (String(toolName).startsWith("cursor_")) {
-      const bridge = window.workbuddy;
+      const bridge = window.scrappy;
       const chatTools = {
         cursor_list_chats: "list",
         cursor_search_chats: "search",
@@ -746,7 +746,7 @@ async function handleClientToolCall(msg) {
   }
 }
 
-window.CogVoice = {
+window.ScrappyVoice = {
   init(callbacks) {
     hooks = callbacks || {};
   },

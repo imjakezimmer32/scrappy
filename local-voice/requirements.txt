@@ -1,4 +1,4 @@
-# Local AMD-friendly Unmute-shaped voice stack for Cog.
+# Local AMD-friendly Unmute-shaped voice stack for Scrappy.
 # STT: faster-whisper (CPU int8 — AMD has no CUDA)
 # LLM: Ollama (uses your AMD GPU via Vulkan when available)
 # TTS: kokoro-onnx (CPU/ONNX, fast enough for sentence streaming)

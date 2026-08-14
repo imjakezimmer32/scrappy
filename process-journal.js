@@ -1,4 +1,4 @@
-// Cog process journal — timestamped record of every process lifecycle +
+// Scrappy process journal — timestamped record of every process lifecycle +
 // conversation beat + notes Jake adds by hand.
 //
 // Files (gitignored):
@@ -35,7 +35,7 @@ function init({ projectRoot }) {
     type: "journal_ready",
     name: "process-journal",
     by: "main",
-    reason: "WorkBuddy started process logging",
+    reason: "Scrappy started process logging",
   });
 }
 
@@ -43,7 +43,7 @@ function ensureInboxTemplate() {
   if (!inboxPath) return;
   if (fs.existsSync(inboxPath)) return;
   const template = [
-    "# Add a note below this line, save the file, and Cog will pull it into today's process log.",
+    "# Add a note below this line, save the file, and Scrappy will pull it into today's process log.",
     "# Example: Restarted because voice felt stuck after model switch.",
     "",
     "",
@@ -88,7 +88,7 @@ function record(event = {}) {
     iso: isoNow(ts),
     kind: event.kind || "process",
     type: event.type || "note",
-    name: event.name || "cog",
+    name: event.name || "scrappy",
     ...(event.pid != null ? { pid: event.pid } : {}),
     ...(event.by ? { by: event.by } : {}),
     ...(event.reason ? { reason: event.reason } : {}),
@@ -217,7 +217,7 @@ async function importInbox() {
 
 function ensureInboxFresh() {
   const template = [
-    "# Add a note below this line, save the file, and Cog will pull it into today's process log.",
+    "# Add a note below this line, save the file, and Scrappy will pull it into today's process log.",
     "# Example: Voice died after I switched models — investigating.",
     "",
     "",

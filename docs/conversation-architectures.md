@@ -1,6 +1,6 @@
 # Conversation architectures A + C
 
-How Cog decides what to do after he hears you.
+How Scrappy decides what to do after he hears you.
 
 ## Pipeline
 
@@ -21,7 +21,7 @@ How Cog decides what to do after he hears you.
 
 ## Clarify follow-up
 
-If Cog asks a clarifying question, the next thing you say is treated as the answer and Work runs (when the work kind was known).
+If Scrappy asks a clarifying question, the next thing you say is treated as the answer and Work runs (when the work kind was known).
 
 ## Code
 

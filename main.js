@@ -42,7 +42,7 @@ let activeConversationId = null;
 
 function minDurationMs() {
   const file = readEnvFile();
-  const raw = process.env.COG_NUDGE_MIN_DURATION_MS || file.COG_NUDGE_MIN_DURATION_MS;
+  const raw = process.env.SCRAPPY_NUDGE_MIN_DURATION_MS || file.SCRAPPY_NUDGE_MIN_DURATION_MS;
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 0) return n;
   return 2 * 60 * 1000;
@@ -81,13 +81,13 @@ function ensureToken() {
   return localToken;
 }
 
-// Cog lives on a transparent, click-through overlay stretched across the
+// Scrappy lives on a transparent, click-through overlay stretched across the
 // bounding box of every display, so he can walk, be thrown, and bounce
 // across all of them. Monitors rarely share a floor line, so the renderer
 // also gets each display's rectangle in overlay-local coordinates and works
 // out which floor is under him at any given x.
 // The window spans the full physical bounds of every display — including the
-// strip the taskbar sits on — so Cog's legs can hang over the edge when he
+// strip the taskbar sits on — so Scrappy's legs can hang over the edge when he
 // sits down. His floor is still the work area, so he stands ON the taskbar's
 // top edge rather than walking across it.
 function displayLayout() {
@@ -122,7 +122,7 @@ function overlayBounds() {
 }
 
 // Windows re-raises the taskbar above other topmost windows whenever you
-// click it, which drops Cog behind it until something re-asserts him. There
+// click it, which drops Scrappy behind it until something re-asserts him. There
 // is no event for that, so we simply keep re-claiming the top spot. Neither
 // call takes focus, so this never interrupts what you're typing into.
 let topKeeper = null;
@@ -139,7 +139,7 @@ function keepOnTop() {
 function pushLayout() {
   if (!mainWindow) return;
   mainWindow.setBounds(overlayBounds());
-  mainWindow.webContents.send("workbuddy:layout", displayLayout().screens);
+  mainWindow.webContents.send("scrappy:layout", displayLayout().screens);
 }
 
 // ---------- voice credentials ----------
@@ -166,7 +166,7 @@ function readEnvFile() {
 
 function wakeWordEnabled() {
   const file = readEnvFile();
-  const setting = (process.env.COG_WAKE_WORD || file.COG_WAKE_WORD || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_WAKE_WORD || file.SCRAPPY_WAKE_WORD || "on").toLowerCase();
   return !(setting === "off" || setting === "false" || setting === "0");
 }
 
@@ -192,19 +192,19 @@ function ollamaThinkMode() {
 
 function llmBackendPref() {
   const file = readEnvFile();
-  return (process.env.COG_LLM_BACKEND || file.COG_LLM_BACKEND || "cloud").toLowerCase();
+  return (process.env.SCRAPPY_LLM_BACKEND || file.SCRAPPY_LLM_BACKEND || "cloud").toLowerCase();
 }
 
 function llmCloudModel() {
   const file = readEnvFile();
-  return process.env.COG_LLM_MODEL || file.COG_LLM_MODEL || "gpt-4o";
+  return process.env.SCRAPPY_LLM_MODEL || file.SCRAPPY_LLM_MODEL || "gpt-4o";
 }
 
 function llmCloudKeyPresent() {
   const file = readEnvFile();
   return Boolean(
-    process.env.COG_LLM_API_KEY ||
-      file.COG_LLM_API_KEY ||
+    process.env.SCRAPPY_LLM_API_KEY ||
+      file.SCRAPPY_LLM_API_KEY ||
       process.env.OPENAI_API_KEY ||
       file.OPENAI_API_KEY ||
       process.env.GROQ_API_KEY ||
@@ -219,30 +219,30 @@ function localVoiceEnv() {
     OLLAMA_MODEL: ollamaModel(),
     OLLAMA_THINK_MODEL: ollamaThinkModel(),
     OLLAMA_THINK_MODE: ollamaThinkMode(),
-    COG_LLM_BACKEND: llmBackendPref(),
-    COG_LLM_MODEL: llmCloudModel(),
-    COG_LLM_THINK_MODEL:
-      process.env.COG_LLM_THINK_MODEL || file.COG_LLM_THINK_MODEL || llmCloudModel(),
-    COG_LLM_BASE_URL: process.env.COG_LLM_BASE_URL || file.COG_LLM_BASE_URL || "",
-    COG_LLM_API_KEY: process.env.COG_LLM_API_KEY || file.COG_LLM_API_KEY || "",
+    SCRAPPY_LLM_BACKEND: llmBackendPref(),
+    SCRAPPY_LLM_MODEL: llmCloudModel(),
+    SCRAPPY_LLM_THINK_MODEL:
+      process.env.SCRAPPY_LLM_THINK_MODEL || file.SCRAPPY_LLM_THINK_MODEL || llmCloudModel(),
+    SCRAPPY_LLM_BASE_URL: process.env.SCRAPPY_LLM_BASE_URL || file.SCRAPPY_LLM_BASE_URL || "",
+    SCRAPPY_LLM_API_KEY: process.env.SCRAPPY_LLM_API_KEY || file.SCRAPPY_LLM_API_KEY || "",
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || file.OPENAI_API_KEY || "",
     GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
-    COG_TTS_VOICE: process.env.COG_TTS_VOICE || file.COG_TTS_VOICE || "am_michael",
+    SCRAPPY_TTS_VOICE: process.env.SCRAPPY_TTS_VOICE || file.SCRAPPY_TTS_VOICE || "am_michael",
     // Ears: quality-first Whisper (large-v3). Never default back to tiny models.
     WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "large-v3",
     WHISPER_COMPUTE:
       process.env.WHISPER_COMPUTE || file.WHISPER_COMPUTE || "int8_float32",
     WHISPER_BEAM: process.env.WHISPER_BEAM || file.WHISPER_BEAM || "8",
-    COG_VAD_SILENCE_MS:
-      process.env.COG_VAD_SILENCE_MS || file.COG_VAD_SILENCE_MS || "1300",
-    COG_VAD_ENERGY: process.env.COG_VAD_ENERGY || file.COG_VAD_ENERGY || "0.008",
-    COG_TOOL_ROUNDS: process.env.COG_TOOL_ROUNDS || file.COG_TOOL_ROUNDS || "6",
-    COG_WHISPER_PROMPT: process.env.COG_WHISPER_PROMPT || file.COG_WHISPER_PROMPT || "",
-    COG_PERSONA: path.join(__dirname, "personality.md"),
+    SCRAPPY_VAD_SILENCE_MS:
+      process.env.SCRAPPY_VAD_SILENCE_MS || file.SCRAPPY_VAD_SILENCE_MS || "1300",
+    SCRAPPY_VAD_ENERGY: process.env.SCRAPPY_VAD_ENERGY || file.SCRAPPY_VAD_ENERGY || "0.008",
+    SCRAPPY_TOOL_ROUNDS: process.env.SCRAPPY_TOOL_ROUNDS || file.SCRAPPY_TOOL_ROUNDS || "6",
+    SCRAPPY_WHISPER_PROMPT: process.env.SCRAPPY_WHISPER_PROMPT || file.SCRAPPY_WHISPER_PROMPT || "",
+    SCRAPPY_PERSONA: path.join(__dirname, "personality.md"),
     // Local Python voice talks back to Electron for Recall tools/memory.
-    WORKBUDDY_URL: `http://${HOST}:${PORT}`,
-    WORKBUDDY_TOKEN: localToken || "",
+    SCRAPPY_URL: `http://${HOST}:${PORT}`,
+    SCRAPPY_TOKEN: localToken || "",
   };
 }
 
@@ -307,7 +307,7 @@ function setThinkModel(model) {
 
 function setLlmBackend(mode) {
   const value = String(mode || "cloud").toLowerCase();
-  writeEnvKey("COG_LLM_BACKEND", value);
+  writeEnvKey("SCRAPPY_LLM_BACKEND", value);
   if (value === "ollama" || value === "local") {
     writeEnvKey("OLLAMA_MODEL", ollamaModel() === "qwen2.5:14b" ? "qwen2.5:7b" : ollamaModel());
   }
@@ -477,12 +477,12 @@ function createWindow() {
     },
   });
 
-  // The taskbar is itself a topmost window, so "floating" would put Cog
+  // The taskbar is itself a topmost window, so "floating" would put Scrappy
   // behind it and his dangling legs would vanish. This level clears it.
   mainWindow.setAlwaysOnTop(true, "screen-saver");
   mainWindow.setMenu(null);
   // Mouse events pass straight through to whatever is underneath; the
-  // renderer flips this off while the pointer is actually over Cog.
+  // renderer flips this off while the pointer is actually over Scrappy.
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
   mainWindow.webContents.on("did-finish-load", () => {
@@ -493,7 +493,7 @@ function createWindow() {
   mainWindow.on("close", (e) => {
     if (!app.isQuitting) {
       e.preventDefault();
-      hideBuddy("window-close");
+      hideScrappy("window-close");
     }
   });
 
@@ -511,27 +511,27 @@ function rebuildTray() {
   const cloudReady = llmCloudKeyPresent();
   const menu = Menu.buildFromTemplate([
     {
-      label: "Show Cog",
+      label: "Show Scrappy",
       enabled: !prefs.visible,
       click: () => showBuddy(),
     },
     {
-      label: "Turn off Cog",
+      label: "Turn off Scrappy",
       enabled: prefs.visible,
-      click: () => hideBuddy("tray"),
+      click: () => hideScrappy("tray"),
     },
     {
-      label: "Type to Cog",
+      label: "Type to Scrappy",
       click: () => {
         showBuddy();
-        if (mainWindow) mainWindow.webContents.send("workbuddy:chat-open");
+        if (mainWindow) mainWindow.webContents.send("scrappy:chat-open");
       },
     },
     {
-      label: "Talk to Cog (voice)",
+      label: "Talk to Scrappy (voice)",
       click: () => {
         showBuddy();
-        if (mainWindow) mainWindow.webContents.send("workbuddy:voice-start");
+        if (mainWindow) mainWindow.webContents.send("scrappy:voice-start");
       },
     },
     {
@@ -651,7 +651,7 @@ function rebuildTray() {
         processJournal.record({
           kind: "process",
           type: "quit",
-          name: "workbuddy",
+          name: "scrappy",
           by: "tray",
           reason: "Quit from tray",
           pid: process.pid,
@@ -669,7 +669,7 @@ function createTray() {
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPUlEQVQ4T2NkYGD4z0ABYBzVMKoBAzQA5v8MDAyM/ylIMzIyMjL8Z2Bg+E+BZgbG0QyAacB/BiYGRsYoGgAA3zQEAa0x0oUAAAAASUVORK5CYII="
   );
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  tray.setToolTip("Workbuddy");
+  tray.setToolTip("Scrappy");
   rebuildTray();
   tray.on("click", () => showBuddy());
 }
@@ -688,25 +688,25 @@ function maybeStartWake(by, reason) {
 
 function pushVisible() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("workbuddy:set-visible", prefs.visible);
+  mainWindow.webContents.send("scrappy:set-visible", prefs.visible);
   if (!prefs.visible) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
   }
 }
 
-function hideBuddy(by = "ui") {
+function hideScrappy(by = "ui") {
   const wasVisible = prefs.visible;
   prefs.visible = false;
   if (wasVisible) savePrefs();
   // Never hide the overlay window itself. On Windows a transparent
-  // frameless window grows a fake "Workbuddy" title bar after hide/show.
+  // frameless window grows a fake "Scrappy" title bar after hide/show.
   pushVisible();
-  wakeListener.stop("main", "cog turned off");
+  wakeListener.stop("main", "scrappy turned off");
   if (wasVisible) {
     processJournal.record({
       kind: "process",
       type: "hide",
-      name: "cog",
+      name: "scrappy",
       by,
       reason: "turned off",
     });
@@ -714,7 +714,7 @@ function hideBuddy(by = "ui") {
   rebuildTray();
 }
 
-// Never steal focus — the buddy is decoration until you click him.
+// Never steal focus — Scrappy is decoration until you click him.
 function showBuddy() {
   const wasHidden = !prefs.visible;
   prefs.visible = true;
@@ -723,7 +723,7 @@ function showBuddy() {
     processJournal.record({
       kind: "process",
       type: "show",
-      name: "cog",
+      name: "scrappy",
       by: "ui",
       reason: "turned on",
     });
@@ -734,7 +734,7 @@ function showBuddy() {
     fitOverlay();
   }
   pushVisible();
-  if (wasHidden) maybeStartWake("main", "cog turned on");
+  if (wasHidden) maybeStartWake("main", "scrappy turned on");
   rebuildTray();
 }
 
@@ -746,7 +746,7 @@ function raiseOverlay() {
 
 function calmOverlay() {
   if (!mainWindow) return;
-  // The taskbar is itself a topmost window, so "floating" would put Cog
+  // The taskbar is itself a topmost window, so "floating" would put Scrappy
   // behind it and his dangling legs would vanish. This level clears it.
   mainWindow.setAlwaysOnTop(true, "screen-saver");
 }
@@ -757,13 +757,13 @@ function fitOverlay() {
 
 function triggerGrow(payload = {}) {
   if (!prefs.visible) {
-    console.log("[cog] skipped nudge — turned off");
+    console.log("[scrappy] skipped nudge — turned off");
     return;
   }
   alerting = true;
   raiseOverlay();
   if (mainWindow) {
-    mainWindow.webContents.send("workbuddy:grow", {
+    mainWindow.webContents.send("scrappy:grow", {
       at: Date.now(),
       source: payload.source || "hook",
       durationMs: payload.durationMs || null,
@@ -776,7 +776,7 @@ function triggerAck() {
   alerting = false;
   calmOverlay();
   if (mainWindow) {
-    mainWindow.webContents.send("workbuddy:ack", { at: Date.now() });
+    mainWindow.webContents.send("scrappy:ack", { at: Date.now() });
   }
 }
 
@@ -927,7 +927,7 @@ function startServer() {
         return;
       }
       const file = readEnvFile();
-      const setting = (process.env.COG_SYSTEM_CONTEXT || file.COG_SYSTEM_CONTEXT || "on").toLowerCase();
+      const setting = (process.env.SCRAPPY_SYSTEM_CONTEXT || file.SCRAPPY_SYSTEM_CONTEXT || "on").toLowerCase();
       if (setting === "off" || setting === "false" || setting === "0") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "disabled" }));
@@ -978,7 +978,7 @@ function startServer() {
         res.end(JSON.stringify({ ok: false, error: "invalid_json" }));
         return;
       }
-      const result = await saveCogChatSession(body);
+      const result = await saveScrappyChatSession(body);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
       return;
@@ -1048,44 +1048,44 @@ function startServer() {
   });
 
   server.on("error", (err) => {
-    console.error("Workbuddy server error:", err);
+    console.error("Scrappy server error:", err);
   });
 
   server.listen(PORT, HOST, () => {
-    console.log(`Workbuddy listening on http://${HOST}:${PORT}`);
+    console.log(`Scrappy listening on http://${HOST}:${PORT}`);
   });
 }
 
-ipcMain.on("workbuddy:ack-from-ui", () => {
+ipcMain.on("scrappy:ack-from-ui", () => {
   triggerAck();
 });
 
-ipcMain.on("workbuddy:hide", () => {
-  hideBuddy("right-click");
+ipcMain.on("scrappy:hide", () => {
+  hideScrappy("right-click");
 });
 
-ipcMain.on("workbuddy:pref-visible", (event) => {
+ipcMain.on("scrappy:pref-visible", (event) => {
   event.returnValue = Boolean(prefs.visible);
 });
 
-ipcMain.on("workbuddy:quit", () => {
+ipcMain.on("scrappy:quit", () => {
   app.isQuitting = true;
   processJournal.record({
     kind: "process",
     type: "quit",
-    name: "workbuddy",
+    name: "scrappy",
     by: "right-click",
-    reason: "Quit from Cog menu",
+    reason: "Quit from Scrappy menu",
     pid: process.pid,
   });
   app.quit();
 });
 
 // What he can see about the machine. Off by one line if you'd rather he
-// didn't: COG_SYSTEM_CONTEXT=off in .env.local.
-ipcMain.handle("workbuddy:system-context", async () => {
+// didn't: SCRAPPY_SYSTEM_CONTEXT=off in .env.local.
+ipcMain.handle("scrappy:system-context", async () => {
   const file = readEnvFile();
-  const setting = (process.env.COG_SYSTEM_CONTEXT || file.COG_SYSTEM_CONTEXT || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_SYSTEM_CONTEXT || file.SCRAPPY_SYSTEM_CONTEXT || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
   try {
     return { ok: true, text: await systemInfo.snapshot() };
@@ -1096,9 +1096,9 @@ ipcMain.handle("workbuddy:system-context", async () => {
 });
 
 // What Jake has actually been thinking about, straight out of Recall.
-ipcMain.handle("workbuddy:recall-context", async () => {
+ipcMain.handle("scrappy:recall-context", async () => {
   const file = readEnvFile();
-  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
 
   try {
@@ -1119,10 +1119,10 @@ ipcMain.handle("workbuddy:recall-context", async () => {
 });
 
 // Full startup memory pack: relationship notes + live speech + task COUNTS
-// (never dump hundreds of action rows — that truncates and Cog invents wrong totals).
+// (never dump hundreds of action rows — that truncates and Scrappy invents wrong totals).
 async function buildRecallBrief(opts = {}) {
   const file = readEnvFile();
-  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
   const compact = Boolean(opts.compact);
 
@@ -1130,10 +1130,10 @@ async function buildRecallBrief(opts = {}) {
     const [live, actions, recent, search] = await Promise.all([
       recall.call("recall_live_context", { minutes: compact ? 5 : 10 }),
       recall.call("recall_open_actions", { limit: compact ? 3 : 5 }),
-      recall.call("recall_recent", { limit: compact ? 5 : 8, project: "WorkBuddy" }),
+      recall.call("recall_recent", { limit: compact ? 5 : 8, project: "Scrappy" }),
       recall.call("recall_search", {
-        query: "Jake preferences relationship Cog memory decisions",
-        project: "WorkBuddy",
+        query: "Jake preferences relationship Scrappy memory decisions",
+        project: "Scrappy",
         limit: compact ? 5 : 8,
       }),
     ]);
@@ -1143,7 +1143,7 @@ async function buildRecallBrief(opts = {}) {
     const liveMax = compact ? 900 : 2000;
     const actionsMax = compact ? 800 : 1500;
     const totalMax = compact ? 4500 : 12000;
-    if (recent.ok && recent.text) parts.push(`Recent WorkBuddy/Cog notes:\n${clip(recent.text, recentMax)}`);
+    if (recent.ok && recent.text) parts.push(`Recent Scrappy/Scrappy notes:\n${clip(recent.text, recentMax)}`);
     if (search.ok && search.text) parts.push(`Related memory search:\n${clip(search.text, searchMax)}`);
     if (live.ok && live.text) parts.push(`Recently said out loud:\n${clip(live.text, liveMax)}`);
     if (actions.ok && actions.data) {
@@ -1162,11 +1162,11 @@ async function buildRecallBrief(opts = {}) {
   }
 }
 
-ipcMain.handle("workbuddy:recall-brief", async () => buildRecallBrief());
+ipcMain.handle("scrappy:recall-brief", async () => buildRecallBrief());
 
 async function runRecallTool(name, args) {
   const file = readEnvFile();
-  const setting = (process.env.COG_RECALL || file.COG_RECALL || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled" };
   }
@@ -1229,8 +1229,8 @@ function runProcessTool(name, args) {
       const text = String(a.text || a.note || "").trim();
       if (!text) return { ok: false, error: "empty" };
       const out = processJournal.note(text, {
-        by: a.by || "cog",
-        reason: a.reason || "cog process_note tool",
+        by: a.by || "scrappy",
+        reason: a.reason || "scrappy process_note tool",
       });
       return {
         ok: Boolean(out.ok),
@@ -1306,7 +1306,7 @@ function formatAgentsText(agents) {
 
 async function runCursorAgentAction(action, args) {
   const file = readEnvFile();
-  const setting = (process.env.COG_CURSOR_AGENTS || file.COG_CURSOR_AGENTS || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_CURSOR_AGENTS || file.SCRAPPY_CURSOR_AGENTS || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled", text: "Cursor agents are turned off." };
   }
@@ -1319,16 +1319,16 @@ async function runCursorAgentAction(action, args) {
           goal: a.goal || a.prompt || a.message,
           kind: a.kind || "research",
           cwd: a.cwd || a.path || process.cwd(),
-          mode: a.mode || process.env.COG_CURSOR_MODE || file.COG_CURSOR_MODE || "auto",
+          mode: a.mode || process.env.SCRAPPY_CURSOR_MODE || file.SCRAPPY_CURSOR_MODE || "auto",
           apiKey,
         });
         if (out.ok && out.id) {
           recall
             .call("recall_save_note", {
               title: `Cursor ${out.kind || "agent"}: ${(a.goal || "").slice(0, 60)}`,
-              summary: `Cog started a Cursor ${out.kind || "agent"}.\nId: ${out.id}\nRuntime: ${out.runtime}\nStatus: ${out.status}\nOpen: ${out.openUrl || "(local — use cursor_continue_agent)"}\n\nGoal:\n${a.goal || ""}`,
-              tags: "cog,cursor,agent",
-              project: "WorkBuddy",
+              summary: `Scrappy started a Cursor ${out.kind || "agent"}.\nId: ${out.id}\nRuntime: ${out.runtime}\nStatus: ${out.status}\nOpen: ${out.openUrl || "(local — use cursor_continue_agent)"}\n\nGoal:\n${a.goal || ""}`,
+              tags: "scrappy,cursor,agent",
+              project: "Scrappy",
             })
             .catch(() => {});
         }
@@ -1462,16 +1462,16 @@ async function runCursorTool(name, args) {
 }
 
 // Generic local tool call (Recall + process journal + conversations + cursor).
-ipcMain.handle("workbuddy:recall-tool", async (_event, name, args) => runLocalTool(name, args));
-ipcMain.handle("workbuddy:local-tool", async (_event, name, args) => runLocalTool(name, args));
+ipcMain.handle("scrappy:recall-tool", async (_event, name, args) => runLocalTool(name, args));
+ipcMain.handle("scrappy:local-tool", async (_event, name, args) => runLocalTool(name, args));
 
 // Cursor planning/research agents — start, continue, list, status, open.
-ipcMain.handle("workbuddy:cursor-agent", async (_event, action, args) => runCursorAgentAction(action, args));
+ipcMain.handle("scrappy:cursor-agent", async (_event, action, args) => runCursorAgentAction(action, args));
 
-let lastCogChatFingerprint = "";
-let lastCogChatAt = 0;
+let lastScrappyChatFingerprint = "";
+let lastScrappyChatAt = 0;
 
-async function saveCogChatSession(body = {}) {
+async function saveScrappyChatSession(body = {}) {
   const transcript = String(body.transcript || body.summary || "").trim();
   if (!transcript) return { ok: false, error: "empty" };
   const fingerprint = crypto
@@ -1480,22 +1480,22 @@ async function saveCogChatSession(body = {}) {
     .digest("hex");
   const now = Date.now();
   // Local voice + renderer used to double-save the same chat within milliseconds.
-  if (fingerprint === lastCogChatFingerprint && now - lastCogChatAt < 120000) {
+  if (fingerprint === lastScrappyChatFingerprint && now - lastScrappyChatAt < 120000) {
     return { ok: true, deduped: true, fingerprint };
   }
   const title =
     String(body.title || "").trim() ||
-    `Cog chat ${new Date().toLocaleString("en-CA", { hour12: false }).slice(0, 16)}`;
+    `Scrappy chat ${new Date().toLocaleString("en-CA", { hour12: false }).slice(0, 16)}`;
   const summary = String(body.summary || transcript).slice(0, 3500);
   const result = await runRecallTool("recall_save_note", {
     title,
     summary,
-    tags: ["cog", "conversation", "relationship"],
-    project: "WorkBuddy",
+    tags: ["scrappy", "conversation", "relationship"],
+    project: "Scrappy",
   });
   if (result && result.ok !== false) {
-    lastCogChatFingerprint = fingerprint;
-    lastCogChatAt = now;
+    lastScrappyChatFingerprint = fingerprint;
+    lastScrappyChatAt = now;
   }
   return result;
 }
@@ -1525,9 +1525,9 @@ function formatActionsBrief(data) {
 }
 
 // Read Jake's other Cursor chats (local conversation index + transcripts).
-ipcMain.handle("workbuddy:cursor-chats", async (_event, action, args) => {
+ipcMain.handle("scrappy:cursor-chats", async (_event, action, args) => {
   const file = readEnvFile();
-  const setting = (process.env.COG_CURSOR_CHATS || file.COG_CURSOR_CHATS || "on").toLowerCase();
+  const setting = (process.env.SCRAPPY_CURSOR_CHATS || file.SCRAPPY_CURSOR_CHATS || "on").toLowerCase();
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled" };
   }
@@ -1605,9 +1605,9 @@ function normalizeRecallArgs(tool, args) {
   return out;
 }
 
-ipcMain.handle("workbuddy:voice-signed-url", () => resolveVoiceSession());
+ipcMain.handle("scrappy:voice-signed-url", () => resolveVoiceSession());
 
-ipcMain.handle("workbuddy:voice-status", async () => {
+ipcMain.handle("scrappy:voice-status", async () => {
   const { apiKey, agentId } = voiceConfig();
   const pref = voiceBackendPref();
   const localHealth = await localVoice.health();
@@ -1637,19 +1637,19 @@ ipcMain.handle("workbuddy:voice-status", async () => {
   };
 });
 
-ipcMain.on("workbuddy:wake-pause", () => {
+ipcMain.on("scrappy:wake-pause", () => {
   wakeListener.pause("renderer", "pause for voice call");
 });
 
-ipcMain.on("workbuddy:wake-resume", () => {
+ipcMain.on("scrappy:wake-resume", () => {
   wakeListener.resume("renderer", "resume after voice call");
 });
 
-ipcMain.handle("workbuddy:process-note", (_event, text) => {
-  return processJournal.note(text, { by: "ui", reason: "from Cog UI" });
+ipcMain.handle("scrappy:process-note", (_event, text) => {
+  return processJournal.note(text, { by: "ui", reason: "from Scrappy UI" });
 });
 
-ipcMain.handle("workbuddy:process-event", (_event, event) => {
+ipcMain.handle("scrappy:process-event", (_event, event) => {
   const result = processJournal.record(event || {});
   if (event && event.session_id) {
     conversationStore.recordEvent(event.session_id, event);
@@ -1657,7 +1657,7 @@ ipcMain.handle("workbuddy:process-event", (_event, event) => {
   return result;
 });
 
-ipcMain.handle("workbuddy:conversation-start", (_event, info = {}) => {
+ipcMain.handle("scrappy:conversation-start", (_event, info = {}) => {
   const id = info.sessionId || conversationStore.newSessionId();
   activeConversationId = id;
   conversationStore.recordEvent(id, {
@@ -1673,7 +1673,7 @@ ipcMain.handle("workbuddy:conversation-start", (_event, info = {}) => {
   return { ok: true, sessionId: id };
 });
 
-ipcMain.handle("workbuddy:conversation-event", (_event, sessionId, event) => {
+ipcMain.handle("scrappy:conversation-event", (_event, sessionId, event) => {
   const id = sessionId || activeConversationId || conversationStore.newSessionId();
   activeConversationId = id;
   conversationStore.recordEvent(id, event || {});
@@ -1686,7 +1686,7 @@ ipcMain.handle("workbuddy:conversation-event", (_event, sessionId, event) => {
   return { ok: true, sessionId: id };
 });
 
-ipcMain.handle("workbuddy:conversation-end", (_event, sessionId, extra = {}) => {
+ipcMain.handle("scrappy:conversation-end", (_event, sessionId, extra = {}) => {
   const id = sessionId || activeConversationId;
   if (!id) return { ok: false, error: "no_session" };
   const ended = conversationStore.endSession(id, extra);
@@ -1699,26 +1699,26 @@ ipcMain.handle("workbuddy:conversation-end", (_event, sessionId, extra = {}) => 
   return ended;
 });
 
-ipcMain.handle("workbuddy:process-recent", (_event, limit) => {
+ipcMain.handle("scrappy:process-recent", (_event, limit) => {
   return { ok: true, events: processJournal.recent(limit || 80), dir: processJournal.dir() };
 });
 
-// The overlay is deliberately non-focusable so clicking Cog never pulls focus
+// The overlay is deliberately non-focusable so clicking Scrappy never pulls focus
 // off your editor — but a text box needs keystrokes, so focus is granted for
 // exactly as long as the chat is open.
-ipcMain.on("workbuddy:chat-focus", (_event, on) => {
+ipcMain.on("scrappy:chat-focus", (_event, on) => {
   if (!mainWindow) return;
   mainWindow.setFocusable(Boolean(on));
   if (on) mainWindow.focus();
 });
 
-ipcMain.on("workbuddy:set-interactive", (_event, interactive) => {
+ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
   if (!mainWindow) return;
   if (interactive) mainWindow.setIgnoreMouseEvents(false);
   else mainWindow.setIgnoreMouseEvents(true, { forward: true });
 });
 
-ipcMain.on("workbuddy:test-grow", () => {
+ipcMain.on("scrappy:test-grow", () => {
   triggerGrow({ force: true, source: "ui-test" });
 });
 
@@ -1738,14 +1738,14 @@ if (!gotTheLock) {
     conversationStore.init({ projectRoot: __dirname, userData: app.getPath("userData") });
     localVoice.setJournal(processJournal);
     wakeListener.setJournal(processJournal);
-    processJournal.started("workbuddy", {
+    processJournal.started("scrappy", {
       pid: process.pid,
       by: "main",
       reason: "Electron app ready",
       meta: { voiceBackend: voiceBackendPref() },
     });
 
-    // Cog needs the microphone to hold a conversation; nothing else.
+    // Scrappy needs the microphone to hold a conversation; nothing else.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission === "media" || permission === "audioCapture");
     });
@@ -1767,7 +1767,7 @@ if (!gotTheLock) {
       onWake(phrase) {
         if (!prefs.visible) return;
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        mainWindow.webContents.send("workbuddy:wake", { phrase });
+        mainWindow.webContents.send("scrappy:wake", { phrase });
       },
     });
     const envFile = readEnvFile();
@@ -1799,7 +1799,7 @@ if (!gotTheLock) {
     processJournal.record({
       kind: "process",
       type: "quit",
-      name: "workbuddy",
+      name: "scrappy",
       by: "main",
       reason: "before-quit",
       pid: process.pid,

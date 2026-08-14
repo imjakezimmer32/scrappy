@@ -1,4 +1,4 @@
-# Switch Cog's local Ollama brain and restart Workbuddy.
+# Switch Scrappy's local Ollama brain and restart Scrappy.
 # Usage:
 #   powershell -File scripts/switch-local-model.ps1 qwen2.5:14b
 #   powershell -File scripts/switch-local-model.ps1 gemma2:9b
@@ -42,13 +42,13 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllLines($envFile, $lines, $utf8)
 Write-Host "Updated .env.local -> OLLAMA_MODEL=$model"
 
-Write-Host "==> Restarting Workbuddy..."
+Write-Host "==> Restarting Scrappy..."
 Get-CimInstance Win32_Process -Filter "Name = 'electron.exe'" |
-  Where-Object { $_.CommandLine -match 'workbuddy' } |
+  Where-Object { $_.CommandLine -match 'scrappy' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process |
   Where-Object { $_.CommandLine -match 'local-voice\\server.py' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 1
 Start-Process -FilePath "npm" -ArgumentList "start" -WorkingDirectory $Root -WindowStyle Hidden
-Write-Host "Done. Cog is coming back with $model."
+Write-Host "Done. Scrappy is coming back with $model."

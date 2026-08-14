@@ -1,4 +1,4 @@
-"""Background work for Cog — run tools while he keeps talking.
+"""Background work for Scrappy — run tools while he keeps talking.
 
 Jobs outlive barge-in. When they finish, a spoken result is queued and delivered
 only when he's idle (not mid-turn / mid-speech).
