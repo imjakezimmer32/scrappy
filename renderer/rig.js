@@ -319,7 +319,7 @@ const FACES = {
     ),
 };
 
-function buildCog() {
+function buildScrappy() {
   return `
 <svg class="scrappy-svg" viewBox="0 0 ${GEO.width} ${GEO.height}" aria-hidden="true">
   <ellipse class="scrappy-shadow" cx="${C}" cy="${GROUND + 3}" rx="26" ry="4.5" fill="#000" opacity="0.18"/>
@@ -361,4 +361,4 @@ function buildCog() {
 </svg>`;
 }
 
-window.ScrappyRig = { GEO, FACES, buildCog };
+window.ScrappyRig = { GEO, FACES, buildScrappy };

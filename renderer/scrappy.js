@@ -40,7 +40,7 @@ const el = document.getElementById("scrappy");
 const flip = el.querySelector(".scrappy-flip");
 const bubble = document.getElementById("bubble");
 
-flip.innerHTML = RIG.buildCog();
+flip.innerHTML = RIG.buildScrappy();
 const faceEl = document.getElementById("scrappy-face");
 
 let x = 80;
@@ -1731,7 +1731,7 @@ window.addEventListener("keydown", (e) => {
 });
 
 // Test hook so the browser preview can fake a multi-monitor layout.
-window.__cog = {
+window.__scrappy = {
   setScreens(list) {
     screens = list;
     x = clamp(x);

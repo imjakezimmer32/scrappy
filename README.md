@@ -67,12 +67,13 @@ they read as foreground and the whole three-quarter illusion inverts.
 | Size, head-to-body ratio | `P` in `renderer/rig.js` |
 | Colours | `INK` in `renderer/rig.js` |
 | What he says | `renderer/lines.js` |
+| Tray / favicon icon | `scripts/build-icon.js`, then `npm run build-icon` |
 | Throw feel (spring, inertia, bounce) | the rigid body constants in `renderer/scrappy.js` |
 
 Open `renderer/index.html` straight in a browser to iterate on the animation
 without launching Electron — the preload bridge is stubbed. Press `n` to fake a
-nudge, `s` to make him sleepy. `window.__cog.setScreens([...])` fakes a
-multi-monitor layout and `window.__cog.state()` dumps his physics state.
+nudge, `s` to make him sleepy. `window.__scrappy.setScreens([...])` fakes a
+multi-monitor layout and `window.__scrappy.state()` dumps his physics state.
 
 ## Grab and throw
 

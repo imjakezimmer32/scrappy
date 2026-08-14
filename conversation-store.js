@@ -123,7 +123,7 @@ function buildMeta(sessionId, extra = {}) {
     backend: extra.backend || events.find((e) => e.backend)?.backend || null,
     model: extra.model || events.find((e) => e.model)?.model || null,
     turns_jake: users.length,
-    turns_cog: assistants.length,
+    turns_scrappy: assistants.length,
     tool_calls: tools.length,
     errors: errors.length,
     rewrites: rewrites.length,
@@ -156,7 +156,7 @@ function endSession(sessionId, extra = {}) {
     ended_at: meta.ended_at,
     duration_sec: meta.duration_sec,
     turns_jake: meta.turns_jake,
-    turns_cog: meta.turns_cog,
+    turns_scrappy: meta.turns_scrappy,
     backend: meta.backend,
     model: meta.model,
     path: p.projectJsonl,
@@ -199,7 +199,10 @@ function getSession(sessionId) {
 function formatSessionList(sessions) {
   return (sessions || [])
     .map((s) => {
-      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} scrappy=${s.turns_cog || 0} | ${s.backend || "?"} | ${s.model || "?"}`;
+      // Sessions written before the rename carry turns_cog; fall back to it so
+      // old rows don't all report zero assistant turns.
+      const turns = s.turns_scrappy ?? s.turns_cog ?? 0;
+      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} scrappy=${turns} | ${s.backend || "?"} | ${s.model || "?"}`;
     })
     .join("\n");
 }

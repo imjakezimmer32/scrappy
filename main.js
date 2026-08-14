@@ -513,7 +513,7 @@ function rebuildTray() {
     {
       label: "Show Scrappy",
       enabled: !prefs.visible,
-      click: () => showBuddy(),
+      click: () => showScrappy(),
     },
     {
       label: "Turn off Scrappy",
@@ -523,14 +523,14 @@ function rebuildTray() {
     {
       label: "Type to Scrappy",
       click: () => {
-        showBuddy();
+        showScrappy();
         if (mainWindow) mainWindow.webContents.send("scrappy:chat-open");
       },
     },
     {
       label: "Talk to Scrappy (voice)",
       click: () => {
-        showBuddy();
+        showScrappy();
         if (mainWindow) mainWindow.webContents.send("scrappy:voice-start");
       },
     },
@@ -663,15 +663,34 @@ function rebuildTray() {
   tray.setContextMenu(menu);
 }
 
+// His face for the notification area. Built from the exact-size PNGs rather
+// than from scrappy.ico: nativeImage loads an .ico's *largest* entry, so
+// handing it the .ico means Windows downscales 256px to 16px and the eyes
+// smear. One representation per DPI scale keeps them crisp.
+// Regenerate the assets with `npm run build-icon`.
+function trayIcon() {
+  const at = (size) => path.join(__dirname, "assets", `scrappy-face-${size}.png`);
+  const icon = nativeImage.createFromPath(at(16));
+  if (icon.isEmpty()) return nativeImage.createEmpty();
+
+  // 100% DPI wants 16px, 150% wants 24px, 200% wants 32px.
+  for (const [scaleFactor, size] of [[1.5, 24], [2, 32]]) {
+    try {
+      const buf = fs.readFileSync(at(size));
+      icon.addRepresentation({ scaleFactor, buffer: buf, width: size, height: size });
+    } catch {
+      // A missing hi-dpi variant just means Windows scales the 16px one.
+    }
+  }
+  return icon;
+}
+
 function createTray() {
-  // Tiny amber dot icon (16x16 PNG)
-  const icon = nativeImage.createFromDataURL(
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPUlEQVQ4T2NkYGD4z0ABYBzVMKoBAzQA5v8MDAyM/ylIMzIyMjL8Z2Bg+E+BZgbG0QyAacB/BiYGRsYoGgAA3zQEAa0x0oUAAAAASUVORK5CYII="
-  );
-  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+  const icon = trayIcon();
+  tray = new Tray(icon);
   tray.setToolTip("Scrappy");
   rebuildTray();
-  tray.on("click", () => showBuddy());
+  tray.on("click", () => showScrappy());
 }
 
 function maybeStartWake(by, reason) {
@@ -715,7 +734,7 @@ function hideScrappy(by = "ui") {
 }
 
 // Never steal focus — Scrappy is decoration until you click him.
-function showBuddy() {
+function showScrappy() {
   const wasHidden = !prefs.visible;
   prefs.visible = true;
   if (wasHidden) {
@@ -1727,7 +1746,7 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    showBuddy();
+    showScrappy();
   });
 
   app.whenReady().then(() => {

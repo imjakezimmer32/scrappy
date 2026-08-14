@@ -881,7 +881,7 @@ async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) 
     merged.name = info.name;
     merged.summary = info.summary;
     merged.archived = Boolean(info.archived);
-    merged.startedByCog = Boolean(reg);
+    merged.startedByScrappy = Boolean(reg);
     return merged;
   });
 
@@ -889,7 +889,7 @@ async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) 
     ok: true,
     agents,
     count: agents.length,
-    hint: "These are Jake's cloud agents in Cursor. startedByCog=true means Scrappy started them.",
+    hint: "These are Jake's cloud agents in Cursor. startedByScrappy=true means Scrappy started them.",
   };
 }
 
