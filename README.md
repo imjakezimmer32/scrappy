@@ -143,9 +143,12 @@ For local mode, Scrappy reads `personality.md` directly.
 
 ### Using it
 
-- **Right-click him** → **Turn off Scrappy**. He hides until you click **Show Scrappy**
-  on the Scrappy tray icon (near the clock). He will not listen or nudge
-  while he is off.
+- **Click the ^ arrow** by the clock (hidden icons), then click **Scrappy's face**
+  to start him. That icon stays there while he is running, and he launches with
+  Windows so it comes back after you sign in. Right-click the icon for
+  **Start Scrappy** / **Turn off Scrappy**.
+- **Right-click him** → **Turn off Scrappy**. He hides until you start him again
+  from that hidden-icons entry. He will not listen or nudge while he is off.
 - **Click him** to open the text box. Type, press enter, he replies out loud.
   This never touches the microphone.
 - **Tray, Talk to Scrappy (voice)** starts a full voice conversation with

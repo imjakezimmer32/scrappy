@@ -4,7 +4,7 @@ $startupDir = [Environment]::GetFolderPath('Startup')
 
 # 'Workbuddy.lnk' is the pre-rename name — clean it up too so an old install
 # doesn't keep launching on login after the rename.
-$shortcutNames = @('Scrappy.lnk', 'Workbuddy.lnk')
+$shortcutNames = @('Scrappy.lnk', 'Workbuddy.lnk', 'Cog.lnk')
 $removed = $false
 
 foreach ($name in $shortcutNames) {

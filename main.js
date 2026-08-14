@@ -3,6 +3,7 @@ const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { execFile } = require("child_process");
 const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
@@ -12,6 +13,7 @@ const localVoice = require("./local-voice-launcher");
 const processJournal = require("./process-journal");
 const conversationStore = require("./conversation-store");
 
+const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
 const HOST = "127.0.0.1";
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
@@ -511,8 +513,7 @@ function rebuildTray() {
   const cloudReady = llmCloudKeyPresent();
   const menu = Menu.buildFromTemplate([
     {
-      label: "Show Scrappy",
-      enabled: !prefs.visible,
+      label: "Start Scrappy",
       click: () => showScrappy(),
     },
     {
@@ -661,6 +662,7 @@ function rebuildTray() {
     },
   ]);
   tray.setContextMenu(menu);
+  tray.setToolTip(prefs.visible ? "Scrappy is on — click if you need him" : "Scrappy — click to start");
 }
 
 // His face for the notification area. Built from the exact-size PNGs rather
@@ -688,9 +690,78 @@ function trayIcon() {
 function createTray() {
   const icon = trayIcon();
   tray = new Tray(icon);
-  tray.setToolTip("Scrappy");
   rebuildTray();
   tray.on("click", () => showScrappy());
+  tray.on("double-click", () => showScrappy());
+}
+
+// Windows only shows a tray icon while we are running. These shortcuts keep
+// Scrappy launching at sign-in and make the hidden-icons entry say "Scrappy"
+// with his face, instead of a generic Electron process that Windows forgets.
+function shortcutDetails() {
+  const icon = path.join(__dirname, "assets", "scrappy.ico");
+  return {
+    target: process.execPath,
+    args: `"${__dirname}"`,
+    cwd: __dirname,
+    description: "Start Scrappy",
+    icon: fs.existsSync(icon) ? icon : undefined,
+    iconIndex: 0,
+    appUserModelId: APP_ID,
+  };
+}
+
+function writeShortcut(filePath) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const op = fs.existsSync(filePath) ? "replace" : "create";
+    const ok = shell.writeShortcutLink(filePath, op, shortcutDetails());
+    if (!ok) console.warn("[presence] shortcut write returned false:", filePath);
+  } catch (err) {
+    console.warn("[presence] shortcut failed:", filePath, err.message);
+  }
+}
+
+function ensureWindowsPresence() {
+  if (process.platform !== "win32") return;
+  app.setAppUserModelId(APP_ID);
+  const programs = path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs");
+  const startup = path.join(programs, "Startup");
+  writeShortcut(path.join(programs, "Scrappy.lnk"));
+  writeShortcut(path.join(startup, "Scrappy.lnk"));
+  for (const stale of ["Workbuddy.lnk", "Cog.lnk"]) {
+    for (const dir of [programs, startup]) {
+      const p = path.join(dir, stale);
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+// Keep the notify icon in the overflow (^ hidden icons) rather than pinning
+// it next to the clock. Windows creates the registry key after the first tray
+// show, so this runs a moment later.
+function keepTrayInHiddenIcons() {
+  if (process.platform !== "win32") return;
+  const exe = String(process.execPath || "").replace(/'/g, "''");
+  if (!exe) return;
+  const ps = `
+    $exe = '${exe}'
+    $base = 'HKCU:\\Control Panel\\NotifyIconSettings'
+    if (-not (Test-Path $base)) { exit 0 }
+    Get-ChildItem $base | ForEach-Object {
+      $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+      if ($p.ExecutablePath -and ($p.ExecutablePath -ieq $exe)) {
+        New-ItemProperty -Path $_.PSPath -Name IsPromoted -Value 0 -PropertyType DWord -Force | Out-Null
+      }
+    }
+  `;
+  execFile("powershell.exe", ["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps], (err) => {
+    if (err) console.warn("[tray] could not pin hidden-icon setting:", err.message);
+  });
 }
 
 function maybeStartWake(by, reason) {
@@ -1745,6 +1816,8 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
+  app.setName("Scrappy");
+  app.setAppUserModelId(APP_ID);
   app.on("second-instance", () => {
     showScrappy();
   });
@@ -1752,6 +1825,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     loadPrefs();
+    ensureWindowsPresence();
     ensureToken();
     processJournal.init({ projectRoot: __dirname });
     conversationStore.init({ projectRoot: __dirname, userData: app.getPath("userData") });
@@ -1774,6 +1848,7 @@ if (!gotTheLock) {
 
     createWindow();
     createTray();
+    setTimeout(keepTrayInHiddenIcons, 2500);
     startServer();
 
     // Prefer local AMD voice when configured; still start wake word either way.
