@@ -144,8 +144,8 @@ For local mode, Scrappy reads `personality.md` directly.
 ### Using it
 
 - **Click the ^ arrow** by the clock (hidden icons), then click **Scrappy's face**
-  to start him. That icon stays there while he is running, and he launches with
-  Windows so it comes back after you sign in. Right-click the icon for
+  to start him. That icon belongs to a tiny helper named Scrappy, not Electron,
+  so it stays even if you end Electron in Task Manager. Right-click the icon for
   **Start Scrappy** / **Turn off Scrappy**.
 - **Right-click him** → **Turn off Scrappy**. He hides until you start him again
   from that hidden-icons entry. He will not listen or nudge while he is off.

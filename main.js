@@ -3,7 +3,7 @@ const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
+const { execFile, spawn, execFileSync } = require("child_process");
 const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
@@ -688,6 +688,10 @@ function trayIcon() {
 }
 
 function createTray() {
+  if (process.platform === "win32" && ensureTrayHelper()) {
+    // The helper owns the hidden-icons entry so it survives ending Electron.
+    return;
+  }
   const icon = trayIcon();
   tray = new Tray(icon);
   rebuildTray();
@@ -695,20 +699,73 @@ function createTray() {
   tray.on("double-click", () => showScrappy());
 }
 
-// Windows only shows a tray icon while we are running. These shortcuts keep
-// Scrappy launching at sign-in and make the hidden-icons entry say "Scrappy"
-// with his face, instead of a generic Electron process that Windows forgets.
+const TRAY_EXE = path.join(__dirname, "bin", "Scrappy.exe");
+const TRAY_HOME = path.join(__dirname, "bin", "scrappy-home.txt");
+
+function writeTrayHome() {
+  const icon = path.join(__dirname, "assets", "scrappy.ico");
+  const body =
+    `projectRoot=${__dirname}\n` +
+    `electronExe=${process.execPath}\n` +
+    `iconPath=${icon}\n`;
+  fs.mkdirSync(path.dirname(TRAY_HOME), { recursive: true });
+  fs.writeFileSync(TRAY_HOME, body, "utf8");
+}
+
+function helperRunning() {
+  try {
+    const out = execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-Command", "Get-Process -Name Scrappy -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"],
+      { encoding: "utf8", windowsHide: true, timeout: 4000 }
+    );
+    return Boolean(String(out || "").trim());
+  } catch {
+    return false;
+  }
+}
+
+function ensureTrayHelper() {
+  if (process.platform !== "win32") return false;
+  if (!fs.existsSync(TRAY_EXE)) return false;
+  writeTrayHome();
+  if (!helperRunning()) {
+    try {
+      const child = spawn(TRAY_EXE, ["--no-launch"], {
+        detached: true,
+        stdio: "ignore",
+        cwd: path.dirname(TRAY_EXE),
+        windowsHide: true,
+      });
+      child.unref();
+    } catch (err) {
+      console.warn("[presence] could not start tray helper:", err.message);
+      return false;
+    }
+  }
+  return true;
+}
+
+// Windows only shows a tray icon while a process is alive. Electron is the
+// wrong process for that — ending it in Task Manager would steal the icon.
+// Shortcuts therefore launch bin/Scrappy.exe, a tiny helper that keeps the
+// hidden-icons entry and can start Electron again.
 function shortcutDetails() {
   const icon = path.join(__dirname, "assets", "scrappy.ico");
-  return {
-    target: process.execPath,
-    args: `"${__dirname}"`,
-    cwd: __dirname,
+  const target = fs.existsSync(TRAY_EXE) ? TRAY_EXE : process.execPath;
+  const details = {
+    target,
+    cwd: fs.existsSync(TRAY_EXE) ? path.dirname(TRAY_EXE) : __dirname,
     description: "Start Scrappy",
     icon: fs.existsSync(icon) ? icon : undefined,
     iconIndex: 0,
     appUserModelId: APP_ID,
   };
+  if (target === process.execPath) {
+    details.args = `"${__dirname}"`;
+    details.cwd = __dirname;
+  }
+  return details;
 }
 
 function writeShortcut(filePath) {
@@ -725,6 +782,7 @@ function writeShortcut(filePath) {
 function ensureWindowsPresence() {
   if (process.platform !== "win32") return;
   app.setAppUserModelId(APP_ID);
+  ensureTrayHelper();
   const programs = path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs");
   const startup = path.join(programs, "Startup");
   writeShortcut(path.join(programs, "Scrappy.lnk"));
@@ -746,15 +804,16 @@ function ensureWindowsPresence() {
 // show, so this runs a moment later.
 function keepTrayInHiddenIcons() {
   if (process.platform !== "win32") return;
-  const exe = String(process.execPath || "").replace(/'/g, "''");
-  if (!exe) return;
+  const paths = [process.execPath, TRAY_EXE].filter((p) => p && fs.existsSync(p));
+  const list = paths.map((p) => `'${String(p).replace(/'/g, "''")}'`).join(",");
+  if (!list) return;
   const ps = `
-    $exe = '${exe}'
+    $want = @(${list})
     $base = 'HKCU:\\Control Panel\\NotifyIconSettings'
     if (-not (Test-Path $base)) { exit 0 }
     Get-ChildItem $base | ForEach-Object {
       $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
-      if ($p.ExecutablePath -and ($p.ExecutablePath -ieq $exe)) {
+      if ($p.ExecutablePath -and ($want -contains $p.ExecutablePath)) {
         New-ItemProperty -Path $_.PSPath -Name IsPromoted -Value 0 -PropertyType DWord -Force | Out-Null
       }
     }

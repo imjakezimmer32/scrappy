@@ -11,3 +11,4 @@ local-voice/logs/
 local-voice/.venv/
 conversations/
 process-logs/
+bin/scrappy-home.txt
