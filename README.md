@@ -142,6 +142,9 @@ For local mode, Cog reads `personality.md` directly.
 
 ### Using it
 
+- **Right-click him** → **Turn off Cog**. He hides until you click **Show Cog**
+  on the Workbuddy tray icon (near the clock). He will not listen or nudge
+  while he is off.
 - **Click him** to open the text box. Type, press enter, he replies out loud.
   This never touches the microphone.
 - **Tray, Talk to Cog (voice)** starts a full voice conversation with

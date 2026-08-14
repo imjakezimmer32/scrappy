@@ -15,6 +15,28 @@ const conversationStore = require("./conversation-store");
 const PORT = 8787;
 const HOST = "127.0.0.1";
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
+const PREFS_PATH = path.join(app.getPath("userData"), "prefs.json");
+
+let prefs = { visible: true };
+
+function loadPrefs() {
+  try {
+    if (!fs.existsSync(PREFS_PATH)) return;
+    const data = JSON.parse(fs.readFileSync(PREFS_PATH, "utf8"));
+    if (typeof data.visible === "boolean") prefs.visible = data.visible;
+  } catch (err) {
+    console.error("Could not read prefs:", err.message);
+  }
+}
+
+function savePrefs() {
+  try {
+    fs.mkdirSync(path.dirname(PREFS_PATH), { recursive: true });
+    fs.writeFileSync(PREFS_PATH, JSON.stringify(prefs, null, 2), "utf8");
+  } catch (err) {
+    console.error("Could not save prefs:", err.message);
+  }
+}
 
 let activeConversationId = null;
 
@@ -444,7 +466,7 @@ function createWindow() {
     focusable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    show: true,
+    show: prefs.visible,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -464,7 +486,7 @@ function createWindow() {
   mainWindow.on("close", (e) => {
     if (!app.isQuitting) {
       e.preventDefault();
-      mainWindow.hide();
+      hideBuddy("window-close");
     }
   });
 
@@ -483,13 +505,13 @@ function rebuildTray() {
   const menu = Menu.buildFromTemplate([
     {
       label: "Show Cog",
+      enabled: !prefs.visible,
       click: () => showBuddy(),
     },
     {
-      label: "Hide Cog",
-      click: () => {
-        if (mainWindow) mainWindow.hide();
-      },
+      label: "Turn off Cog",
+      enabled: prefs.visible,
+      click: () => hideBuddy("tray"),
     },
     {
       label: "Type to Cog",
@@ -645,14 +667,61 @@ function createTray() {
   tray.on("click", () => showBuddy());
 }
 
+function maybeStartWake(by, reason) {
+  if (!prefs.visible) return;
+  if (!wakeWordEnabled()) return;
+  const { apiKey, agentId } = voiceConfig();
+  const localInstalled = fs.existsSync(
+    path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
+  );
+  if (localInstalled || (apiKey && agentId)) {
+    wakeListener.start(by, reason);
+  }
+}
+
+function hideBuddy(by = "ui") {
+  const wasVisible = prefs.visible;
+  prefs.visible = false;
+  if (wasVisible) savePrefs();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("workbuddy:turn-off");
+    mainWindow.hide();
+  }
+  wakeListener.stop("main", "cog turned off");
+  if (wasVisible) {
+    processJournal.record({
+      kind: "process",
+      type: "hide",
+      name: "cog",
+      by,
+      reason: "turned off",
+    });
+  }
+  rebuildTray();
+}
+
 // Never steal focus — the buddy is decoration until you click him.
 function showBuddy() {
+  const wasHidden = !prefs.visible;
+  prefs.visible = true;
+  if (wasHidden) {
+    savePrefs();
+    processJournal.record({
+      kind: "process",
+      type: "show",
+      name: "cog",
+      by: "ui",
+      reason: "turned on",
+    });
+  }
   if (!mainWindow) {
     createWindow();
-    return;
+  } else {
+    fitOverlay();
+    mainWindow.showInactive();
   }
-  fitOverlay();
-  mainWindow.showInactive();
+  if (wasHidden) maybeStartWake("main", "cog turned on");
+  rebuildTray();
 }
 
 function raiseOverlay() {
@@ -674,6 +743,10 @@ function fitOverlay() {
 }
 
 function triggerGrow(payload = {}) {
+  if (!prefs.visible) {
+    console.log("[cog] skipped nudge — turned off");
+    return;
+  }
   alerting = true;
   raiseOverlay();
   if (mainWindow) {
@@ -972,6 +1045,23 @@ function startServer() {
 
 ipcMain.on("workbuddy:ack-from-ui", () => {
   triggerAck();
+});
+
+ipcMain.on("workbuddy:hide", () => {
+  hideBuddy("right-click");
+});
+
+ipcMain.on("workbuddy:quit", () => {
+  app.isQuitting = true;
+  processJournal.record({
+    kind: "process",
+    type: "quit",
+    name: "workbuddy",
+    by: "right-click",
+    reason: "Quit from Cog menu",
+    pid: process.pid,
+  });
+  app.quit();
 });
 
 // What he can see about the machine. Off by one line if you'd rather he
@@ -1624,6 +1714,7 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+    loadPrefs();
     ensureToken();
     processJournal.init({ projectRoot: __dirname });
     conversationStore.init({ projectRoot: __dirname, userData: app.getPath("userData") });
@@ -1656,18 +1747,13 @@ if (!gotTheLock) {
 
     wakeListener.init({
       onWake(phrase) {
+        if (!prefs.visible) return;
         if (!mainWindow || mainWindow.isDestroyed()) return;
         mainWindow.webContents.send("workbuddy:wake", { phrase });
       },
     });
     const envFile = readEnvFile();
-    const { apiKey, agentId } = voiceConfig();
-    const localInstalled = fs.existsSync(
-      path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
-    );
-    if (wakeWordEnabled() && (localInstalled || (apiKey && agentId))) {
-      wakeListener.start("main", "startup wake word");
-    }
+    if (prefs.visible) maybeStartWake("main", "startup wake word");
     const cursorKey = cursorAgents.readApiKey(envFile);
     if (cursorKey) {
       cursorAgents.reconcileRunningAgents({ apiKey: cursorKey, silent: true }).catch((err) => {

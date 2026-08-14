@@ -61,6 +61,8 @@ const LINES = {
   wake: ["Oh — I'm up.", "I'm awake. I was awake.", "Rebooting my enthusiasm."],
 
   sleepy: ["Quiet around here.", "I'll be right here.", "Powering down a bit."],
+
+  off: ["Alright. I'll sit this one out.", "Going quiet. Tray if you need me.", "Powering down."],
 };
 
 const lastPicked = new Map();

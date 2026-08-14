@@ -12,6 +12,9 @@ const bridge = window.workbuddy || {
   ack() {},
   testGrow() {},
   setInteractive() {},
+  hideBuddy() {},
+  quitApp() {},
+  onTurnOff() {},
   voiceSignedUrl: () => Promise.resolve({ ok: false, error: "no_api_key" }),
   voiceStatus: () => Promise.resolve({ configured: false }),
   systemContext: () => Promise.resolve({ ok: false, error: "disabled" }),
@@ -1477,6 +1480,11 @@ function stopBodyAwarenessTick() {
 let pointer = { x: -1, y: -1 };
 
 el.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) {
+    e.preventDefault();
+    return;
+  }
+  closeMenu();
   e.preventDefault();
   cancelAll();
   target = null;
@@ -1576,12 +1584,95 @@ function refreshInteractive() {
   if (held) return;
   const overBody = hits(el.getBoundingClientRect(), 4);
   const overBubble = el.classList.contains("is-talking") && hits(bubble.getBoundingClientRect(), 4);
-  const next = overBody || overBubble;
+  const overMenu = menuOpen() && hits(menu.getBoundingClientRect(), 8);
+  const next = overBody || overBubble || overMenu;
   if (next !== interactive) {
     interactive = next;
     bridge.setInteractive(next);
   }
 }
+
+// ---------- right-click menu ----------
+
+const menu = document.getElementById("cogMenu");
+
+function menuOpen() {
+  return Boolean(menu) && !menu.hidden;
+}
+
+function closeMenu() {
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  refreshInteractive();
+}
+
+function openMenu(px, py) {
+  if (!menu) return;
+  menu.hidden = false;
+  const pad = 10;
+  const mw = menu.offsetWidth || 176;
+  const mh = menu.offsetHeight || 150;
+  let left = px;
+  let top = py;
+  if (left + mw > stage.clientWidth - pad) left = stage.clientWidth - mw - pad;
+  if (top + mh > stage.clientHeight - pad) top = py - mh;
+  if (left < pad) left = pad;
+  if (top < pad) top = pad;
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  interactive = true;
+  bridge.setInteractive(true);
+}
+
+function hush() {
+  if (inCall) endCall();
+  if (chatting) closeChat();
+  if (window.CogWake) window.CogWake.stop();
+  cancelAll();
+  closeMenu();
+}
+
+function turnOff() {
+  hush();
+  setState("wave");
+  setFace("pleased", true);
+  bubbleText(pickLine("off"), 900);
+  wait(700).then(() => {
+    if (bridge.hideBuddy) bridge.hideBuddy();
+  });
+}
+
+el.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  openMenu(e.clientX, e.clientY);
+});
+
+if (menu) {
+  menu.addEventListener("pointerdown", (e) => e.stopPropagation());
+  menu.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  menu.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const act = btn.getAttribute("data-act");
+    closeMenu();
+    if (act === "off") turnOff();
+    else if (act === "type") openChat();
+    else if (act === "talk") startCall();
+    else if (act === "quit" && bridge.quitApp) bridge.quitApp();
+  });
+}
+
+window.addEventListener("pointerdown", (e) => {
+  if (!menuOpen()) return;
+  if (menu.contains(e.target) || el.contains(e.target)) return;
+  closeMenu();
+});
+
+if (bridge.onTurnOff) bridge.onTurnOff(hush);
 
 // Cog moves under a stationary cursor too, so re-test on a slow tick.
 setInterval(refreshInteractive, 140);

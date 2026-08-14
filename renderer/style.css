@@ -723,6 +723,50 @@ body {
   color: #8ea2c4;
 }
 
+/* ---------- right-click menu ---------- */
+
+.cog-menu {
+  position: absolute;
+  z-index: 20;
+  pointer-events: auto;
+  min-width: 176px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-edge);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.cog-menu[hidden] {
+  display: none;
+}
+
+.cog-menu button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cog-menu button:hover,
+.cog-menu button:focus-visible {
+  background: #31405c;
+  outline: none;
+}
+
+.cog-menu button.is-quiet {
+  color: #8ea2c4;
+}
+
 /* ---------- keyframes ---------- */
 
 /* Positive rotation swings a downward limb BACKWARD, so heel strike is the
