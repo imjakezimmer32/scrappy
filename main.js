@@ -460,13 +460,16 @@ function createWindow() {
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
+    title: "",
     resizable: false,
     movable: false,
     hasShadow: false,
+    thickFrame: false,
+    autoHideMenuBar: true,
     focusable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    show: prefs.visible,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -477,11 +480,15 @@ function createWindow() {
   // The taskbar is itself a topmost window, so "floating" would put Cog
   // behind it and his dangling legs would vanish. This level clears it.
   mainWindow.setAlwaysOnTop(true, "screen-saver");
+  mainWindow.setMenu(null);
   // Mouse events pass straight through to whatever is underneath; the
   // renderer flips this off while the pointer is actually over Cog.
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
-  mainWindow.webContents.on("did-finish-load", pushLayout);
+  mainWindow.webContents.on("did-finish-load", () => {
+    pushLayout();
+    pushVisible();
+  });
 
   mainWindow.on("close", (e) => {
     if (!app.isQuitting) {
@@ -679,14 +686,21 @@ function maybeStartWake(by, reason) {
   }
 }
 
+function pushVisible() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("workbuddy:set-visible", prefs.visible);
+  if (!prefs.visible) {
+    mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+}
+
 function hideBuddy(by = "ui") {
   const wasVisible = prefs.visible;
   prefs.visible = false;
   if (wasVisible) savePrefs();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("workbuddy:turn-off");
-    mainWindow.hide();
-  }
+  // Never hide the overlay window itself. On Windows a transparent
+  // frameless window grows a fake "Workbuddy" title bar after hide/show.
+  pushVisible();
   wakeListener.stop("main", "cog turned off");
   if (wasVisible) {
     processJournal.record({
@@ -718,8 +732,8 @@ function showBuddy() {
     createWindow();
   } else {
     fitOverlay();
-    mainWindow.showInactive();
   }
+  pushVisible();
   if (wasHidden) maybeStartWake("main", "cog turned on");
   rebuildTray();
 }
@@ -727,7 +741,6 @@ function showBuddy() {
 function raiseOverlay() {
   if (!mainWindow) createWindow();
   mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.showInactive();
   mainWindow.moveTop();
 }
 
@@ -1049,6 +1062,10 @@ ipcMain.on("workbuddy:ack-from-ui", () => {
 
 ipcMain.on("workbuddy:hide", () => {
   hideBuddy("right-click");
+});
+
+ipcMain.on("workbuddy:pref-visible", (event) => {
+  event.returnValue = Boolean(prefs.visible);
 });
 
 ipcMain.on("workbuddy:quit", () => {
@@ -1714,6 +1731,7 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
     loadPrefs();
     ensureToken();
     processJournal.init({ projectRoot: __dirname });

@@ -27,8 +27,15 @@ contextBridge.exposeInMainWorld("workbuddy", {
   quitApp() {
     ipcRenderer.send("workbuddy:quit");
   },
-  onTurnOff(callback) {
-    ipcRenderer.on("workbuddy:turn-off", () => callback());
+  isVisible() {
+    try {
+      return ipcRenderer.sendSync("workbuddy:pref-visible") !== false;
+    } catch {
+      return true;
+    }
+  },
+  onVisible(callback) {
+    ipcRenderer.on("workbuddy:set-visible", (_event, on) => callback(Boolean(on)));
   },
   onChatOpen(callback) {
     ipcRenderer.on("workbuddy:chat-open", () => callback());

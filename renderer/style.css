@@ -52,6 +52,10 @@ body {
   z-index: 2;
 }
 
+.cog[hidden] {
+  display: none !important;
+}
+
 .cog[data-state="held"],
 .cog[data-state="fly"] {
   cursor: grabbing;

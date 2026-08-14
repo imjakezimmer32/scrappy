@@ -14,7 +14,8 @@ const bridge = window.workbuddy || {
   setInteractive() {},
   hideBuddy() {},
   quitApp() {},
-  onTurnOff() {},
+  isVisible: () => true,
+  onVisible() {},
   voiceSignedUrl: () => Promise.resolve({ ok: false, error: "no_api_key" }),
   voiceStatus: () => Promise.resolve({ configured: false }),
   systemContext: () => Promise.resolve({ ok: false, error: "disabled" }),
@@ -49,6 +50,7 @@ let alerting = false;
 let sayToken = 0;
 let lastPoke = Date.now();
 let asleep = false;
+let hiddenAway = false;
 
 // ---------- rigid body ----------
 // He is a point mass with a moment of inertia. Grabbing attaches a spring
@@ -1009,7 +1011,7 @@ function forgetAnnoyance() {
 }
 
 function pollFace() {
-  if (inCall || inHand()) return;
+  if (hiddenAway || inCall || inHand()) return;
   const box = headBox();
   if (!box || pointer.x < 0) return;
 
@@ -1248,11 +1250,17 @@ async function live() {
   lift = liftAt(x + COM_X);
   place();
   await wait(600);
-  setState("wave");
-  await say("Hi. I'm Cog.", 2600, "pleased", "I'll tell you when the agent's done.");
-  setState("idle");
+  if (!hiddenAway) {
+    setState("wave");
+    await say("Hi. I'm Cog.", 2600, "pleased", "I'll tell you when the agent's done.");
+    setState("idle");
+  }
 
   for (;;) {
+    if (hiddenAway) {
+      await wait(400);
+      continue;
+    }
     if (inHand() || inCall || chatting) {
       await wait(250);
       continue;
@@ -1287,7 +1295,7 @@ async function live() {
 // ---------- the job: get you back to work ----------
 
 async function startAlert(payload) {
-  if (alerting) return;
+  if (alerting || hiddenAway) return;
   stopWatching();
   // If you're mid-conversation with him you're obviously at your desk, so
   // there's nothing to fetch you back from — he just mentions it.
@@ -1355,7 +1363,7 @@ function tap() {
 }
 
 async function nag() {
-  if (alerting || asleep || inHand() || inCall || chatting) return;
+  if (alerting || asleep || inHand() || inCall || chatting || hiddenAway) return;
   cancelAll();
   setState("point");
   setFace("nag");
@@ -1582,6 +1590,13 @@ function hits(rect, pad) {
 
 function refreshInteractive() {
   if (held) return;
+  if (hiddenAway) {
+    if (interactive) {
+      interactive = false;
+      bridge.setInteractive(false);
+    }
+    return;
+  }
   const overBody = hits(el.getBoundingClientRect(), 4);
   const overBubble = el.classList.contains("is-talking") && hits(bubble.getBoundingClientRect(), 4);
   const overMenu = menuOpen() && hits(menu.getBoundingClientRect(), 8);
@@ -1622,6 +1637,23 @@ function openMenu(px, py) {
   menu.style.top = `${Math.round(top)}px`;
   interactive = true;
   bridge.setInteractive(true);
+}
+
+function applyVisible(on) {
+  hiddenAway = !on;
+  if (on) {
+    el.hidden = false;
+    lastPoke = Date.now();
+    setState("idle");
+    setFace("focused");
+    refreshInteractive();
+    return;
+  }
+  hush();
+  el.hidden = true;
+  if (menu) menu.hidden = true;
+  interactive = false;
+  bridge.setInteractive(false);
 }
 
 function hush() {
@@ -1672,7 +1704,8 @@ window.addEventListener("pointerdown", (e) => {
   closeMenu();
 });
 
-if (bridge.onTurnOff) bridge.onTurnOff(hush);
+if (bridge.onVisible) bridge.onVisible(applyVisible);
+applyVisible(!bridge.isVisible || bridge.isVisible());
 
 // Cog moves under a stationary cursor too, so re-test on a slow tick.
 setInterval(refreshInteractive, 140);
@@ -1716,7 +1749,7 @@ window.__cog = {
 if (window.CogWake) {
   window.CogWake.init({
     onWake(phrase) {
-      if (inCall || alerting) return;
+      if (hiddenAway || inCall || alerting) return;
       console.log("[wake] heard:", phrase);
       bubbleText("Hey — I'm here.", 1800);
       startCall();
@@ -1729,7 +1762,7 @@ if (bridge.voiceStatus) {
     .voiceStatus()
     .then((s) => {
       voiceReady = Boolean(s && s.configured);
-      if (voiceReady && s.wakeWord !== false && s.wakeSupported && window.CogWake) {
+      if (voiceReady && !hiddenAway && s.wakeWord !== false && s.wakeSupported && window.CogWake) {
         window.CogWake.start();
         console.log("[wake] listening for:", (s.wakePhrases || ["hey cog"]).join(", "));
       }
