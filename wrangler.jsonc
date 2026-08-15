@@ -1,0 +1,20 @@
+{
+  // imscrappy.dev — the landing page. Static assets only, no Worker script, so
+  // there is no `main` and no assets `binding` (that field is only valid
+  // alongside a script).
+  //
+  // Cloudflare build settings for this project:
+  //   Build command:   node scripts/build-site.js
+  //   Deploy command:  npx wrangler deploy
+  //
+  // The imscrappy.dev custom domain is attached in the dashboard under
+  // Worker → Settings → Domains & Routes, deliberately not here: a `routes`
+  // entry pointing at a zone the account can't resolve fails the whole deploy,
+  // which would take the site down rather than just miss the domain.
+  "name": "scrappy",
+  "compatibility_date": "2026-08-14",
+  "assets": {
+    "directory": "./site/dist",
+    "not_found_handling": "404-page"
+  }
+}

@@ -1,0 +1,348 @@
+/* The page around Scrappy — and it is only around him. He's the whole site;
+   everything here exists to get out of his way.
+
+   Loads AFTER character.css, which is renderer/style.css copied verbatim. That
+   file is written for a transparent, non-scrolling desktop overlay, so the first
+   job here is putting html/body back to being a web page. Don't reorder them. */
+
+html,
+body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  background: var(--bg);
+  color: var(--text);
+  user-select: auto;
+  cursor: auto;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, "Segoe UI", -apple-system, "Helvetica Neue", sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  /* A dim glow overhead so he isn't standing in a void. */
+  background-image: radial-gradient(120% 62% at 50% 0%, #17203a 0%, transparent 60%);
+  background-repeat: no-repeat;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0f18;
+  --surface: #131a28;
+  --edge: #242e46;
+  --edge-lit: #33405e;
+  --text: #dce6f5;
+  --muted: #8ea2c4;
+  /* Same mint as INK in renderer/rig.js, so the page and the robot are painted
+     out of one palette. */
+  --mint: #6fe3c0;
+  --mono: ui-monospace, "Cascadia Code", "Consolas", "SF Mono", monospace;
+}
+
+/* ---------- one screen: copy up top, him along the bottom ---------- */
+
+.hero {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* The dust puffs at his heels are 140px SVG boxes centred on the floor line,
+     so they hang below the taskbar and off the bottom of the page — enough to
+     add a stray 24px of scroll while he's walking. Clip at the hero, which is
+     well clear of his speech bubble above. */
+  overflow: clip;
+}
+
+.hero-copy {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 40px 24px 24px;
+}
+
+h1 {
+  font-size: clamp(3rem, 9vw, 4.8rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.pitch {
+  font-size: clamp(1.1rem, 2.6vw, 1.35rem);
+  color: var(--muted);
+  max-width: 29ch;
+  text-wrap: balance;
+  margin: 0;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.small {
+  font-size: 0.86rem;
+  color: #7186aa;
+  max-width: 46ch;
+}
+
+a {
+  color: var(--mint);
+  text-decoration-color: color-mix(in srgb, var(--mint) 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 20px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.97rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.btn:hover {
+  border-color: var(--mint);
+  transform: translateY(-1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: #0a1a15;
+  font-weight: 650;
+}
+
+.btn-primary:hover {
+  background: #85ecce;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.btn.is-copied {
+  border-color: var(--mint);
+  color: var(--mint);
+}
+
+.btn-primary.is-copied {
+  color: #0a1a15;
+}
+
+/* Poking him is the only other thing to do here, so the buttons stay quiet and
+   let him have the attention. */
+.poke-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.btn-poke {
+  padding: 8px 14px;
+  font-size: 0.86rem;
+  font-weight: 450;
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--edge);
+}
+
+.btn-poke:hover {
+  color: var(--text);
+}
+
+.hint {
+  font-size: 0.82rem;
+  color: #5d6f93;
+}
+
+/* ---------- the desk he stands on ---------- */
+
+.desk {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* character.css sizes #stage to its parent; here it takes whatever height is
+   left above the taskbar instead. */
+#stage {
+  height: auto;
+  flex: 1 1 auto;
+  /* He needs headroom to be thrown into, but on a short window the copy above
+     him matters more — so his patch of floor yields first. */
+  min-height: clamp(180px, 30vh, 260px);
+  /* His speech bubble reaches above the stage, so the top can't be clipped. The
+     sides are clipped though — `clip` rather than `hidden` so this stays a
+     one-axis rule and doesn't turn the stage into a scroll container. Nothing
+     Scrappy does should ever be able to widen the page. */
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.scrappy {
+  /* Dragging him must not scroll the page or start a text selection — but only
+     him, so the rest of the page is untouched. */
+  touch-action: none;
+  user-select: none;
+}
+
+.taskbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 46px;
+  padding: 0 16px;
+  background: linear-gradient(#1b2334, #141b28);
+  border-top: 1px solid #2c3853;
+  box-shadow: 0 -18px 40px -24px rgba(111, 227, 192, 0.25);
+}
+
+.tb-start,
+.tb-apps {
+  height: 22px;
+  border-radius: 6px;
+}
+
+.tb-start {
+  width: 22px;
+  background: #2b3550;
+}
+
+.tb-apps {
+  flex: 0 0 132px;
+  background: repeating-linear-gradient(90deg, #2b3550 0 22px, transparent 22px 34px);
+}
+
+.tb-tray {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.tb-chev {
+  font-family: var(--mono);
+  color: #6c80a8;
+}
+
+.tb-face {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.tb-clock {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- clipboard fallback ---------- */
+/* Hidden until the clipboard refuses us. Nobody should ever see this. */
+
+.fallback {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.fallback pre {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #c3d2e8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 620px) {
+  body {
+    font-size: 16px;
+  }
+
+  .cta .btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* Short windows — a laptop at 720p, or a phone. The point of the page is him
+   standing on the taskbar at the bottom of your screen, so everything gives up a
+   little room to keep that on one screen instead of scrolling to find him. */
+@media (max-height: 860px) {
+  h1 {
+    font-size: clamp(2.4rem, 7vw, 3.4rem);
+  }
+
+  .pitch {
+    font-size: clamp(1rem, 2.2vw, 1.15rem);
+  }
+
+  .hero-copy {
+    gap: 10px;
+    padding: 28px 24px 18px;
+  }
+
+  .poke-row {
+    margin-top: 10px;
+  }
+
+  #stage {
+    min-height: clamp(160px, 24vh, 200px);
+  }
+}
+
+/* Phone: the CTA and poke buttons stack, which eats the height the tighter tier
+   above just freed. Last block in the file so it wins on equal specificity. */
+@media (max-width: 620px) and (max-height: 900px) {
+  .hero-copy {
+    padding: 24px 20px 14px;
+  }
+
+  #stage {
+    min-height: 150px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+
+  .btn:hover {
+    transform: none;
+  }
+}

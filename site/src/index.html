@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scrappy</title>
+    <meta
+      name="description"
+      content="A small robot who lives above your Windows taskbar and walks over to get you when a Cursor agent finishes."
+    />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="/scrappy-face.svg" />
+    <meta property="og:title" content="Scrappy" />
+    <meta
+      property="og:description"
+      content="He lives above your taskbar. When your agent stops typing, he walks over and stands there until you notice."
+    />
+    <meta property="og:image" content="/scrappy-face-256.png" />
+    <meta property="og:url" content="https://imscrappy.dev" />
+    <meta name="twitter:card" content="summary" />
+
+    <!-- The character, straight from the app. character.css is renderer/style.css
+         verbatim, so it also carries the desktop-overlay rules for html/body —
+         site.css loads after it and puts the page back. -->
+    <link rel="stylesheet" href="/character.css" />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <main class="hero">
+      <div class="hero-copy">
+        <h1>Scrappy</h1>
+        <p class="pitch">
+          I live above your taskbar. When your agent stops typing, I walk over and stand there
+          until you notice.
+        </p>
+
+        <div class="cta">
+          <button type="button" class="btn btn-primary" data-copy="install">
+            Copy install prompt
+          </button>
+          <a class="btn btn-ghost" href="https://github.com/imjakezimmer32/scrappy">
+            the repo
+          </a>
+        </div>
+        <p class="small">
+          Paste it to your coding agent — it does the rest. Windows.
+          <a href="/install-scrappy.md" download>the prompt itself</a>,
+          <a href="/voice-setup.md" download>giving him a voice</a>.
+        </p>
+
+        <div class="poke-row">
+          <button type="button" class="btn btn-poke" data-poke="done">Finish an agent</button>
+          <button type="button" class="btn btn-poke" data-poke="say">Nag me</button>
+          <button type="button" class="btn btn-poke" data-poke="wave">Wave</button>
+          <button type="button" class="btn btn-poke" data-poke="nap">Nap</button>
+        </div>
+        <p class="hint">Or pick him up and throw him. He's a real rigid body and he'll mention it.</p>
+      </div>
+
+      <!-- The desk: he genuinely walks on the top edge of that taskbar. -->
+      <div class="desk">
+        <div id="stage" class="stage">
+          <div id="scrappy" class="scrappy" hidden data-state="idle" data-facing="right">
+            <div class="scrappy-flip"></div>
+            <div class="bubble" id="bubble"></div>
+          </div>
+        </div>
+        <div class="taskbar" aria-hidden="true">
+          <span class="tb-start"></span>
+          <span class="tb-apps"></span>
+          <span class="tb-tray">
+            <span class="tb-chev">^</span>
+            <img src="/scrappy-face.svg" alt="" class="tb-face" />
+            <span class="tb-clock">4:07 PM</span>
+          </span>
+        </div>
+      </div>
+    </main>
+
+    <!-- The prompts live in the page so the copy buttons and the downloadable
+         files can't drift apart, but they're not content anyone needs to read
+         here. The build step fills these from the .md files.
+
+         Stays hidden unless the clipboard refuses us, in which case it's
+         revealed to be selected by hand — sending someone off to a .md file
+         would just navigate them away from the site. Sits outside .hero so
+         revealing it can't disturb the one-screen layout. -->
+    <div class="fallback" id="fallback" hidden>
+      <p class="small" id="fallback-note">
+        Your browser wouldn't let me at the clipboard. Here it is — select it and copy.
+      </p>
+      <pre id="prompt-install">{{INSTALL_PROMPT}}</pre>
+      <pre id="prompt-voice">{{VOICE_PROMPT}}</pre>
+    </div>
+
+    <script src="/rig.js"></script>
+    <script src="/lines.js"></script>
+    <script src="/demo.js"></script>
+    <script src="/copy.js"></script>
+  </body>
+</html>
