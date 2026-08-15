@@ -92,6 +92,32 @@ Depth order back to front is far arm, far leg, torso, near leg, near arm, head.
 The far limbs tuck inboard of the torso so it occludes them; pushed outboard
 they read as foreground and the whole three-quarter illusion inverts.
 
+### Rust and rivets
+
+`renderer/wear.js` generates his corrosion, grime and scratches, and `rig.js`
+paints it inside the joint groups so it rides the limb animations for free. It
+is all seeded from a fixed constant — his rust has to land in the same place
+every launch or he isn't the same robot.
+
+All three intensity levels are emitted into the DOM at once. Each element
+carries `data-w` — the lowest level it appears at — and the geometry is nested,
+so raising the level makes existing damage spread rather than shuffling it
+somewhere else. Switching is one attribute, live, with no rebuild:
+
+```js
+document.getElementById("scrappy").dataset.wear = "heavy"; // or medium, subtle
+```
+
+Rivets, weld seams and the bolted repair plate on his near shin are *not* wear:
+they sit outside the `.wear` groups and never fade, because he is always a
+patched-together machine — the rust is only how long he's been one.
+
+His head is the one part the tray icon mirrors. `HEAD_RUST` is authored in
+head-local unit coordinates and shared by both `rig.js` and
+`scripts/build-icon.js`, so the icon rusts where his real head does; run
+`npm run build-icon` after changing it. Body detail deliberately stays off the
+icon — rivets at 16px are mud.
+
 ### Tuning him
 
 | What | Where |
@@ -100,6 +126,9 @@ they read as foreground and the whole three-quarter illusion inverts.
 | Step cadence | `--step` in `renderer/style.css` |
 | Size, head-to-body ratio | `P` in `renderer/rig.js` |
 | Colours | `INK` in `renderer/rig.js` |
+| How worn he looks | `LEVEL` in `renderer/wear.js` — `subtle`, `medium` or `heavy` |
+| Where the rust sits | the `WEAR.rust(...)` calls in `renderer/rig.js`, and `HEAD_RUST` in `renderer/wear.js` |
+| Rivets, weld seams, the patch plate | the `built(...)` calls in `renderer/rig.js` |
 | What he says | `renderer/lines.js` |
 | Tray / favicon icon | `scripts/build-icon.js`, then `npm run build-icon` |
 | Throw feel (spring, inertia, bounce) | the rigid body constants in `renderer/scrappy.js` |
@@ -181,8 +210,8 @@ For local mode, Scrappy reads `personality.md` directly.
 ### Using it
 
 - **Click the ^ arrow** by the clock (hidden icons), then click **Scrappy's face**
-  to start him. That icon stays there while he is running, and he launches with
-  Windows so it comes back after you sign in. Right-click the icon for
+  to start him. That icon belongs to a tiny helper named Scrappy, not Electron,
+  so it stays even if you end Electron in Task Manager. Right-click the icon for
   **Start Scrappy** / **Turn off Scrappy**.
 - **Right-click him** → **Turn off Scrappy**. He hides until you start him again
   from that hidden-icons entry. He will not listen or nudge while he is off.

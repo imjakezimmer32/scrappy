@@ -19,6 +19,10 @@ const flip = el.querySelector(".scrappy-flip");
 const bubble = document.getElementById("bubble");
 
 flip.innerHTML = RIG.buildScrappy();
+// Every wear tier is already in the DOM; this attribute picks which are shown.
+// Without it he renders with none of his rust, which is the same mistake as
+// shipping a different robot to the website than the one people install.
+el.dataset.wear = window.ScrappyWear.LEVEL;
 const faceEl = document.getElementById("scrappy-face");
 
 const CHAR_W = 120;

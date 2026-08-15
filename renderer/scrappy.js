@@ -56,6 +56,10 @@ const flip = el.querySelector(".scrappy-flip");
 const bubble = document.getElementById("bubble");
 
 flip.innerHTML = RIG.buildScrappy();
+// How worn he looks. All three levels are in the DOM already — this only
+// picks which tiers are visible, so you can compare them live from devtools:
+//   document.getElementById('scrappy').dataset.wear = 'heavy'
+el.dataset.wear = window.ScrappyWear.LEVEL;
 const faceEl = document.getElementById("scrappy-face");
 
 let x = 80;
@@ -193,6 +197,9 @@ function setFace(name, force) {
   // wanted his expression to be.
   if (!force && Date.now() < faceLockUntil) return;
   faceEl.innerHTML = (RIG.FACES[name] || RIG.FACES.focused)();
+  // Keyed off the FACE, not the state: his eyes are shut while sitting, lying
+  // and standing alike, and the chest lamps should follow his eyes.
+  el.classList.toggle("is-dozing", name === "sleep");
 }
 
 function setFacing(dir) {

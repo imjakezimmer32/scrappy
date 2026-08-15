@@ -18,6 +18,9 @@ const dist = path.join(root, "site", "dist");
 // Character source shared with the Electron app. Left column is the file in the
 // repo, right column is the name it takes on the site.
 const SHARED = [
+  // wear.js must be listed before rig.js and loaded before it in the page:
+  // rig.js reads window.ScrappyWear at module scope and throws without it.
+  ["renderer/wear.js", "wear.js"],
   ["renderer/rig.js", "rig.js"],
   ["renderer/style.css", "character.css"],
   ["renderer/lines.js", "lines.js"],
