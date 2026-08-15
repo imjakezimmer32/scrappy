@@ -1,6 +1,12 @@
 // Scrappy — the rig. Bobblehead proportions, gear-toothed joints, one SVG.
 // Every joint is a nested <g> with its transform-origin baked in, so CSS
 // keyframes on .j-* classes drive the whole character.
+//
+// Wear (rust, grime, scratches) comes from wear.js, which must load first.
+// It goes INSIDE the joint groups so it rides the same keyframes as the part
+// it's on — rust on a shin walks with the shin for free.
+
+const WEAR = window.ScrappyWear;
 
 const P = {
   headW: 82,
@@ -59,19 +65,24 @@ const ARM_SPREAD = P.torsoW / 2 - 4;
 const ARM_L_X = C - ARM_SPREAD + 1;
 const ARM_R_X = C + ARM_SPREAD;
 
+// Warm-leaning, slightly desaturated, a touch darker than the original cool
+// blue-grey. Pulling the shell hue a few steps toward the oxide family lets
+// the rust sit ON him rather than on top of him, and dropping the saturation
+// gives the mint eyes and the chest LEDs more room to carry the colour.
+// Accents (mint, amber, LEDs) are deliberately untouched.
 const INK = {
-  shellNear: "#5B6B8C",
-  shellNearLit: "#67779B",
-  shellFar: "#374561",
-  shellFarLit: "#404F70",
-  bootNear: "#414F6E",
-  bootFar: "#28303F",
-  metal: "#8C9BB8",
-  metalDark: "#39445E",
-  screen: "#1D2433",
+  shellNear: "#5C6781",
+  shellNearLit: "#68738F",
+  shellFar: "#384259",
+  shellFarLit: "#414C65",
+  bootNear: "#414A62",
+  bootFar: "#282E39",
+  metal: "#8B97AD",
+  metalDark: "#3A4257",
+  screen: "#1C212D",
   mint: "#6FE3C0",
   amber: "#E8734A",
-  panel: "#2B3550",
+  panel: "#2B3348",
   ledRed: "#E2564A",
   ledYellow: "#E9C244",
   ledGreen: "#6FE3C0",
@@ -140,15 +151,24 @@ function flexNeck() {
     const w = wide ? 14 : 12;
     node =
       `<g class="neck-seg" style="${origin(C, base)}">` +
-      `<rect x="${C - 5}" y="${yTop.toFixed(2)}" width="10" height="${(pitch + 0.6).toFixed(2)}" fill="#3E4C6B"/>` +
-      `<rect x="${C - w / 2}" y="${yTop.toFixed(2)}" width="${w}" height="${(pitch * 0.74).toFixed(2)}" rx="1.8" fill="${wide ? "#6B7A9C" : "#4E5D80"}"/>` +
+      `<rect x="${C - 5}" y="${yTop.toFixed(2)}" width="10" height="${(pitch + 0.6).toFixed(2)}" fill="#3F4961"/>` +
+      `<rect x="${C - w / 2}" y="${yTop.toFixed(2)}" width="${w}" height="${(pitch * 0.74).toFixed(2)}" rx="1.8" fill="${wide ? "#6A7691" : "#4F5A75"}"/>` +
       node +
       `</g>`;
   }
 
+  // Water sits in the corrugation valleys, so the collars are the first thing
+  // on the neck to go — but it's a busy little area, so only at heavy.
+  const collar = { x: C - 7, y: bottom - 4, w: 14, h: 4, rx: 1.8 };
   return (
     `<g class="j-neck" style="${origin(C, bottom)}">` +
-    `<rect x="${C - 7}" y="${bottom - 4}" width="14" height="4" rx="1.8" fill="${INK.metalDark}"/>` +
+    `<rect x="${collar.x}" y="${collar.y}" width="${collar.w}" height="${collar.h}" rx="${collar.rx}" fill="${INK.metalDark}"/>` +
+    worn(
+      "w-neck",
+      `<rect x="${collar.x}" y="${collar.y}" width="${collar.w}" height="${collar.h}" rx="${collar.rx}"/>`,
+      WEAR.rust({ x: C - 6, y: bottom - 4, w: 9, h: 4 }, { seed: 91, tier: 3, lobes: 3, flecks: 4 }),
+      false
+    ) +
     node +
     `</g>`
   );
@@ -158,41 +178,257 @@ function origin(x, y) {
   return `transform-box:view-box;transform-origin:${x}px ${y}px`;
 }
 
-function foot(x, fill) {
-  const w = P.limbW;
-  const top = GROUND - P.bootH;
+// Wraps a part's wear in a group clipped to that part's own silhouette, so
+// heavy corrosion can't bleed past the shell edge — which would show up as a
+// change in the drop-shadow outline, since those trace the SVG's alpha.
+// Only one rig is ever mounted, so fixed ids are safe (same bet as
+// scrappyScreenClip). Far-side parts get .is-far, which CSS knocks back:
+// depth here is carried entirely by shading, and full-strength rust on the
+// far limbs flattens him.
+function worn(id, clipShape, content, far) {
+  if (!content) return "";
   return (
-    `<path d="M${x - w * 0.7} ${top} H${x + w * 0.5} L${x + w * 1.5} ${GROUND - 3}` +
-    ` Q${x + w * 1.5} ${GROUND} ${x + w * 1.1} ${GROUND} H${x - w * 0.5}` +
-    ` Q${x - w * 0.9} ${GROUND} ${x - w * 0.7} ${top} Z" fill="${fill}"/>`
+    `<clipPath id="${id}">${clipShape}</clipPath>` +
+    `<g class="wear${far ? " is-far" : ""}" clip-path="url(#${id})">${content}</g>`
   );
 }
 
-function leg(side, x, shell, shellLit, bootFill, gearFill) {
+// --- how he was put together ---------------------------------------------
+//
+// Rivets, weld seams and a field-repair plate. These are NOT wear: they don't
+// fade with the level and they sit outside the .wear groups, because he is
+// always a bolted-together, patched-up machine — the rust is just how long
+// he's been one. They're what stops him reading as a moulded toy.
+//
+// All of it stays on the body. The head keeps rust only, because the head is
+// what scripts/build-icon.js mirrors into the tray icon, and rivets at 16px
+// are mud.
+
+// Clearly lighter than the shell — salvage, not factory stock. A plate only a
+// shade off the shell just reads as a smudge at his actual size; the value
+// gap is what makes it register as a different piece of metal.
+const PLATE = "#8A8E9B";
+
+function built(id, clipShape, content) {
+  return (
+    `<clipPath id="${id}">${clipShape}</clipPath>` +
+    `<g class="build" clip-path="url(#${id})">${content}</g>`
+  );
+}
+
+// Domed head: a dark seat with a brighter cap offset up-left, so it catches
+// the same light the rest of him does.
+function rivet(x, y, r) {
+  const rr = r == null ? 0.95 : r;
+  return (
+    `<circle cx="${n(x)}" cy="${n(y)}" r="${n(rr)}" fill="${INK.metalDark}" opacity="0.85"/>` +
+    `<circle cx="${n(x - rr * 0.16)}" cy="${n(y - rr * 0.18)}" r="${n(rr * 0.6)}" fill="${INK.metal}" opacity="0.8"/>`
+  );
+}
+
+function rivetRow(x, y, dx, dy, count, r) {
+  let out = "";
+  for (let i = 0; i < count; i += 1) out += rivet(x + dx * i, y + dy * i, r);
+  return out;
+}
+
+// A welded joint line: a dark groove with a thin bright bead alongside it.
+function seam(d, weight) {
+  const w = weight == null ? 0.7 : weight;
+  return (
+    `<path d="${d}" stroke="${INK.metalDark}" stroke-width="${n(w)}" fill="none" opacity="0.55" stroke-linecap="round"/>` +
+    `<path d="${d}" stroke="${INK.metal}" stroke-width="${n(w * 0.42)}" fill="none" opacity="0.3" stroke-linecap="round" transform="translate(0,-0.55)"/>`
+  );
+}
+
+// The signature repair: a plate off something else entirely, bolted straight
+// over the damage. One of these says more about him than any amount of rust.
+function patchPlate(b) {
+  const i = 1.9;
+  return (
+    `<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w)}" height="${n(b.h)}" rx="${n(b.rx == null ? 1.4 : b.rx)}" fill="${PLATE}"/>` +
+    `<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.w)}" height="${n(b.h)}" rx="${n(b.rx == null ? 1.4 : b.rx)}" fill="none" stroke="${INK.metalDark}" stroke-width="0.5" opacity="0.5"/>` +
+    rivet(b.x + i, b.y + i, 0.8) +
+    rivet(b.x + b.w - i, b.y + i, 0.8) +
+    rivet(b.x + i, b.y + b.h - i, 0.8) +
+    rivet(b.x + b.w - i, b.y + b.h - i, 0.8)
+  );
+}
+
+const n = (v) => Number(v.toFixed(2));
+
+// A rust bloom on a joint gear. Confined well inside the tooth root radius
+// (0.78r) so a circle is an exact enough clip for a cog silhouette. Small
+// round parts need FEWER, smaller lobes and more flecks than a flat panel
+// does — a couple of fat lobes inside a circle read as bubbles, not rust.
+function gearRust(cx, cy, r, opts) {
+  const reach = r * 0.64;
+  return WEAR.rust({ x: cx - reach, y: cy - reach, w: reach * 2, h: reach * 2 }, opts);
+}
+
+function footPath(x) {
   const w = P.limbW;
+  const top = GROUND - P.bootH;
+  return (
+    `M${x - w * 0.7} ${top} H${x + w * 0.5} L${x + w * 1.5} ${GROUND - 3}` +
+    ` Q${x + w * 1.5} ${GROUND} ${x + w * 1.1} ${GROUND} H${x - w * 0.5}` +
+    ` Q${x - w * 0.9} ${GROUND} ${x - w * 0.7} ${top} Z`
+  );
+}
+
+// The boots take the worst of it: they're the part that's actually on the
+// ground. Grimiest, and rusted along both the top edge and the sole lip.
+function foot(x, fill, side, seed, far) {
+  const w = P.limbW;
+  const top = GROUND - P.bootH;
+  const d = footPath(x);
+  return (
+    `<path d="${d}" fill="${fill}"/>` +
+    built(
+      `b-boot-${side}`,
+      `<path d="${d}"/>`,
+      // A toe cap bolted on over the front of the boot — the part that takes
+      // every stubbed step.
+      seam(`M${n(x + w * 0.42)} ${n(top - 0.5)} L${n(x + w * 0.62)} ${n(GROUND)}`, 0.8) +
+        rivet(x + w * 0.9, GROUND - 2.6, 0.75) +
+        rivet(x - w * 0.25, GROUND - 2.4, 0.75)
+    ) +
+    worn(
+      `w-boot-${side}`,
+      `<path d="${d}"/>`,
+      WEAR.grime({ x: x - w * 0.9, y: top, w: w * 2.4, h: P.bootH }, { amount: 0.2, tier: 1 }) +
+        WEAR.rust({ x: x - w * 0.6, y: top - 1, w: w * 1.3, h: P.bootH * 0.62 }, { seed, tier: 1, lobes: 3, flecks: 5 }) +
+        WEAR.rust({ x: x + w * 0.15, y: GROUND - 3.6, w: w * 1.2, h: 3.6 }, { seed: seed + 1, tier: 2, lobes: 2, flecks: 4 }) +
+        WEAR.rust({ x: x + w * 0.55, y: top - 0.5, w: w * 1.1, h: P.bootH * 0.8 }, { seed: seed + 2, tier: 3, lobes: 3, flecks: 5 }),
+      far
+    )
+  );
+}
+
+function leg(side, x, shell, shellLit, bootFill, gearFill, far) {
+  const w = P.limbW;
+  // Distinct seeds per side, or both legs corrode identically and he reads as
+  // a mirrored decal rather than a robot.
+  const sd = side === "l" ? 10 : 60;
+  const thigh = { x: x - w / 2, y: HIP_Y, w, h: THIGH + 2, rx: w / 2 };
+  const shin = { x: x - w / 2, y: KNEE_Y, w, h: SHIN + 2, rx: w / 2 };
+  const rect = (b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${b.rx}"/>`;
   return `
     <g class="j-hip j-hip-${side}" style="${origin(x, HIP_Y)}">
-      <rect x="${x - w / 2}" y="${HIP_Y}" width="${w}" height="${THIGH + 2}" rx="${w / 2}" fill="${shell}"/>
+      <rect x="${thigh.x}" y="${thigh.y}" width="${thigh.w}" height="${thigh.h}" rx="${thigh.rx}" fill="${shell}"/>
+      ${built(
+        `b-thigh-${side}`,
+        rect(thigh),
+        rivetRow(x - 2.6, HIP_Y + 3.2, 2.6, 0, 3, 0.75) +
+          seam(`M${x - w / 2 + 0.8} ${(HIP_Y + THIGH - 1.4).toFixed(2)} h${(w - 1.6).toFixed(2)}`)
+      )}
+      ${worn(
+        `w-thigh-${side}`,
+        rect(thigh),
+        WEAR.grime(thigh, { amount: 0.11, tier: 2 }) +
+          WEAR.scratches(thigh, { seed: sd + 2, tier: 2, count: 3 }) +
+          WEAR.rust({ x: thigh.x, y: thigh.y + thigh.h * 0.45, w: thigh.w, h: thigh.h * 0.5 }, { seed: sd + 7, tier: 3, lobes: 3, flecks: 5 }),
+        far
+      )}
       <g class="j-knee j-knee-${side}" style="${origin(x, KNEE_Y)}">
-        <rect x="${x - w / 2}" y="${KNEE_Y}" width="${w}" height="${SHIN + 2}" rx="${w / 2}" fill="${shellLit}"/>
-        ${foot(x, bootFill)}
+        <rect x="${shin.x}" y="${shin.y}" width="${shin.w}" height="${shin.h}" rx="${shin.rx}" fill="${shellLit}"/>
+        ${built(
+          `b-shin-${side}`,
+          rect(shin),
+          // Only the near shin gets the plate. Both would read as a design
+          // feature; one reads as something that happened to him.
+          (side === "l" ? patchPlate({ x: x - 4.4, y: KNEE_Y + 3.6, w: 8.8, h: 8.4 }) : "") +
+            seam(`M${x - w / 2 + 0.8} ${(KNEE_Y + 2.2).toFixed(2)} h${(w - 1.6).toFixed(2)}`)
+        )}
+        ${worn(
+          `w-shin-${side}`,
+          rect(shin),
+          WEAR.grime(shin, { amount: 0.16, tier: 1 }) +
+            WEAR.scratches(shin, { seed: sd + 3, tier: 1, count: 4 }) +
+            WEAR.rust({ x: shin.x, y: shin.y + shin.h * 0.35, w: shin.w, h: shin.h * 0.65 }, { seed: sd + 8, tier: 2, lobes: 3, flecks: 5 }),
+          far
+        )}
+        ${foot(x, bootFill, side, sd + 4, far)}
         ${gear(x, KNEE_Y, w * 0.62, 8, gearFill, INK.metalDark)}
+        ${worn(
+          `w-knee-${side}`,
+          `<circle cx="${x}" cy="${KNEE_Y}" r="${(w * 0.62 * 0.76).toFixed(2)}"/>`,
+          gearRust(x, KNEE_Y, w * 0.62, { seed: sd + 5, tier: 1, lobes: 2, flecks: 7 }),
+          far
+        )}
       </g>
       ${gear(x, HIP_Y, w * 0.49, 9, gearFill, INK.metalDark)}
+      ${worn(
+        `w-hip-${side}`,
+        `<circle cx="${x}" cy="${HIP_Y}" r="${(w * 0.49 * 0.76).toFixed(2)}"/>`,
+        gearRust(x, HIP_Y, w * 0.49, { seed: sd + 6, tier: 2, lobes: 2, flecks: 6 }),
+        far
+      )}
     </g>`;
 }
 
-function arm(side, x, shell, shellLit, handFill, gearFill) {
+function arm(side, x, shell, shellLit, handFill, gearFill, far) {
   const w = P.armW;
+  const sd = side === "l" ? 30 : 80;
+  const upper = { x: x - w / 2, y: SHOULDER_Y, w, h: UPPER_ARM + 2, rx: w / 2 };
+  const fore = { x: x - w / 2, y: ELBOW_Y, w, h: FOREARM + 2, rx: w / 2 };
+  const hr = w * 0.72;
+  const rect = (b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${b.rx}"/>`;
   return `
     <g class="j-shoulder j-shoulder-${side}" style="${origin(x, SHOULDER_Y)}">
-      <rect x="${x - w / 2}" y="${SHOULDER_Y}" width="${w}" height="${UPPER_ARM + 2}" rx="${w / 2}" fill="${shell}"/>
+      <rect x="${upper.x}" y="${upper.y}" width="${upper.w}" height="${upper.h}" rx="${upper.rx}" fill="${shell}"/>
+      ${built(
+        `b-upperarm-${side}`,
+        rect(upper),
+        rivetRow(x - 1.9, SHOULDER_Y + 2.8, 1.9, 0, 3, 0.68) +
+          seam(`M${x - w / 2 + 0.7} ${(SHOULDER_Y + UPPER_ARM - 1.2).toFixed(2)} h${(w - 1.4).toFixed(2)}`, 0.6)
+      )}
+      ${worn(
+        `w-upperarm-${side}`,
+        rect(upper),
+        WEAR.grime(upper, { amount: 0.1, tier: 2 }) +
+          WEAR.scratches(upper, { seed: sd + 2, tier: 2, count: 3 }) +
+          WEAR.rust({ x: upper.x, y: upper.y + upper.h * 0.4, w: upper.w, h: upper.h * 0.55 }, { seed: sd + 7, tier: 3, lobes: 3, flecks: 4 }),
+        far
+      )}
       <g class="j-elbow j-elbow-${side}" style="${origin(x, ELBOW_Y)}">
-        <rect x="${x - w / 2}" y="${ELBOW_Y}" width="${w}" height="${FOREARM + 2}" rx="${w / 2}" fill="${shellLit}"/>
-        <circle cx="${x}" cy="${HAND_Y}" r="${w * 0.72}" fill="${handFill}"/>
+        <rect x="${fore.x}" y="${fore.y}" width="${fore.w}" height="${fore.h}" rx="${fore.rx}" fill="${shellLit}"/>
+        ${built(
+          `b-forearm-${side}`,
+          rect(fore),
+          seam(`M${x - w / 2 + 0.7} ${(ELBOW_Y + 2).toFixed(2)} h${(w - 1.4).toFixed(2)}`, 0.6) +
+            rivet(x, ELBOW_Y + FOREARM - 1.6, 0.7)
+        )}
+        ${worn(
+          `w-forearm-${side}`,
+          rect(fore),
+          WEAR.grime(fore, { amount: 0.13, tier: 1 }) +
+            WEAR.scratches(fore, { seed: sd + 3, tier: 1, count: 3 }) +
+            WEAR.rust({ x: fore.x, y: fore.y + fore.h * 0.3, w: fore.w, h: fore.h * 0.7 }, { seed: sd + 8, tier: 2, lobes: 3, flecks: 4 }),
+          far
+        )}
+        <circle cx="${x}" cy="${HAND_Y}" r="${hr}" fill="${handFill}"/>
+        ${worn(
+          `w-hand-${side}`,
+          `<circle cx="${x}" cy="${HAND_Y}" r="${hr}"/>`,
+          WEAR.rust({ x: x - hr * 0.72, y: HAND_Y - hr * 0.72, w: hr * 1.44, h: hr * 1.44 }, { seed: sd + 4, tier: 2, lobes: 2, flecks: 7 }),
+          far
+        )}
         ${gear(x, ELBOW_Y, w * 0.62, 7, gearFill, INK.metalDark)}
+        ${worn(
+          `w-elbow-${side}`,
+          `<circle cx="${x}" cy="${ELBOW_Y}" r="${(w * 0.62 * 0.76).toFixed(2)}"/>`,
+          gearRust(x, ELBOW_Y, w * 0.62, { seed: sd + 5, tier: 1, lobes: 2, flecks: 6 }),
+          far
+        )}
       </g>
       ${gear(x, SHOULDER_Y, w * 0.55, 8, gearFill, INK.metalDark)}
+      ${worn(
+        `w-shoulder-${side}`,
+        `<circle cx="${x}" cy="${SHOULDER_Y}" r="${(w * 0.55 * 0.76).toFixed(2)}"/>`,
+        gearRust(x, SHOULDER_Y, w * 0.55, { seed: sd + 6, tier: 2, lobes: 2, flecks: 6 }),
+        far
+      )}
     </g>`;
 }
 
@@ -291,7 +527,7 @@ const FACES = {
       `<rect class="mouth-talk" x="${S.x + S.w / 2 - S.w * 0.14}" y="${MOUTH_Y - 5}" width="${S.w * 0.28}" height="10" rx="3" fill="${INK.mint}"/>`
     ),
 
-  sleep: () => pair(dash(EYE_MID, EW * 1.15, "#48587A", 4.6)),
+  sleep: () => pair(dash(EYE_MID, EW * 1.15, "#48536D", 4.6)),
 
   // Wide eyes sitting high on the screen — reads as looking up, and pairs
   // with the head tilt from .is-gazing.
@@ -320,17 +556,53 @@ const FACES = {
 };
 
 function buildScrappy() {
+  const torso = { x: TORSO_X, y: TORSO_TOP, w: P.torsoW, h: P.torsoH, rx: 13 };
+  const head = { x: HEAD_X, y: HEAD_TOP, w: P.headW, h: P.headH, rx: 16 };
+  // Authored in unit space and shared with scripts/build-icon.js, so the tray
+  // icon rusts in the same places his real head does.
+  const headRust = WEAR.toSvg(WEAR.placeHeadRust(head));
   return `
 <svg class="scrappy-svg" viewBox="0 0 ${GEO.width} ${GEO.height}" aria-hidden="true">
   <ellipse class="scrappy-shadow" cx="${C}" cy="${GROUND + 3}" rx="26" ry="4.5" fill="#000" opacity="0.18"/>
   <g class="j-body">
     <!-- Depth order, back to front: far arm, far leg, torso, near leg, near arm. -->
-    ${arm("r", ARM_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5E6C8C")}
-    ${leg("r", LEG_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5E6C8C")}
+    ${arm("r", ARM_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5D6881", true)}
+    ${leg("r", LEG_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5D6881", true)}
 
     <g class="j-torso" style="${origin(C, TORSO_TOP + P.torsoH / 2)}">
-      <rect x="${TORSO_X}" y="${TORSO_TOP}" width="${P.torsoW}" height="${P.torsoH}" rx="13" fill="${INK.shellNear}"/>
+      <rect x="${torso.x}" y="${torso.y}" width="${torso.w}" height="${torso.h}" rx="${torso.rx}" fill="${INK.shellNear}"/>
+      <!-- His chest is two pressed halves welded together with an access
+           panel bolted between them. -->
+      ${built(
+        "b-torso",
+        `<rect x="${torso.x}" y="${torso.y}" width="${torso.w}" height="${torso.h}" rx="${torso.rx}"/>`,
+        seam(`M${n(TORSO_X + 3)} ${n(TORSO_TOP + P.torsoH * 0.16)} h${n(P.torsoW - 6)}`) +
+          seam(`M${n(TORSO_X + 3)} ${n(TORSO_BOTTOM - P.torsoH * 0.2)} h${n(P.torsoW - 6)}`) +
+          rivetRow(TORSO_X + 3.4, TORSO_TOP + P.torsoH * 0.16 - 2.6, 0, 0, 1) +
+          rivetRow(TORSO_X + P.torsoW - 3.4, TORSO_TOP + P.torsoH * 0.16 - 2.6, 0, 0, 1) +
+          rivetRow(TORSO_X + 3.4, TORSO_BOTTOM - 3.4, 0, 0, 1) +
+          rivetRow(TORSO_X + P.torsoW - 3.4, TORSO_BOTTOM - 3.4, 0, 0, 1)
+      )}
+      <!-- Rust creeps UP from the bottom lip: that's the edge that sits closest
+           to whatever he's standing in, and it puts the damage below the chest
+           panel rather than competing with the LEDs. -->
+      ${worn(
+        "w-torso",
+        `<rect x="${torso.x}" y="${torso.y}" width="${torso.w}" height="${torso.h}" rx="${torso.rx}"/>`,
+        WEAR.grime({ x: torso.x, y: TORSO_TOP + P.torsoH * 0.5, w: torso.w, h: P.torsoH * 0.5, rx: 6 }, { amount: 0.1, tier: 2 }) +
+          WEAR.rust({ x: TORSO_X + 2, y: TORSO_BOTTOM - 11, w: 19, h: 11 }, { seed: 71, tier: 2, lobes: 3, flecks: 5 }) +
+          WEAR.rust({ x: TORSO_X + P.torsoW - 19, y: TORSO_BOTTOM - 9, w: 17, h: 9 }, { seed: 72, tier: 2, lobes: 3, flecks: 4 }) +
+          WEAR.rust({ x: TORSO_X - 2, y: TORSO_TOP - 1, w: 14, h: 12 }, { seed: 74, tier: 3, lobes: 3, flecks: 5 }) +
+          WEAR.scratches(torso, { seed: 73, tier: 2, count: 3, axis: "x" }),
+        false
+      )}
       <rect x="${C - P.torsoW * 0.29 + YAW}" y="${TORSO_TOP + P.torsoH * 0.22}" width="${P.torsoW * 0.58}" height="${P.torsoH * 0.4}" rx="4" fill="${INK.panel}"/>
+      <g class="build">
+        ${rivet(C - P.torsoW * 0.29 + YAW + 1.9, TORSO_TOP + P.torsoH * 0.22 + 1.9, 0.62)}
+        ${rivet(C + P.torsoW * 0.29 + YAW - 1.9, TORSO_TOP + P.torsoH * 0.22 + 1.9, 0.62)}
+        ${rivet(C - P.torsoW * 0.29 + YAW + 1.9, TORSO_TOP + P.torsoH * 0.62 - 1.9, 0.62)}
+        ${rivet(C + P.torsoW * 0.29 + YAW - 1.9, TORSO_TOP + P.torsoH * 0.62 - 1.9, 0.62)}
+      </g>
       <g class="chest-lights" style="${origin(C + YAW, TORSO_TOP + P.torsoH * 0.42)}">
         <circle class="led led-1" cx="${C - P.torsoW * 0.14 + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledRed}"/>
         <circle class="led led-2" cx="${C + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledYellow}"/>
@@ -348,9 +620,27 @@ function buildScrappy() {
          the head's own silhouette covers. -->
     ${flexNeck()}
     <g class="j-head" style="${origin(C, HEAD_BOTTOM)}">
-      <rect x="${HEAD_X - 11}" y="${HEAD_TOP + P.headH * 0.32}" width="12" height="${P.headH * 0.38}" rx="5" fill="#48587A"/>
+      <rect x="${HEAD_X - 11}" y="${HEAD_TOP + P.headH * 0.32}" width="12" height="${P.headH * 0.38}" rx="5" fill="#48536D"/>
+      ${worn(
+        "w-ear",
+        `<rect x="${HEAD_X - 11}" y="${HEAD_TOP + P.headH * 0.32}" width="12" height="${P.headH * 0.38}" rx="5"/>`,
+        WEAR.rust(
+          { x: HEAD_X - 11, y: HEAD_TOP + P.headH * 0.4, w: 12, h: P.headH * 0.3 },
+          { seed: 81, tier: 3, lobes: 3, flecks: 4 }
+        ),
+        false
+      )}
       <rect x="${HEAD_X + P.headW - 2}" y="${HEAD_TOP + P.headH * 0.32}" width="7" height="${P.headH * 0.38}" rx="3.5" fill="${INK.shellFar}"/>
-      <rect x="${HEAD_X}" y="${HEAD_TOP}" width="${P.headW}" height="${P.headH}" rx="16" fill="${INK.shellNear}"/>
+      <rect x="${head.x}" y="${head.y}" width="${head.w}" height="${head.h}" rx="${head.rx}" fill="${INK.shellNear}"/>
+      <!-- Head rust goes here, UNDER the screen rect below it: anything that
+           laps onto the display gets covered rather than clipped by hand.
+           Rust on his face would read as a rendering bug, not as age. -->
+      ${worn(
+        "w-head",
+        `<rect x="${head.x}" y="${head.y}" width="${head.w}" height="${head.h}" rx="${head.rx}"/>`,
+        headRust,
+        false
+      )}
       <rect x="${S.x}" y="${S.y}" width="${S.w}" height="${S.h}" rx="10" fill="${INK.screen}"/>
       <clipPath id="scrappyScreenClip">
         <rect x="${S.x}" y="${S.y}" width="${S.w}" height="${S.h}" rx="10"/>
