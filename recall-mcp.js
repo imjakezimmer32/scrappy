@@ -1,4 +1,4 @@
-// A minimal MCP client so Scrappy can read Jake's Recall knowledge base.
+// A minimal MCP client so Scrappy can read the user's Recall knowledge base.
 //
 // Recall ships a stdio MCP server (`recall.exe --mcp`) that is safe to run
 // alongside the GUI — its own notes say WAL plus busy_timeout make concurrent

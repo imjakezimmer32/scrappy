@@ -2,7 +2,7 @@
 // Uses @cursor/sdk. Needs CURSOR_API_KEY in .env.local (from cursor.com/settings).
 //
 // Runs stay alive in a registry so Scrappy can resume them. Cloud runs (ids
-// starting with "bc-") also show up in Cursor's Agents Window so Jake can
+// starting with "bc-") also show up in Cursor's Agents Window so the user can
 // keep chatting there.
 
 const fs = require("fs");
@@ -82,7 +82,7 @@ function listAgents(options = 10) {
     );
   }
 
-  return agents.slice(0, limit).map(formatAgentForJake);
+  return agents.slice(0, limit).map(formatAgentForUser);
 }
 
 function missingApiKeyResponse() {
@@ -93,7 +93,7 @@ function missingApiKeyResponse() {
   };
 }
 
-function formatAgentForJake(entry, overrides = {}) {
+function formatAgentForUser(entry, overrides = {}) {
   if (!entry) return null;
   const status = overrides.status != null ? overrides.status : entry.status;
   const isRunning =
@@ -118,8 +118,8 @@ function formatAgentForJake(entry, overrides = {}) {
   };
 }
 
-function buildJakeSummary(entry, extras = {}) {
-  const formatted = formatAgentForJake(entry, {
+function buildUserSummary(entry, extras = {}) {
+  const formatted = formatAgentForUser(entry, {
     status: extras.effectiveStatus,
     isRunning: extras.isRunning,
   }) || {};
@@ -262,32 +262,43 @@ async function runAgentLoop(agentId, agent, run) {
   }
 }
 
+// Whoever is running Scrappy. main.js sets this at boot from the settings
+// store; kept as module state rather than an import so this file stays free of
+// an Electron dependency and remains testable on its own.
+let userName = "the user";
+
+function setUserName(name) {
+  const next = String(name || "").trim();
+  if (next) userName = next;
+}
+
 function buildPrompt(kind, goal) {
   const g = String(goal || "").trim();
+  const who = userName;
   const exhaustRule = [
     "Before stating you cannot do something, exhaust research and available capabilities.",
     "Try the direct approach first, then alternative tools, workarounds, or paths to the same goal.",
-    "Only say a task is impossible after documenting what you tried and the best alternative for Jake.",
+    `Only say a task is impossible after documenting what you tried and the best alternative for ${who}.`,
   ].join(" ");
   if (kind === "plan") {
     return [
-      "You are a planning agent started by Scrappy (Jake's desk robot).",
-      "Make a clear, practical plan. Do not implement code unless Jake asks.",
+      `You are a planning agent started by Scrappy (${who}'s desk robot).`,
+      `Make a clear, practical plan. Do not implement code unless ${who} asks.`,
       "Prefer short sections and concrete next steps.",
       exhaustRule,
       "",
-      "Jake's request:",
+      `${who}'s request:`,
       g,
     ].join("\n");
   }
   return [
-    "You are a research agent started by Scrappy (Jake's desk robot).",
+    `You are a research agent started by Scrappy (${who}'s desk robot).`,
     "Investigate the codebase / context. Summarize findings clearly.",
-    "Do not make code changes unless Jake explicitly asks you to.",
+    `Do not make code changes unless ${who} explicitly asks you to.`,
     "Prefer evidence (file paths, quotes) over guesses.",
     exhaustRule,
     "",
-    "Jake's request:",
+    `${who}'s request:`,
     g,
   ].join("\n");
 }
@@ -471,11 +482,11 @@ function agentStatus(id) {
   if (!agentId) return { ok: false, error: "missing_id" };
   const entry = getAgent(agentId);
   if (!entry) return { ok: false, error: "not_found", id: agentId };
-  const agent = formatAgentForJake(entry);
+  const agent = formatAgentForUser(entry);
   return {
     ok: true,
     agent,
-    summary: buildJakeSummary(entry),
+    summary: buildUserSummary(entry),
   };
 }
 
@@ -764,7 +775,7 @@ async function agentStatusDetailed({ id, apiKey, autoFixStale = true }) {
     return { ok: false, error: "not_found", id: agentId };
   }
 
-  const merged = formatAgentForJake(
+  const merged = formatAgentForUser(
     registry || {
       id: agentId,
       kind: null,
@@ -797,7 +808,7 @@ async function agentStatusDetailed({ id, apiKey, autoFixStale = true }) {
     id: agentId,
     agent: merged,
     live,
-    summary: buildJakeSummary(registry || merged, {
+    summary: buildUserSummary(registry || merged, {
       id: agentId,
       effectiveStatus,
       isRunning,
@@ -868,7 +879,7 @@ async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) 
   const registryById = new Map(loadRegistry().agents.map((a) => [a.id, a]));
   const agents = (result.items || []).map((info) => {
     const reg = registryById.get(info.agentId);
-    const merged = formatAgentForJake({
+    const merged = formatAgentForUser({
       ...(reg || {}),
       id: info.agentId,
       kind: reg?.kind || null,
@@ -889,7 +900,7 @@ async function listCloudAgents({ limit = 15, includeArchived = false, apiKey }) 
     ok: true,
     agents,
     count: agents.length,
-    hint: "These are Jake's cloud agents in Cursor. startedByScrappy=true means Scrappy started them.",
+    hint: "These are the user's cloud agents in Cursor. startedByScrappy=true means Scrappy started them.",
   };
 }
 
@@ -959,7 +970,7 @@ async function deleteAgent({ id, confirm, apiKey }) {
       ok: false,
       error: "need_confirm",
       message:
-        "Permanent delete needs confirm=true. Only use when Jake clearly asks to delete an agent forever.",
+        "Permanent delete needs confirm=true. Only use when the user clearly asks to delete an agent forever.",
     };
   }
 
@@ -1017,5 +1028,6 @@ module.exports = {
   deleteAgent,
   openAgentInBrowser,
   readApiKey,
+  setUserName,
   REGISTRY_PATH,
 };

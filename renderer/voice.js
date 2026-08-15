@@ -247,7 +247,7 @@ async function start(opts) {
   const wantMic = !opts || opts.mic !== false;
   if (active) {
     // Text-only sessions leave the socket open without a mic. Restart so
-    // voice clicks actually hear Jake.
+    // voice clicks actually hear the user.
     if (wantMic && !micStream) {
       stop();
     } else {

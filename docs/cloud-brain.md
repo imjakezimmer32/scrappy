@@ -6,7 +6,7 @@ The heavy “thinking” part can run on a **cloud API** so your GPU/RAM stay fr
 ## Quality rule
 
 Prefer a strong model. Do not default to the cheapest/fastest option when
-building Scrappy — Jake wants careful settings.
+building Scrappy — {{USER}} wants careful settings.
 
 ## Setup (OpenAI — recommended)
 
@@ -23,7 +23,7 @@ OPENAI_API_KEY=sk-your-key-here
 4. Restart Scrappy (or tray → **Switch brain → Cloud API**)
 
 `gpt-4o` is the quality default. `gpt-4o-mini` is only for temporary cost saving
-if Jake explicitly asks for it.
+if {{USER}} explicitly asks for it.
 
 ## Free/fast alternative (Groq)
 

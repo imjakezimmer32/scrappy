@@ -1,10 +1,10 @@
 // Scrappy process journal — timestamped record of every process lifecycle +
-// conversation beat + notes Jake adds by hand.
+// conversation beat + notes the user adds by hand.
 //
 // Files (gitignored):
 //   process-logs/YYYY-MM-DD.jsonl   — full day timeline
 //   process-logs/latest.jsonl       — same events, rolling mirror of "today"
-//   process-logs/ADD-NOTE-HERE.txt  — Jake drops notes here; we import them
+//   process-logs/ADD-NOTE-HERE.txt  — the user drops notes here; we import them
 //
 // Event shape:
 //   {
@@ -20,7 +20,15 @@ let inboxPath = null;
 let inboxTimer = null;
 let lastInboxHash = "";
 
-function init({ projectRoot }) {
+let userLabel = "user";
+
+function setUserName(name) {
+  const next = String(name || "").trim();
+  if (next) userLabel = next;
+}
+
+function init({ projectRoot, userName }) {
+  if (userName) setUserName(userName);
   rootDir = path.join(projectRoot, "process-logs");
   try {
     fs.mkdirSync(rootDir, { recursive: true });
@@ -173,7 +181,7 @@ function note(text, { by = "user", reason, meta } = {}) {
   return record({
     kind: "note",
     type: "user_note",
-    name: "jake",
+    name: userLabel,
     text: line,
     by,
     reason: reason || "manual note",
@@ -210,7 +218,7 @@ async function importInbox() {
   const text = lines.join("\n").trim();
   if (!text) return;
   note(text, { by: "user", reason: "ADD-NOTE-HERE.txt" });
-  // Reset template so Jake can drop another note without duplicating.
+  // Reset template so the user can drop another note without duplicating.
   ensureInboxFresh();
   lastInboxHash = "";
 }
@@ -241,9 +249,9 @@ function openInboxForUser() {
     record({
       kind: "note",
       type: "inbox_opened",
-      name: "jake",
+      name: userLabel,
       by: "tray",
-      reason: "Opened ADD-NOTE-HERE.txt for Jake",
+      reason: "Opened ADD-NOTE-HERE.txt",
     });
     return { ok: true, path: inboxPath };
   } catch (err) {
@@ -313,6 +321,7 @@ function inbox() {
 
 module.exports = {
   init,
+  setUserName,
   record,
   started,
   stopped,

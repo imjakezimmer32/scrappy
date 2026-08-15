@@ -2,7 +2,7 @@
 
 ## Quality first (standing rule)
 
-Jake’s rule: **do not rush Scrappy.** Prefer careful settings and careful build
+The rule: **do not rush Scrappy.** Prefer careful settings and careful build
 decisions over “fast enough.” Hearing, personality, tools, and architecture
 should optimize for being right — not for finishing first.
 
@@ -46,7 +46,7 @@ Casual "hey there Scrappy / how's it going" stays on the fast brain.
 Scrappy listens with **faster-whisper** on your CPU.
 
 Default is **`large-v3`** with careful decode settings (`int8_float32`, beam 8).
-This is slower than tiny models on purpose — hearing Jake correctly matters more
+This is slower than tiny models on purpose — hearing the user correctly matters more
 than answering in a hurry. First launch after a model change can take a few
 minutes while it downloads/warms.
 
@@ -56,7 +56,7 @@ WHISPER_COMPUTE=int8_float32
 WHISPER_BEAM=8
 ```
 
-Avoid `base` / `small` unless Jake explicitly asks for a temporary speed trade.
+Avoid `base` / `small` unless the user explicitly asks for a temporary speed trade.
 
 Also tunable:
 ```

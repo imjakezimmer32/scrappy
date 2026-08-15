@@ -13,8 +13,17 @@ const crypto = require("crypto");
 
 let projectDir = null;
 let userDataDir = null;
+// Whoever is running Scrappy, for transcript labels. Set from the settings
+// store at boot; kept as module state so this file needs no Electron import.
+let userLabel = "You";
 
-function init({ projectRoot, userData }) {
+function setUserName(name) {
+  const next = String(name || "").trim();
+  if (next) userLabel = next;
+}
+
+function init({ projectRoot, userData, userName }) {
+  if (userName) setUserName(userName);
   projectDir = path.join(projectRoot, "conversations");
   userDataDir = path.join(userData, "conversations");
   for (const dir of [projectDir, userDataDir]) {
@@ -95,7 +104,10 @@ function readEvents(sessionId, limit = 5000) {
 
 function buildMeta(sessionId, extra = {}) {
   const events = readEvents(sessionId);
-  const users = events.filter((e) => e.type === "user" || e.role === "jake");
+  // "jake" is the pre-rename role for the human. Kept in the read path so
+  // sessions recorded before Scrappy became multi-user still count their turns.
+  const isHuman = (e) => e.type === "user" || e.role === "user" || e.role === "jake";
+  const users = events.filter(isHuman);
   const assistants = events.filter((e) => e.type === "assistant" || e.role === "scrappy");
   const tools = events.filter((e) => e.type === "tool");
   const errors = events.filter((e) => e.type === "error" || e.type === "recover" || e.type === "turn_error");
@@ -104,7 +116,7 @@ function buildMeta(sessionId, extra = {}) {
   const end = events[events.length - 1]?.ts || null;
   const transcript = [];
   for (const e of events) {
-    if (e.type === "user" || e.role === "jake") transcript.push({ role: "jake", text: e.text || "", ts: e.ts });
+    if (isHuman(e)) transcript.push({ role: "user", text: e.text || "", ts: e.ts });
     if (e.type === "assistant" || e.role === "scrappy") {
       transcript.push({
         role: "scrappy",
@@ -122,7 +134,7 @@ function buildMeta(sessionId, extra = {}) {
     duration_sec: start && end ? Math.max(0, Math.round(end - start)) : null,
     backend: extra.backend || events.find((e) => e.backend)?.backend || null,
     model: extra.model || events.find((e) => e.model)?.model || null,
-    turns_jake: users.length,
+    turns_user: users.length,
     turns_scrappy: assistants.length,
     tool_calls: tools.length,
     errors: errors.length,
@@ -155,7 +167,7 @@ function endSession(sessionId, extra = {}) {
     started_at: meta.started_at,
     ended_at: meta.ended_at,
     duration_sec: meta.duration_sec,
-    turns_jake: meta.turns_jake,
+    turns_user: meta.turns_user,
     turns_scrappy: meta.turns_scrappy,
     backend: meta.backend,
     model: meta.model,
@@ -202,7 +214,8 @@ function formatSessionList(sessions) {
       // Sessions written before the rename carry turns_cog; fall back to it so
       // old rows don't all report zero assistant turns.
       const turns = s.turns_scrappy ?? s.turns_cog ?? 0;
-      return `${s.session_id} | ${s.started_at || "?"} | jake=${s.turns_jake || 0} scrappy=${turns} | ${s.backend || "?"} | ${s.model || "?"}`;
+      const human = s.turns_user ?? s.turns_jake ?? 0;
+      return `${s.session_id} | ${s.started_at || "?"} | user=${human} scrappy=${turns} | ${s.backend || "?"} | ${s.model || "?"}`;
     })
     .join("\n");
 }
@@ -212,7 +225,7 @@ function formatTranscript(meta, maxTurns = 40) {
   const lines = [`Session ${meta.session_id}`, `Started ${meta.started_at || "?"}`, ""];
   const turns = (meta.transcript || []).slice(-maxTurns);
   for (const t of turns) {
-    lines.push(`${t.role === "jake" ? "Jake" : "Scrappy"}: ${t.text || ""}`);
+    lines.push(`${t.role === "scrappy" ? "Scrappy" : userLabel}: ${t.text || ""}`);
   }
   return lines.join("\n");
 }
@@ -223,6 +236,7 @@ function projectPath() {
 
 module.exports = {
   init,
+  setUserName,
   newSessionId,
   recordEvent,
   endSession,

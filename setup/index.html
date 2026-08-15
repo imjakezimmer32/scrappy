@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'" />
+    <title>Set up Scrappy</title>
+    <link rel="stylesheet" href="setup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Set up Scrappy</h1>
+      <p class="sub">He works without any of this. Fill in what you want him to be able to do.</p>
+    </header>
+
+    <main>
+      <section>
+        <h2>Your name</h2>
+        <p class="hint">What he calls you. Defaults to your Windows account name.</p>
+        <input id="SCRAPPY_USER_NAME" type="text" autocomplete="off" spellcheck="false" placeholder="you" />
+      </section>
+
+      <section>
+        <h2>His brain</h2>
+        <p class="hint">Where his thinking happens. Cloud is faster to set up; local is free and private.</p>
+        <div class="choices">
+          <label><input type="radio" name="brain" value="cloud" /> <span>Cloud API<em>needs a key below</em></span></label>
+          <label><input type="radio" name="brain" value="ollama" /> <span>Local (Ollama)<em>runs on your machine</em></span></label>
+        </div>
+
+        <div class="group" data-when-brain="cloud">
+          <label class="field">
+            <span>Model</span>
+            <input id="SCRAPPY_LLM_MODEL" type="text" autocomplete="off" spellcheck="false" placeholder="gpt-4o" />
+          </label>
+          <label class="field">
+            <span>OpenAI key</span>
+            <input id="OPENAI_API_KEY" type="password" autocomplete="off" data-secret placeholder="sk-…" />
+          </label>
+          <label class="field">
+            <span>Groq key <em>optional</em></span>
+            <input id="GROQ_API_KEY" type="password" autocomplete="off" data-secret placeholder="gsk-…" />
+          </label>
+        </div>
+
+        <div class="group" data-when-brain="ollama">
+          <label class="field">
+            <span>Fast model</span>
+            <input id="OLLAMA_MODEL" type="text" autocomplete="off" spellcheck="false" placeholder="qwen2.5:7b" />
+          </label>
+          <label class="field">
+            <span>Thinking model</span>
+            <input id="OLLAMA_THINK_MODEL" type="text" autocomplete="off" spellcheck="false" placeholder="deepseek-r1:14b" />
+          </label>
+          <p class="hint">
+            Needs Ollama installed and the local voice stack set up
+            (<code>npm run setup-local-voice</code>).
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2>His voice</h2>
+        <p class="hint">Leave this alone and he stays text-only — he still works, he just won't talk.</p>
+        <div class="choices">
+          <label><input type="radio" name="voice" value="auto" /> <span>Auto<em>local if installed, else ElevenLabs</em></span></label>
+          <label><input type="radio" name="voice" value="elevenlabs" /> <span>ElevenLabs<em>needs a key</em></span></label>
+          <label><input type="radio" name="voice" value="local" /> <span>Local<em>Whisper + Kokoro</em></span></label>
+        </div>
+
+        <div class="group" data-when-voice="elevenlabs auto">
+          <label class="field">
+            <span>ElevenLabs key</span>
+            <input id="ELEVENLABS_API_KEY" type="password" autocomplete="off" data-secret placeholder="…" />
+          </label>
+          <p class="hint">
+            Save the key first, then build his agent — this uploads his personality to
+            ElevenLabs. Takes a few seconds.
+          </p>
+          <button id="build-voice" type="button" class="secondary">Build his voice agent</button>
+          <pre id="build-output" class="output" hidden></pre>
+        </div>
+
+        <label class="check">
+          <input id="SCRAPPY_WAKE_WORD" type="checkbox" />
+          <span>Listen for "hey there Scrappy"<em>only works once voice is set up</em></span>
+        </label>
+      </section>
+
+      <section>
+        <h2>Cursor</h2>
+        <p class="hint">Lets him know when an agent finishes, and start agents for you.</p>
+        <label class="field">
+          <span>Cursor API key <em>optional</em></span>
+          <input id="CURSOR_API_KEY" type="password" autocomplete="off" data-secret placeholder="…" />
+        </label>
+      </section>
+
+      <p id="warning" class="warning" hidden>
+        Windows wouldn't give me its credential store, so keys are saved unencrypted in your
+        user folder. Everything still works — they're just not protected at rest.
+      </p>
+    </main>
+
+    <footer>
+      <span id="status" class="status" role="status"></span>
+      <button id="save" type="button" class="primary">Save</button>
+    </footer>
+
+    <script src="setup.js"></script>
+  </body>
+</html>

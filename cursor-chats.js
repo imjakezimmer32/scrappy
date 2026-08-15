@@ -1,4 +1,4 @@
-// Read Jake's Cursor chats from the local conversation search index and
+// Read the user's Cursor chats from the local conversation search index and
 // agent transcript files. Read-only — never modifies Cursor state.
 
 const fs = require("fs");

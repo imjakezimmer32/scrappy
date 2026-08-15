@@ -4,7 +4,7 @@
 //   npm run setup-voice
 //
 // Uploads personality.md as the system prompt and registers Recall client
-// tools so Scrappy can search/save/complete against Jake's local Recall MCP.
+// tools so Scrappy can search/save/complete against the user's local Recall MCP.
 
 const fs = require("fs");
 const path = require("path");
@@ -13,9 +13,37 @@ const ENV_PATH = path.join(__dirname, "..", ".env.local");
 const PERSONA_PATH = path.join(__dirname, "..", "personality.md");
 const DEFAULT_VOICE_ID = "KQem9e29QRWURqusQZoF";
 
+// Who Scrappy is being set up for. This script runs as plain node, outside
+// Electron, so it can't reach the encrypted settings store — but the name isn't
+// a secret and sits in the clear in settings.json, so it can be read directly.
+// When Scrappy launches this himself the name arrives in the environment.
+function userName() {
+  if (process.env.SCRAPPY_USER_NAME) return process.env.SCRAPPY_USER_NAME;
+  try {
+    const appData =
+      process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Roaming");
+    const store = JSON.parse(fs.readFileSync(path.join(appData, "scrappy", "settings.json"), "utf8"));
+    if (store.values && store.values.SCRAPPY_USER_NAME) return store.values.SCRAPPY_USER_NAME;
+  } catch {
+    // no store yet
+  }
+  const env = readEnv();
+  if (env.SCRAPPY_USER_NAME) return env.SCRAPPY_USER_NAME;
+  try {
+    const raw = require("os").userInfo().username || "";
+    const first = raw.split(/[.\-_\\ ]/)[0];
+    if (first) return first.charAt(0).toUpperCase() + first.slice(1);
+  } catch {
+    // fall through
+  }
+  return "you";
+}
+
+// personality.md ships with a {{USER}} placeholder — upload it filled in, or
+// the agent literally calls people "{{USER}}".
 function persona() {
   try {
-    return fs.readFileSync(PERSONA_PATH, "utf8");
+    return fs.readFileSync(PERSONA_PATH, "utf8").split("{{USER}}").join(userName());
   } catch {
     console.error("Could not read personality.md next to package.json.");
     process.exit(1);
@@ -79,7 +107,7 @@ function recallTools() {
   return [
     clientTool(
       "recall_search",
-      "Search Jake's Recall notes and connected repo brains. Use when he asks what he said, decided, or worked on, or when you need facts from memory.",
+      "Search the user's Recall notes and connected repo brains. Use when they ask what they said, decided, or worked on, or when you need facts from memory.",
       {
         query: str("What to look for"),
         limit: integer("Max results (default 10)"),
@@ -90,7 +118,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_ask",
-      "Ask a natural-language question against Jake's notes and get an answer grounded in them.",
+      "Ask a natural-language question against the user's notes and get an answer grounded in them.",
       { question: str("The question to answer from notes") },
       ["question"]
     ),
@@ -111,13 +139,13 @@ function recallTools() {
     ),
     clientTool(
       "recall_live_context",
-      "What Jake said out loud in the last N minutes from the live Recall recording.",
+      "What the user said out loud in the last N minutes from the live Recall recording.",
       { minutes: integer("Minutes back (default 10)") },
       []
     ),
     clientTool(
       "recall_open_actions",
-      "Open tasks from Jake's Recall Tasks board (same source as the UI). Response includes total_open (the real full count — often hundreds), counts_by_project, and up to `limit` rows (default 50). Filter with `project` (name or id, e.g. ArrayBud). Always report total_open when asked how many tasks exist; never invent a smaller number from a truncated list.",
+      "Open tasks from the user's Recall Tasks board (same source as the UI). Response includes total_open (the real full count — often hundreds), counts_by_project, and up to `limit` rows (default 50). Filter with `project` (name or id). Always report total_open when asked how many tasks exist; never invent a smaller number from a truncated list.",
       {
         limit: integer("Max rows to return (default 50, max 200)"),
         project: str("Optional project id/name/alias filter"),
@@ -135,10 +163,10 @@ function recallTools() {
       []
     ),
     clientTool("recall_brains", "List connected Recall brains and their status.", {}, []),
-    clientTool("recall_projects", "List Jake's projects (ArrayBud, Scrappy, etc).", {}, []),
+    clientTool("recall_projects", "List the user's projects.", {}, []),
     clientTool(
       "recall_save_note",
-      "WRITE: create a note in Recall. Use when Jake asks to remember something, OR quietly when he shares a lasting preference, decision, or relationship fact worth keeping. File those under project Scrappy with tags like scrappy, relationship, preference. Pass tags as a comma-separated string. Do not ask permission for quiet preference saves — just do it.",
+      "WRITE: create a note in Recall. Use when the user asks to remember something, OR quietly when they share a lasting preference, decision, or relationship fact worth keeping. File those under project Scrappy with tags like scrappy, relationship, preference. Pass tags as a comma-separated string. Do not ask permission for quiet preference saves — just do it.",
       {
         title: str("Short note title"),
         summary: str("Note body / summary"),
@@ -149,7 +177,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_complete_action",
-      "WRITE: check off a task as DONE on the Tasks board. Prefer this whenever Jake says something is finished, done, completed, or taken care of. Pass note_id and text exactly from recall_open_actions. This is completing — not dismissing.",
+      "WRITE: check off a task as DONE on the Tasks board. Prefer this whenever the user says something is finished, done, completed, or taken care of. Pass note_id and text exactly from recall_open_actions. This is completing — not dismissing.",
       {
         note_id: str("Note id from recall_open_actions"),
         text: str("Exact action text"),
@@ -168,7 +196,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_dismiss_action",
-      "WRITE: permanently delete a task so it never comes back. Only when Jake explicitly wants it gone forever — not when he means the work is finished. Finished work uses recall_complete_action.",
+      "WRITE: permanently delete a task so it never comes back. Only when the user explicitly wants it gone forever — not when they mean the work is finished. Finished work uses recall_complete_action.",
       {
         note_id: str("Note id"),
         text: str("Exact action text"),
@@ -195,7 +223,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_trash_note",
-      "WRITE: soft-trash or restore a note. Only when Jake asks.",
+      "WRITE: soft-trash or restore a note. Only when the user asks.",
       {
         id: str("Note id"),
         trashed: bool("true to trash, false to restore"),
@@ -204,7 +232,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_add_project",
-      "WRITE: create a project. Only when Jake asks. Pass aliases as a comma-separated string.",
+      "WRITE: create a project. Only when the user asks. Pass aliases as a comma-separated string.",
       {
         name: str("Project name"),
         aliases: str("Optional comma-separated aliases"),
@@ -213,7 +241,7 @@ function recallTools() {
     ),
     clientTool(
       "recall_update_project",
-      "WRITE: update a project name/aliases/brain. Only when Jake asks. Pass aliases as a comma-separated string.",
+      "WRITE: update a project name/aliases/brain. Only when the user asks. Pass aliases as a comma-separated string.",
       {
         id: str("Project id"),
         name: str("Display name"),
@@ -224,13 +252,13 @@ function recallTools() {
     ),
     clientTool(
       "recall_remove_project",
-      "WRITE: delete a project. Only when Jake explicitly asks.",
+      "WRITE: delete a project. Only when the user explicitly asks.",
       { id: str("Project id") },
       ["id"]
     ),
     clientTool(
       "recall_connect_brain",
-      "WRITE: index a folder as a new repo brain. Only when Jake asks.",
+      "WRITE: index a folder as a new repo brain. Only when the user asks.",
       {
         name: str("Display name"),
         path: str("Absolute folder path"),
@@ -239,13 +267,13 @@ function recallTools() {
     ),
     clientTool(
       "recall_remove_brain",
-      "WRITE: disconnect a repo brain (not notes). Only when Jake asks.",
+      "WRITE: disconnect a repo brain (not notes). Only when the user asks.",
       { id: str("Brain id") },
       ["id"]
     ),
     clientTool(
       "process_recent",
-      "Read Scrappy's timestamped process journal: starts, stops, kills, restarts, wake events. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
+      "Read Scrappy's timestamped process journal: starts, stops, kills, restarts, wake events. Use when the user asks what crashed, what killed what, or what just happened under the hood.",
       {
         limit: integer("Max events (default 40)"),
         kind: str('Optional filter: "process", "conversation", "note", "system"'),
@@ -288,7 +316,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_start_agent",
-      "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so Jake can keep chatting there.",
+      "Start a Cursor agent for planning or research. Returns an agent id immediately (work continues in the background). Prefer kind=research or kind=plan. Cloud agents appear in Cursor's Agents Window so the user can keep chatting there.",
       {
         goal: str("What to plan or research"),
         kind: str('"plan" or "research" (default research)'),
@@ -321,13 +349,13 @@ function recallTools() {
     ),
     clientTool(
       "cursor_running_agents",
-      "Quick list of agents that are working right now. Use when Jake asks what's running or busy.",
+      "Quick list of agents that are working right now. Use when the user asks what's running or busy.",
       { limit: integer("How many to list (default 10)") },
       []
     ),
     clientTool(
       "cursor_list_cloud_agents",
-      "List Jake's cloud agents from Cursor (not just ones Scrappy started). Good overview of everything in the Agents window.",
+      "List the user's cloud agents from Cursor (not just ones Scrappy started). Good overview of everything in the Agents window.",
       {
         limit: integer("How many to list (default 15)"),
         include_archived: bool("Include archived agents"),
@@ -336,43 +364,43 @@ function recallTools() {
     ),
     clientTool(
       "cursor_agent_status",
-      "Check a Cursor agent by id. Always refreshes live status from Cursor and returns a short summary Jake can understand.",
+      "Check a Cursor agent by id. Always refreshes live status from Cursor and returns a short summary the user can understand.",
       { id: str("Agent id") },
       ["id"]
     ),
     clientTool(
       "cursor_agent_details",
-      "Deep check on a Cursor agent — live run status, recent runs, and what Jake should do next. Prefer this when Jake asks for details.",
+      "Deep check on a Cursor agent — live run status, recent runs, and what the user should do next. Prefer this when the user asks for details.",
       { id: str("Agent id") },
       ["id"]
     ),
     clientTool(
       "cursor_open_agent",
-      "Open the Cursor Agents page for this agent in the browser so Jake can continue the chat in Cursor.",
+      "Open the Cursor Agents page for this agent in the browser so the user can continue the chat in Cursor.",
       { id: str("Agent id") },
       ["id"]
     ),
     clientTool(
       "cursor_stop_agent",
-      "Stop/cancel a running Cursor agent by id. Use when Jake says stop or cancel. Gracefully ends the current run; Jake can restart later.",
+      "Stop/cancel a running Cursor agent by id. Use when the user says stop or cancel. Gracefully ends the current run; the user can restart later.",
       { id: str("Agent id to stop") },
       ["id"]
     ),
     clientTool(
       "cursor_kill_agent",
-      "Same as cursor_stop_agent. Use when Jake says kill an agent — stops the current run gracefully (does not delete the agent).",
+      "Same as cursor_stop_agent. Use when the user says kill an agent — stops the current run gracefully (does not delete the agent).",
       { id: str("Agent id to stop") },
       ["id"]
     ),
     clientTool(
       "cursor_pause_agent",
-      "Pause a running agent (same as stop in Cursor). Use when Jake says pause. Tell him he can restart with cursor_restart_agent.",
+      "Pause a running agent (same as stop in Cursor). Use when the user says pause. Tell them they can restart with cursor_restart_agent.",
       { id: str("Agent id to pause") },
       ["id"]
     ),
     clientTool(
       "cursor_restart_agent",
-      "Restart a stopped or finished agent — stops any active run, then sends a fresh continue message in the background. Use when Jake says restart or try again.",
+      "Restart a stopped or finished agent — stops any active run, then sends a fresh continue message in the background. Use when the user says restart or try again.",
       {
         id: str("Agent id"),
         message: str("Optional new instruction (defaults to original goal)"),
@@ -381,7 +409,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_archive_agent",
-      "Archive a cloud agent (bc-...). Hides it from the main Cursor list but keeps history. Cloud only. Use when Jake is done and wants it out of the way.",
+      "Archive a cloud agent (bc-...). Hides it from the main Cursor list but keeps history. Cloud only. Use when the user is done and wants it out of the way.",
       { id: str("Cloud agent id") },
       ["id"]
     ),
@@ -393,7 +421,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_delete_agent",
-      "Permanently delete an agent. DESTRUCTIVE — only when Jake clearly asks to delete forever. Must pass confirm=true.",
+      "Permanently delete an agent. DESTRUCTIVE — only when the user clearly asks to delete forever. Must pass confirm=true.",
       {
         id: str("Agent id"),
         confirm: bool("Must be true — safety check"),
@@ -402,7 +430,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_list_chats",
-      "List Jake's recent Cursor chats (titles + ids) across his projects — not only agents Scrappy started. Use when he asks what he's been working on in Cursor.",
+      "List the user's recent Cursor chats (titles + ids) across their projects — not only agents Scrappy started. Use when they ask what they've been working on in Cursor.",
       {
         limit: integer("How many chats (default 15)"),
         include_archived: bool("Include archived chats"),
@@ -411,7 +439,7 @@ function recallTools() {
     ),
     clientTool(
       "cursor_search_chats",
-      "Search Jake's Cursor chat history by keywords. Returns matching titles and short snippets.",
+      "Search the user's Cursor chat history by keywords. Returns matching titles and short snippets.",
       {
         query: str("What to search for"),
         limit: integer("Max results (default 10)"),

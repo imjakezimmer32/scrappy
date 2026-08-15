@@ -12,6 +12,8 @@ const wakeListener = require("./wake-listener");
 const localVoice = require("./local-voice-launcher");
 const processJournal = require("./process-journal");
 const conversationStore = require("./conversation-store");
+const settings = require("./settings");
+const persona = require("./persona");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -43,8 +45,7 @@ function savePrefs() {
 let activeConversationId = null;
 
 function minDurationMs() {
-  const file = readEnvFile();
-  const raw = process.env.SCRAPPY_NUDGE_MIN_DURATION_MS || file.SCRAPPY_NUDGE_MIN_DURATION_MS;
+  const raw = settings.get("SCRAPPY_NUDGE_MIN_DURATION_MS", "");
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 0) return n;
   return 2 * 60 * 1000;
@@ -148,120 +149,106 @@ function pushLayout() {
 // The ElevenLabs key lives here in the main process and never crosses into
 // the renderer. The renderer only ever receives a signed URL that expires.
 
-function readEnvFile() {
-  const out = {};
-  const file = path.join(__dirname, ".env.local");
-  try {
-    if (!fs.existsSync(file)) return out;
-    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq < 1) continue;
-      out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-    }
-  } catch (err) {
-    console.error("Could not read .env.local:", err.message);
-  }
-  return out;
-}
+// All of these now read through settings.js, which resolves
+// process.env > settings store > .env.local > default. Reading the env file
+// directly here would skip whatever the setup panel wrote.
+const readEnvFile = settings.readEnvFile;
 
 function wakeWordEnabled() {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_WAKE_WORD || file.SCRAPPY_WAKE_WORD || "on").toLowerCase();
-  return !(setting === "off" || setting === "false" || setting === "0");
+  return settings.getBool("SCRAPPY_WAKE_WORD", true);
 }
 
 function voiceBackendPref() {
-  const file = readEnvFile();
-  return (process.env.VOICE_BACKEND || file.VOICE_BACKEND || "auto").toLowerCase();
+  return settings.getLower("VOICE_BACKEND");
 }
 
 function ollamaModel() {
-  const file = readEnvFile();
-  return process.env.OLLAMA_MODEL || file.OLLAMA_MODEL || "qwen2.5:7b";
+  return settings.get("OLLAMA_MODEL");
 }
 
 function ollamaThinkModel() {
-  const file = readEnvFile();
-  return process.env.OLLAMA_THINK_MODEL || file.OLLAMA_THINK_MODEL || "deepseek-r1:14b";
+  return settings.get("OLLAMA_THINK_MODEL");
 }
 
 function ollamaThinkMode() {
-  const file = readEnvFile();
-  return (process.env.OLLAMA_THINK_MODE || file.OLLAMA_THINK_MODE || "auto").toLowerCase();
+  return settings.getLower("OLLAMA_THINK_MODE");
 }
 
 function llmBackendPref() {
-  const file = readEnvFile();
-  return (process.env.SCRAPPY_LLM_BACKEND || file.SCRAPPY_LLM_BACKEND || "cloud").toLowerCase();
+  return settings.getLower("SCRAPPY_LLM_BACKEND");
 }
 
 function llmCloudModel() {
-  const file = readEnvFile();
-  return process.env.SCRAPPY_LLM_MODEL || file.SCRAPPY_LLM_MODEL || "gpt-4o";
+  return settings.get("SCRAPPY_LLM_MODEL");
 }
 
 function llmCloudKeyPresent() {
-  const file = readEnvFile();
-  return Boolean(
-    process.env.SCRAPPY_LLM_API_KEY ||
-      file.SCRAPPY_LLM_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      file.OPENAI_API_KEY ||
-      process.env.GROQ_API_KEY ||
-      file.GROQ_API_KEY
+  return (
+    settings.isSet("SCRAPPY_LLM_API_KEY") ||
+    settings.isSet("OPENAI_API_KEY") ||
+    settings.isSet("GROQ_API_KEY")
   );
+}
+
+// cursor-agents.js takes a plain {KEY: value} bag so it stays free of an
+// Electron import. Feed it from the settings store rather than the env file, or
+// a key typed into the setup panel is invisible to it.
+function cursorKeySource() {
+  return {
+    CURSOR_API_KEY: settings.get("CURSOR_API_KEY", ""),
+    CURSOR_SDK_API_KEY: settings.get("CURSOR_SDK_API_KEY", ""),
+  };
+}
+
+// One place that pushes the configured name into every module that bakes it
+// into text — prompts, transcripts, journal entries.
+function applyUserName() {
+  const name = settings.userName();
+  cursorAgents.setUserName(name);
+  conversationStore.setUserName(name);
+  processJournal.setUserName(name);
+  return name;
 }
 
 function localVoiceEnv() {
   ensureToken();
-  const file = readEnvFile();
+  const g = settings.get;
   return {
     OLLAMA_MODEL: ollamaModel(),
     OLLAMA_THINK_MODEL: ollamaThinkModel(),
     OLLAMA_THINK_MODE: ollamaThinkMode(),
     SCRAPPY_LLM_BACKEND: llmBackendPref(),
     SCRAPPY_LLM_MODEL: llmCloudModel(),
-    SCRAPPY_LLM_THINK_MODEL:
-      process.env.SCRAPPY_LLM_THINK_MODEL || file.SCRAPPY_LLM_THINK_MODEL || llmCloudModel(),
-    SCRAPPY_LLM_BASE_URL: process.env.SCRAPPY_LLM_BASE_URL || file.SCRAPPY_LLM_BASE_URL || "",
-    SCRAPPY_LLM_API_KEY: process.env.SCRAPPY_LLM_API_KEY || file.SCRAPPY_LLM_API_KEY || "",
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || file.OPENAI_API_KEY || "",
-    GROQ_API_KEY: process.env.GROQ_API_KEY || file.GROQ_API_KEY || "",
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || file.OPENAI_BASE_URL || "",
-    SCRAPPY_TTS_VOICE: process.env.SCRAPPY_TTS_VOICE || file.SCRAPPY_TTS_VOICE || "am_michael",
+    SCRAPPY_LLM_THINK_MODEL: g("SCRAPPY_LLM_THINK_MODEL", "") || llmCloudModel(),
+    SCRAPPY_LLM_BASE_URL: g("SCRAPPY_LLM_BASE_URL", ""),
+    SCRAPPY_LLM_API_KEY: g("SCRAPPY_LLM_API_KEY", ""),
+    OPENAI_API_KEY: g("OPENAI_API_KEY", ""),
+    GROQ_API_KEY: g("GROQ_API_KEY", ""),
+    OPENAI_BASE_URL: g("OPENAI_BASE_URL", ""),
+    SCRAPPY_TTS_VOICE: g("SCRAPPY_TTS_VOICE"),
     // Ears: quality-first Whisper (large-v3). Never default back to tiny models.
-    WHISPER_MODEL: process.env.WHISPER_MODEL || file.WHISPER_MODEL || "large-v3",
-    WHISPER_COMPUTE:
-      process.env.WHISPER_COMPUTE || file.WHISPER_COMPUTE || "int8_float32",
-    WHISPER_BEAM: process.env.WHISPER_BEAM || file.WHISPER_BEAM || "8",
-    SCRAPPY_VAD_SILENCE_MS:
-      process.env.SCRAPPY_VAD_SILENCE_MS || file.SCRAPPY_VAD_SILENCE_MS || "1300",
-    SCRAPPY_VAD_ENERGY: process.env.SCRAPPY_VAD_ENERGY || file.SCRAPPY_VAD_ENERGY || "0.008",
-    SCRAPPY_TOOL_ROUNDS: process.env.SCRAPPY_TOOL_ROUNDS || file.SCRAPPY_TOOL_ROUNDS || "6",
-    SCRAPPY_WHISPER_PROMPT: process.env.SCRAPPY_WHISPER_PROMPT || file.SCRAPPY_WHISPER_PROMPT || "",
-    SCRAPPY_PERSONA: path.join(__dirname, "personality.md"),
+    WHISPER_MODEL: g("WHISPER_MODEL"),
+    WHISPER_COMPUTE: g("WHISPER_COMPUTE"),
+    WHISPER_BEAM: g("WHISPER_BEAM"),
+    SCRAPPY_VAD_SILENCE_MS: g("SCRAPPY_VAD_SILENCE_MS"),
+    SCRAPPY_VAD_ENERGY: g("SCRAPPY_VAD_ENERGY"),
+    SCRAPPY_TOOL_ROUNDS: g("SCRAPPY_TOOL_ROUNDS"),
+    SCRAPPY_WHISPER_PROMPT: g("SCRAPPY_WHISPER_PROMPT", ""),
+    // The rendered persona, not the raw template — otherwise the local brain
+    // reads "{{USER}}" out loud and calls everyone that.
+    SCRAPPY_PERSONA: persona.renderToFile(settings.userName(), app.getPath("userData")),
     // Local Python voice talks back to Electron for Recall tools/memory.
     SCRAPPY_URL: `http://${HOST}:${PORT}`,
     SCRAPPY_TOKEN: localToken || "",
   };
 }
 
+// Was: rewrite .env.local in place. Now it writes to the settings store
+// instead. Two writers on one file is how a key you pasted thirty seconds ago
+// disappears — .env.local is read-only from here on, and still read first for
+// anyone who set it up that way.
 function writeEnvKey(key, value) {
-  const file = path.join(__dirname, ".env.local");
-  let lines = [];
-  try {
-    if (fs.existsSync(file)) lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  } catch {
-    lines = [];
-  }
-  const re = new RegExp(`^\\s*${key}\\s*=`);
-  const next = lines.filter((line) => line.trim() && !re.test(line));
-  next.push(`${key}=${value}`);
-  // Avoid UTF-8 BOM so keys like ELEVENLABS_API_KEY stay readable.
-  fs.writeFileSync(file, `${next.join("\n").replace(/\n*$/, "\n")}`, "utf8");
-  process.env[key] = value;
+  settings.set(key, value);
 }
 
 function setLocalModel(model) {
@@ -362,10 +349,9 @@ const THINK_MODEL_CHOICES = [
 
 
 function voiceConfig() {
-  const file = readEnvFile();
   return {
-    apiKey: process.env.ELEVENLABS_API_KEY || file.ELEVENLABS_API_KEY || "",
-    agentId: process.env.ELEVENLABS_AGENT_ID || file.ELEVENLABS_AGENT_ID || "",
+    apiKey: settings.get("ELEVENLABS_API_KEY", ""),
+    agentId: settings.get("ELEVENLABS_AGENT_ID", ""),
   };
 }
 
@@ -538,6 +524,11 @@ function rebuildTray() {
     {
       label: "Test nudge",
       click: () => triggerGrow({ force: true, source: "tray" }),
+    },
+    { type: "separator" },
+    {
+      label: "Set up Scrappy…",
+      click: () => openSetupWindow(),
     },
     { type: "separator" },
     {
@@ -1016,8 +1007,7 @@ function startServer() {
         res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
         return;
       }
-      const file = readEnvFile();
-      const setting = (process.env.SCRAPPY_SYSTEM_CONTEXT || file.SCRAPPY_SYSTEM_CONTEXT || "on").toLowerCase();
+      const setting = settings.getLower("SCRAPPY_SYSTEM_CONTEXT", "on");
       if (setting === "off" || setting === "false" || setting === "0") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "disabled" }));
@@ -1146,6 +1136,113 @@ function startServer() {
   });
 }
 
+// ---------- the setup panel ----------
+// A real window, because pasting an API key into a native menu is miserable.
+// Fixed options still live in the menus; this handles anything you type.
+
+let setupWindow = null;
+
+function openSetupWindow() {
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.show();
+    setupWindow.focus();
+    return;
+  }
+  setupWindow = new BrowserWindow({
+    width: 620,
+    height: 760,
+    title: "Set up Scrappy",
+    backgroundColor: "#0b0f18",
+    autoHideMenuBar: true,
+    // Unlike the overlay, this window is meant to be focused and typed into.
+    webPreferences: {
+      preload: path.join(__dirname, "setup", "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  setupWindow.loadFile(path.join(__dirname, "setup", "index.html"));
+  setupWindow.on("closed", () => {
+    setupWindow = null;
+  });
+}
+
+ipcMain.on("scrappy:open-setup", () => openSetupWindow());
+
+ipcMain.handle("scrappy:user-name", () => settings.userName());
+
+ipcMain.handle("scrappy:setup-status", () => ({
+  configured: settings.isConfigured(),
+  userName: settings.userName(),
+}));
+
+// The panel never receives a key — forPanel() reports secrets as booleans.
+ipcMain.handle("setup:read", () => settings.forPanel());
+
+ipcMain.handle("setup:write", (_event, patch) => {
+  if (!patch || typeof patch !== "object") return { ok: false, error: "bad_patch" };
+  const ok = settings.setMany(patch);
+  // A name change has to reach the modules that bake it into text, and the
+  // rendered persona has to be rewritten or he keeps using the old one.
+  applyUserName();
+  persona.renderToFile(settings.userName(), app.getPath("userData"));
+  rebuildTray();
+  if (mainWindow) mainWindow.webContents.send("scrappy:settings-changed");
+  return { ok, state: settings.forPanel() };
+});
+
+// Build the ElevenLabs agent from inside the app.
+//
+// scripts/setup-voice.js is plain node, so it cannot decrypt the settings store
+// — a key typed into the panel would be invisible to it and `npm run
+// setup-voice` would report no key at all. Rather than duplicate 500 lines of
+// agent config, run that script as a child with the key handed to it in its
+// environment. The CLI still works on its own for anyone using .env.local.
+ipcMain.handle("setup:build-voice", async () => {
+  const apiKey = settings.get("ELEVENLABS_API_KEY", "");
+  if (!apiKey) return { ok: false, error: "no_key" };
+
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [path.join(__dirname, "scripts", "setup-voice.js")],
+      {
+        cwd: __dirname,
+        timeout: 120000,
+        env: {
+          ...process.env,
+          // ELECTRON_RUN_AS_NODE makes the bundled Electron binary behave as a
+          // plain node, so there's no dependency on node being on PATH.
+          ELECTRON_RUN_AS_NODE: "1",
+          ELEVENLABS_API_KEY: apiKey,
+          SCRAPPY_USER_NAME: settings.userName(),
+        },
+      },
+      (err, stdout, stderr) => {
+        const output = `${stdout || ""}${stderr || ""}`.trim();
+        if (err) {
+          resolve({ ok: false, error: "failed", output: output.slice(-1200) });
+          return;
+        }
+        // setup-voice writes the new agent id into .env.local. That's still in
+        // the read chain, but copy it into the store so there's one source of
+        // truth going forward.
+        settings.reload();
+        const agentId = settings.readEnvFile().ELEVENLABS_AGENT_ID;
+        if (agentId) settings.set("ELEVENLABS_AGENT_ID", agentId);
+        resolve({ ok: true, output: output.slice(-1200), state: settings.forPanel() });
+      }
+    );
+  });
+});
+
+ipcMain.handle("setup:clear-secret", (_event, key) => {
+  if (!settings.SECRET_KEYS.has(key)) return { ok: false, error: "not_a_secret" };
+  settings.set(key, "");
+  rebuildTray();
+  return { ok: true, state: settings.forPanel() };
+});
+
 ipcMain.on("scrappy:ack-from-ui", () => {
   triggerAck();
 });
@@ -1174,8 +1271,7 @@ ipcMain.on("scrappy:quit", () => {
 // What he can see about the machine. Off by one line if you'd rather he
 // didn't: SCRAPPY_SYSTEM_CONTEXT=off in .env.local.
 ipcMain.handle("scrappy:system-context", async () => {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_SYSTEM_CONTEXT || file.SCRAPPY_SYSTEM_CONTEXT || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_SYSTEM_CONTEXT", "on");
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
   try {
     return { ok: true, text: await systemInfo.snapshot() };
@@ -1185,10 +1281,9 @@ ipcMain.handle("scrappy:system-context", async () => {
   }
 });
 
-// What Jake has actually been thinking about, straight out of Recall.
+// What the user has actually been thinking about, straight out of Recall.
 ipcMain.handle("scrappy:recall-context", async () => {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_RECALL", "on");
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
 
   try {
@@ -1211,8 +1306,7 @@ ipcMain.handle("scrappy:recall-context", async () => {
 // Full startup memory pack: relationship notes + live speech + task COUNTS
 // (never dump hundreds of action rows — that truncates and Scrappy invents wrong totals).
 async function buildRecallBrief(opts = {}) {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_RECALL", "on");
   if (setting === "off" || setting === "false" || setting === "0") return { ok: false, error: "disabled" };
   const compact = Boolean(opts.compact);
 
@@ -1222,7 +1316,7 @@ async function buildRecallBrief(opts = {}) {
       recall.call("recall_open_actions", { limit: compact ? 3 : 5 }),
       recall.call("recall_recent", { limit: compact ? 5 : 8, project: "Scrappy" }),
       recall.call("recall_search", {
-        query: "Jake preferences relationship Scrappy memory decisions",
+        query: "the user preferences relationship Scrappy memory decisions",
         project: "Scrappy",
         limit: compact ? 5 : 8,
       }),
@@ -1255,8 +1349,7 @@ async function buildRecallBrief(opts = {}) {
 ipcMain.handle("scrappy:recall-brief", async () => buildRecallBrief());
 
 async function runRecallTool(name, args) {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_RECALL || file.SCRAPPY_RECALL || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_RECALL", "on");
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled" };
   }
@@ -1395,12 +1488,11 @@ function formatAgentsText(agents) {
 }
 
 async function runCursorAgentAction(action, args) {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_CURSOR_AGENTS || file.SCRAPPY_CURSOR_AGENTS || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_CURSOR_AGENTS", "on");
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled", text: "Cursor agents are turned off." };
   }
-  const apiKey = cursorAgents.readApiKey(file);
+  const apiKey = cursorAgents.readApiKey(cursorKeySource());
   const a = args && typeof args === "object" ? args : {};
   try {
     switch (String(action || "").trim()) {
@@ -1614,10 +1706,9 @@ function formatActionsBrief(data) {
     .join("\n");
 }
 
-// Read Jake's other Cursor chats (local conversation index + transcripts).
+// Read the user's other Cursor chats (local conversation index + transcripts).
 ipcMain.handle("scrappy:cursor-chats", async (_event, action, args) => {
-  const file = readEnvFile();
-  const setting = (process.env.SCRAPPY_CURSOR_CHATS || file.SCRAPPY_CURSOR_CHATS || "on").toLowerCase();
+  const setting = settings.getLower("SCRAPPY_CURSOR_CHATS", "on");
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled" };
   }
@@ -1827,8 +1918,15 @@ if (!gotTheLock) {
     loadPrefs();
     ensureWindowsPresence();
     ensureToken();
-    processJournal.init({ projectRoot: __dirname });
-    conversationStore.init({ projectRoot: __dirname, userData: app.getPath("userData") });
+    // Tell everything who it's talking to before anything can write a log line
+    // or build a prompt with the wrong name in it.
+    applyUserName();
+    processJournal.init({ projectRoot: __dirname, userName: settings.userName() });
+    conversationStore.init({
+      projectRoot: __dirname,
+      userData: app.getPath("userData"),
+      userName: settings.userName(),
+    });
     localVoice.setJournal(processJournal);
     wakeListener.setJournal(processJournal);
     processJournal.started("scrappy", {
@@ -1864,9 +1962,8 @@ if (!gotTheLock) {
         mainWindow.webContents.send("scrappy:wake", { phrase });
       },
     });
-    const envFile = readEnvFile();
     if (prefs.visible) maybeStartWake("main", "startup wake word");
-    const cursorKey = cursorAgents.readApiKey(envFile);
+    const cursorKey = cursorAgents.readApiKey(cursorKeySource());
     if (cursorKey) {
       cursorAgents.reconcileRunningAgents({ apiKey: cursorKey, silent: true }).catch((err) => {
         console.warn("Startup agent reconcile failed:", err.message || err);

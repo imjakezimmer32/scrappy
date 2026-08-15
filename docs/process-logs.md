@@ -29,7 +29,7 @@ You’ll see lines like:
 ```
 2026-08-12T00:51:02.100Z  [process/kill]  local-voice pid=1234 (switch fast brain) kills=[local-voice:1234]
 2026-08-12T00:51:04.200Z  [process/start] local-voice pid=5678 (restart after fast brain)
-2026-08-12T00:52:11.000Z  [note/user_note] jake :: Voice felt stuck after model switch
+2026-08-12T00:52:11.000Z  [note/user_note] you :: Voice felt stuck after model switch
 ```
 
 That `kills=[...]` line is how you see **what stopped what**.

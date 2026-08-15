@@ -1,0 +1,305 @@
+/* Setup panel. Same palette as the character and the website — INK in
+   renderer/rig.js is the source of the mint. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0f18;
+  --surface: #131a28;
+  --edge: #242e46;
+  --edge-lit: #33405e;
+  --text: #dce6f5;
+  --muted: #8ea2c4;
+  --mint: #6fe3c0;
+  --amber: #e8734a;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+header {
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--edge);
+}
+
+h1 {
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+}
+
+.sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 24px 24px;
+}
+
+section {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--edge);
+}
+
+section:last-of-type {
+  border-bottom: 0;
+}
+
+h2 {
+  font-size: 0.95rem;
+  color: var(--mint);
+}
+
+.hint {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.hint code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--text);
+}
+
+/* ---------- inputs ---------- */
+
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  outline: 2px solid var(--mint);
+  outline-offset: 1px;
+}
+
+input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.field {
+  display: block;
+  margin-top: 12px;
+}
+
+.field > span {
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.field em {
+  font-style: normal;
+  opacity: 0.65;
+}
+
+.saved {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--mint);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------- choices ---------- */
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.choices label {
+  flex: 1 1 160px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.choices label:has(input:checked) {
+  border-color: var(--mint);
+}
+
+.choices span {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.88rem;
+}
+
+.choices em {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.group {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--edge);
+}
+
+.group[hidden] {
+  display: none;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 16px;
+  cursor: pointer;
+}
+
+.check span {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.88rem;
+}
+
+.check em {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.warning {
+  margin-top: 18px;
+  padding: 11px 13px;
+  border: 1px solid var(--amber);
+  border-radius: 9px;
+  color: #f0c3ae;
+  font-size: 0.83rem;
+}
+
+.warning[hidden] {
+  display: none;
+}
+
+/* ---------- footer ---------- */
+
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface);
+}
+
+.status {
+  margin-right: auto;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: var(--mint);
+}
+
+.status.bad {
+  color: var(--amber);
+}
+
+.primary {
+  padding: 9px 22px;
+  border: 1px solid var(--mint);
+  border-radius: 9px;
+  background: var(--mint);
+  color: #0a1a15;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: #85ecce;
+}
+
+.primary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.secondary {
+  margin-top: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--edge-lit);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.secondary:hover:not(:disabled) {
+  border-color: var(--mint);
+}
+
+.secondary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Only appears when something failed — the raw output is the useful part. */
+.output {
+  margin-top: 10px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: #0d1320;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: #c3d2e8;
+  white-space: pre-wrap;
+}
+
+.output[hidden] {
+  display: none;
+}

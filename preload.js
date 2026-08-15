@@ -46,6 +46,17 @@ contextBridge.exposeInMainWorld("scrappy", {
   chatFocus(on) {
     ipcRenderer.send("scrappy:chat-focus", Boolean(on));
   },
+  // Who he's talking to, and the setup panel. The renderer never sees a key —
+  // setupStatus reports only whether things are configured, not what with.
+  userName() {
+    return ipcRenderer.invoke("scrappy:user-name");
+  },
+  openSetup() {
+    ipcRenderer.send("scrappy:open-setup");
+  },
+  setupStatus() {
+    return ipcRenderer.invoke("scrappy:setup-status");
+  },
   // Voice: the renderer only ever sees an expiring signed URL, never the key.
   voiceSignedUrl() {
     return ipcRenderer.invoke("scrappy:voice-signed-url");

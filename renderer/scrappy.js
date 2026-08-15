@@ -21,7 +21,22 @@ const bridge = window.scrappy || {
   systemContext: () => Promise.resolve({ ok: false, error: "disabled" }),
   recallContext: () => Promise.resolve({ ok: false, error: "disabled" }),
   chatFocus() {},
+  userName: () => Promise.resolve("You"),
+  openSetup() {},
+  setupStatus: () => Promise.resolve({ configured: true }),
 };
+
+// Whoever is running him. Resolved from the main process, which owns the
+// settings store; the fallback keeps the browser preview working.
+let USER_NAME = "You";
+if (bridge.userName) {
+  bridge
+    .userName()
+    .then((name) => {
+      if (name) USER_NAME = name;
+    })
+    .catch(() => {});
+}
 
 const CHAR_W = 120;
 // Matched to the stride in style.css. Geometry says 77px/s, but the contact
@@ -731,7 +746,7 @@ function trackSessionLine(role, text, extra = {}) {
   if (bridge.conversationEvent && conversationId) {
     bridge
       .conversationEvent(conversationId, {
-        type: role === "jake" ? "user" : "assistant",
+        type: role === "user" ? "user" : "assistant",
         role,
         text: line.slice(0, 4000),
         ...extra,
@@ -764,7 +779,7 @@ async function endConversationRecording() {
   try {
     await bridge.conversationEnd(id, {
       backend: window.ScrappyVoice && window.ScrappyVoice.backend ? window.ScrappyVoice.backend() : null,
-      turns: sessionLog.filter((l) => l.role === "jake").length,
+      turns: sessionLog.filter((l) => l.role === "user").length,
     });
   } catch {
     // ignore
@@ -778,7 +793,7 @@ async function pushSystemContext(first) {
   const local = window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local";
   const text = local ? String(snap.text).slice(0, 500) : snap.text;
   window.ScrappyVoice.sendContext(
-    first ? `Current state of Jake's machine: ${text}` : `Machine update: ${text}`
+    first ? `Current state of ${USER_NAME}'s machine: ${text}` : `Machine update: ${text}`
   );
 }
 
@@ -790,14 +805,14 @@ async function pushRecallBrief() {
     if (r && r.ok && r.text) {
       const local = window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local";
       const text = local ? String(r.text).slice(0, 700) : r.text;
-      window.ScrappyVoice.sendContext(`From Jake's Recall:\n${text}`);
+      window.ScrappyVoice.sendContext(`From ${USER_NAME}'s Recall:\n${text}`);
       return;
     }
   }
   if (!bridge.recallContext) return;
   const r = await bridge.recallContext();
   if (!r || !r.ok || !r.text) return;
-  window.ScrappyVoice.sendContext(`From Jake's Recall notes — ${r.text}`);
+  window.ScrappyVoice.sendContext(`From ${USER_NAME}'s Recall notes — ${r.text}`);
 }
 
 async function pushRecallLive() {
@@ -816,12 +831,12 @@ async function autoSaveSessionMemory() {
   if (window.ScrappyVoice && window.ScrappyVoice.backend && window.ScrappyVoice.backend() === "local") {
     return;
   }
-  const jakeLines = sessionLog.filter((l) => l.role === "jake");
-  if (jakeLines.length < SESSION_AUTO_SAVE_MIN_TURNS) return;
+  const userLines = sessionLog.filter((l) => l.role === "user");
+  if (userLines.length < SESSION_AUTO_SAVE_MIN_TURNS) return;
 
   const summaryParts = [];
   for (const line of sessionLog.slice(-16)) {
-    summaryParts.push(`${line.role === "jake" ? "Jake" : "Scrappy"}: ${line.text}`);
+    summaryParts.push(`${line.role === "user" ? USER_NAME : "Scrappy"}: ${line.text}`);
   }
   const summary = summaryParts.join("\n").slice(0, 3500);
   const title = `Scrappy chat ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
@@ -891,7 +906,7 @@ window.ScrappyVoice.init({
     setFace("listen");
   },
   heard(text) {
-    trackSessionLine("jake", text);
+    trackSessionLine("user", text);
     if (text) bubbleText(text, 0);
   },
   said(text) {
@@ -1315,7 +1330,7 @@ async function startAlert(payload) {
 
   setState("alert");
   setFace("alert");
-  speakLine("done", `A coding agent just finished${label ? ` (${label})` : ""} and you are fetching Jake back to his desk.`, 7000, "alert", label || "click me when you're back");
+  speakLine("done", `A coding agent just finished${label ? ` (${label})` : ""} and you are fetching ${USER_NAME} back to their desk.`, 7000, "alert", label || "click me when you're back");
 
   while (alerting) {
     const result = await wait(ESCALATE_MS);
@@ -1367,14 +1382,14 @@ async function nag() {
   cancelAll();
   setState("point");
   setFace("nag");
-  await speakLine("nag", "You are checking in on Jake to see if he is still working.", 4200, "nag");
+  await speakLine("nag", `You are checking in on ${USER_NAME} to see if they are still working.`, 4200, "nag");
   setState("idle");
   setFace("focused");
 }
 
 setInterval(nag, NAG_EVERY_MS);
 
-// ---------- body awareness (tell the voice brain what Jake is doing to him) ----------
+// ---------- body awareness (tell the voice brain what the user is doing to him) ----------
 
 const THROW_COUNT_KEY = "scrappy_throw_count";
 // Pre-rename key. Read it once so the lifetime throw count survives the
@@ -1424,18 +1439,18 @@ function describeBodyState() {
     const wiggling = wiggleMs >= 220 || bodySpeed() > 520;
     if (wiggling) {
       return (
-        `Jake is holding you with the cursor and actively wiggling / shaking you around.` +
+        `${USER_NAME} is holding you with the cursor and actively wiggling / shaking you around.` +
         countBit
       );
     }
-    return `Jake is currently holding / carrying you with the cursor.` + countBit;
+    return `${USER_NAME} is currently holding / carrying you with the cursor.` + countBit;
   }
   if (flying) {
     const hard = bodySpeed() > 700;
     return (
       (hard
-        ? `Jake just threw you — you are flying / tumbling across the desktop.`
-        : `You are in the air after Jake let go — still airborne.`) + countBit
+        ? `${USER_NAME} just threw you — you are flying / tumbling across the desktop.`
+        : `You are in the air after ${USER_NAME} let go — still airborne.`) + countBit
     );
   }
   if (lastBodyLabel.includes("threw") || lastBodyLabel.includes("landing")) {
@@ -1462,7 +1477,7 @@ function pushBodyAwareness(force = false) {
 function noteThrow(impactVy, impactOmega) {
   sessionThrows += 1;
   const life = bumpLifetimeThrows();
-  lastBodyLabel = `Jake just threw you hard (landing). Throws this call: ${sessionThrows}. Lifetime throws: ${life}.`;
+  lastBodyLabel = `${USER_NAME} just threw you hard (landing). Throws this call: ${sessionThrows}. Lifetime throws: ${life}.`;
   lastBodyPushAt = 0;
   pushBodyAwareness(true);
   void impactVy;
@@ -1701,6 +1716,7 @@ if (menu) {
     if (act === "off") turnOff();
     else if (act === "type") openChat();
     else if (act === "talk") startCall();
+    else if (act === "setup" && bridge.openSetup) bridge.openSetup();
     else if (act === "quit" && bridge.quitApp) bridge.quitApp();
   });
 }
@@ -1729,6 +1745,36 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "n") startAlert({ title: "test nudge" });
   if (e.key === "s") lastPoke = 0;
 });
+
+// ---------- first run ----------
+// With nothing configured he can still walk, sit and be thrown, but he can't
+// hold a conversation — and a robot that silently does nothing when you talk to
+// him reads as broken. So he says so himself, once, rather than leaving anyone
+// to find it in a README.
+
+async function offerSetup() {
+  if (!bridge.setupStatus) return;
+  let status = null;
+  try {
+    status = await bridge.setupStatus();
+  } catch {
+    return;
+  }
+  if (!status || status.configured) return;
+
+  // Long enough that he's clearly been standing there a while first.
+  if ((await wait(6000)) === "cancelled") return;
+  if (hiddenAway || inCall || alerting || inHand()) return;
+
+  await say(
+    "I can't talk yet — I need a key or a local brain.",
+    5200,
+    "wonder",
+    "right-click me → Set up Scrappy"
+  );
+}
+
+offerSetup();
 
 // Test hook so the browser preview can fake a multi-monitor layout.
 window.__scrappy = {

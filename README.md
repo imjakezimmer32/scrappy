@@ -26,6 +26,40 @@ npm run install-hooks      # wire Cursor agent-finished hooks (app must be runni
 Cursor hooks POST to `http://127.0.0.1:8787/agent-done` with your local token.
 Short sessions under 2 minutes are ignored (unless `force: true`).
 
+## Setting him up
+
+**Right-click him → Set up Scrappy…** (also on the tray icon). Name, brain, voice, keys.
+
+He runs fine with none of it configured — he walks, sits, gets thrown and fetches you when an
+agent finishes. He just can't hold a conversation, and he'll say so himself the first time
+rather than sitting there mutely.
+
+### Where settings live
+
+`settings.js` resolves every value in this order, highest first:
+
+1. **`process.env`** — an explicit environment variable always wins, so you can override
+   anything for one run.
+2. **The settings store** — `%APPDATA%\scrappy\settings.json`, what the panel writes. API keys
+   in it are encrypted with Electron's `safeStorage` against the Windows credential store. If
+   the credential store is unavailable they're stored in the clear and the panel says so.
+3. **`.env.local`** — still read, so nothing anyone set up by hand breaks. Nothing writes to it
+   any more: two writers on one file is how a key you pasted thirty seconds ago disappears.
+4. **Built-in defaults.**
+
+The panel tells you which of these each value is coming from, and won't pretend it can change
+one that an environment variable has already decided.
+
+Keys are never sent to the renderer. The panel is told *whether* a key is set, not what it is,
+which is also why leaving a key box empty means "leave it alone" rather than "delete it" —
+removing one is a separate, explicit button.
+
+### Who he thinks you are
+
+`personality.md` ships with a `{{USER}}` placeholder rather than a name. `persona.js` fills it
+in from `SCRAPPY_USER_NAME`, defaulting to your Windows account name. Set it in the panel if he
+should call you something else.
+
 ## The character
 
 Scrappy is one inline SVG with a real skeleton: shoulder, elbow, hip and knee joints,
@@ -97,7 +131,7 @@ Default voice is the **local AMD-friendly stack** (Unmute-shaped):
 This is free and unlimited. It is not as polished as ElevenLabs, but it keeps
 working when cloud credits run out.
 
-Set in `.env.local`:
+Set it in **right-click → Set up Scrappy…**, or by hand in `.env.local`:
 
 ```
 VOICE_BACKEND=local
@@ -129,7 +163,7 @@ Then restart Scrappy. Scrappy boots the local voice server on `127.0.0.1:8790`.
 
 ### Optional: ElevenLabs
 
-You can still use ElevenLabs when you have credits:
+Paste a key into the setup panel and press **Build his voice agent**, or set it by hand:
 
 ```
 VOICE_BACKEND=elevenlabs
@@ -138,7 +172,10 @@ ELEVENLABS_API_KEY=your_key_here
 
 Or `VOICE_BACKEND=auto` to prefer local when installed and fall back to ElevenLabs.
 
-`npm run setup-voice` uploads `personality.md` to an ElevenLabs agent.
+`npm run setup-voice` uploads `personality.md` to an ElevenLabs agent. The panel's button runs
+the same script, but it can hand over a key from the encrypted store — which the bare CLI
+cannot read, so use the button if that's where your key lives.
+
 For local mode, Scrappy reads `personality.md` directly.
 
 ### Using it
@@ -210,6 +247,10 @@ never steals focus from your editor.
 - `main.js` — overlay window, tray, localhost server
 - `preload.js` — the IPC bridge
 - `renderer/` — Scrappy
+- `settings.js` — config precedence + encrypted key storage (unit tested)
+- `persona.js` — fills `{{USER}}` into `personality.md`
+- `setup/` — the setup panel window
+- `site/` — the imscrappy.dev landing page (`npm run build-site`)
 - `scripts/` — Windows Startup + Cursor hook helpers
 - `cursor-agents.js` — Cursor agent lifecycle (start, status, stop)
 - `cursor-agent-status.js` — status/timeout logic (unit tested)

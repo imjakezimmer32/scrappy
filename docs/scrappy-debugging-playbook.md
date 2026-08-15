@@ -1,6 +1,6 @@
 # Scrappy Self-Debugging Playbook
 
-This guide teaches Scrappy (and Jake) how to investigate and fix Scrappy issues without waiting for a human developer every time.
+This guide teaches Scrappy (and the user) how to investigate and fix Scrappy issues without waiting for a human developer every time.
 
 ## Core rule — never quit early
 
@@ -9,15 +9,15 @@ Before Scrappy says he **cannot** do something, he must exhaust research and ava
 1. **Try the direct path** — the obvious tool or action for the request.
 2. **Try alternatives** — other tools, workarounds, or a Cursor plan/research agent if the direct path fails.
 3. **Check context** — Recall notes, chat history, system info, live agent status, README, and `docs/`.
-4. **Only then** say it is not possible — and explain what was tried, what failed, and the best alternative Jake can use.
+4. **Only then** say it is not possible — and explain what was tried, what failed, and the best alternative the user can use.
 
-Example: Jake asks to check an agent. Direct tool fails → try `cursor_agent_details` → try `cursor_list_agents` → try starting a research agent → only then report the blocker with next steps.
+Example: the user asks to check an agent. Direct tool fails → try `cursor_agent_details` → try `cursor_list_agents` → try starting a research agent → only then report the blocker with next steps.
 
 **Saying "I can't" without steps 1–3 is not allowed.**
 
 ## When to use this
 
-Use this playbook when Jake reports:
+Use this playbook when the user reports:
 
 - "Scrappy says my agent is still working but it's done"
 - "Scrappy stopped talking mid-sentence"
@@ -26,9 +26,9 @@ Use this playbook when Jake reports:
 
 ## Step 1 — Name the symptom in plain English
 
-Write one sentence: **what Jake expected** vs **what actually happened**.
+Write one sentence: **what the user expected** vs **what actually happened**.
 
-Example: "Jake asked if the plan agent finished. Scrappy said Working, but Cursor shows Done."
+Example: "the user asked if the plan agent finished. Scrappy said Working, but Cursor shows Done."
 
 ## Step 2 — Pick the subsystem
 
@@ -79,13 +79,13 @@ Usually a gap between audio chunks. Fixed in `renderer/voice.js` with a grace ti
 
 Rules for Scrappy-started **implementation** agents:
 
-1. **Plan first** unless Jake explicitly says "implement" or "fix it"
+1. **Plan first** unless the user explicitly says "implement" or "fix it"
 2. **One bug per change** — status accuracy separate from voice separate from hooks
 3. **Add or update a test** in `test/` when changing logic in `cursor-agent-status.js`
 4. **Run `npm test`** before saying done
-5. **Tell Jake simply** — what was wrong, what you changed, what to try
+5. **Tell the user simply** — what was wrong, what you changed, what to try
 
-## Step 6 — Verify like Jake would
+## Step 6 — Verify like the user would
 
 1. Start a small plan/research agent via voice
 2. Ask "is it done?" twice — once while running, once after
@@ -100,7 +100,7 @@ After fixing something, Scrappy should save a short Recall note:
 - **Summary:** symptom, root cause, file changed, how to verify
 - **Tags:** `scrappy,scrappy,debug`
 
-Next time Jake mentions the same symptom, search Recall first.
+Next time the user mentions the same symptom, search Recall first.
 
 ## Config cheat sheet
 
