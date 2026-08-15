@@ -1160,6 +1160,44 @@ body {
   animation-delay: 0.28s;
 }
 
+/* Sleep lamps. Red-amber-green is a status readout — it says "working". With
+   his eyes shut that's the wrong signal, so the whole bank drops to a slow
+   purple breathing pulse instead: night-light, not dashboard. Driven by the
+   .is-dozing class rather than data-state, because he sleeps standing, seated
+   and lying down, and it should read the same in all three. */
+.scrappy.is-dozing .led-1 {
+  fill: #b06bd8;
+}
+.scrappy.is-dozing .led-2 {
+  fill: #8e5ad9;
+}
+.scrappy.is-dozing .led-3 {
+  fill: #6f4fcb;
+}
+
+/* Slower and deeper than ledIdle — the tick-over of a machine that's resting.
+   The existing led-2/led-3 delays stagger it, so the bank breathes in a wave
+   rather than as one block. */
+.scrappy.is-dozing .led {
+  animation: ledDoze 5.2s ease-in-out infinite;
+}
+
+/* Easing the colour means dropping off to sleep and waking both fade rather
+   than snapping. */
+.led {
+  transition: fill 0.7s ease;
+}
+
+@keyframes ledDoze {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.26;
+  }
+}
+
 .eye-throb {
   transform-box: fill-box;
   transform-origin: center;
@@ -1363,6 +1401,45 @@ body {
    where the three-quarter yaw put it. */
 .scrappy[data-facing="left"] .chest-lights {
   transform: scaleX(-1);
+}
+
+/* ---------- wear ----------
+   Rust, grime and scratches. All three intensity levels are in the DOM at
+   once: every wear element carries data-w = the lowest level it appears at,
+   and the geometry is nested, so raising the level ACCUMULATES damage rather
+   than reshuffling it. That makes switching one attribute write on #scrappy —
+   no rebuild, no lost animation state:
+     document.getElementById('scrappy').dataset.wear = 'heavy'
+   Default comes from LEVEL in wear.js. */
+
+.scrappy {
+  --wear-a: 0.8;
+}
+
+.scrappy[data-wear="subtle"] {
+  --wear-a: 0.55;
+}
+
+.scrappy[data-wear="heavy"] {
+  --wear-a: 1;
+}
+
+/* Group opacity multiplies each element's own alpha, so this scales the whole
+   pass without touching a single coordinate. */
+.wear {
+  opacity: var(--wear-a);
+}
+
+/* The far side of the body carries depth through shading alone, and rust at
+   full strength on the far limbs flattens him back out. */
+.wear.is-far {
+  opacity: calc(var(--wear-a) * 0.6);
+}
+
+.scrappy[data-wear="subtle"] .wear [data-w="2"],
+.scrappy[data-wear="subtle"] .wear [data-w="3"],
+.scrappy[data-wear="medium"] .wear [data-w="3"] {
+  display: none;
 }
 
 /* ---------- dust ---------- */
