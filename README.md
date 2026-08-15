@@ -88,7 +88,10 @@ Two rules keep it from looking wrong:
   traces an arc and the knee flexes under load, so geometry alone underestimates
   it by 13%.
 
-Depth order back to front is far arm, far leg, torso, near leg, near arm, head.
+Depth order back to front is far arm, far leg, torso, near leg, neck, head, near
+arm. The near arm comes **after** the head, so a raised hand crosses in front of
+his face instead of vanishing behind it — waving, pointing and the agent-done
+jump all put the hand over the screen, which is exactly where the pose reads.
 The far limbs tuck inboard of the torso so it occludes them; pushed outboard
 they read as foreground and the whole three-quarter illusion inverts.
 

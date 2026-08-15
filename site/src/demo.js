@@ -36,7 +36,12 @@ const COM_X = 60; // centre of mass, element-local
 const COM_Y = 118;
 const GROUND_OFFSET = 176; // element-local y of the floor his feet stand on
 const COM_FLOOR = GROUND_OFFSET - COM_Y; // COM height above the stage floor
-const COM_CEIL = 100;
+// The app uses 100 here, but its ceiling is the top of a screen he can safely
+// be clipped against. The page clips at the hero, so a hard throw would slice
+// the top off his head: the ceiling bounds his centre of mass, and a tumbling
+// body reaches further than an upright one — half his diagonal is ~112px. Sit
+// just outside that and he stays whole at any angle.
+const COM_CEIL = 118;
 
 const GRAVITY = 2600;
 const SPRING = 1150;

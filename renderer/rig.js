@@ -565,7 +565,12 @@ function buildScrappy() {
 <svg class="scrappy-svg" viewBox="0 0 ${GEO.width} ${GEO.height}" aria-hidden="true">
   <ellipse class="scrappy-shadow" cx="${C}" cy="${GROUND + 3}" rx="26" ry="4.5" fill="#000" opacity="0.18"/>
   <g class="j-body">
-    <!-- Depth order, back to front: far arm, far leg, torso, near leg, near arm. -->
+    <!-- Depth order, back to front: far arm, far leg, torso, near leg, neck,
+         head, near arm. The near arm is drawn LAST — in front of his own face —
+         because it is the arm on the side nearest the viewer, and an arm that
+         raises to wave, point or shield should pass across the face rather than
+         disappear behind the head. Put it before the head and every raised-arm
+         pose loses its hand exactly when the hand is the point of the pose. -->
     ${arm("r", ARM_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5D6881", true)}
     ${leg("r", LEG_R_X, INK.shellFar, INK.shellFarLit, INK.bootFar, "#5D6881", true)}
 
@@ -611,7 +616,6 @@ function buildScrappy() {
     </g>
 
     ${leg("l", LEG_L_X, INK.shellNear, INK.shellNearLit, INK.bootNear, INK.metal)}
-    ${arm("l", ARM_L_X, INK.shellNear, INK.shellNearLit, INK.bootNear, INK.metal)}
 
     <!-- The neck is a sibling of the head, not a child. Inside the head group
          it rotated with it, so any real head turn swung the neck's lower end
@@ -647,6 +651,9 @@ function buildScrappy() {
       </clipPath>
       <g id="scrappy-face" clip-path="url(#scrappyScreenClip)">${FACES.focused()}</g>
     </g>
+
+    <!-- Nearest the viewer, so it crosses in front of the face when raised. -->
+    ${arm("l", ARM_L_X, INK.shellNear, INK.shellNearLit, INK.bootNear, INK.metal)}
   </g>
 </svg>`;
 }
