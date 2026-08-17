@@ -17,6 +17,7 @@ const bridge = window.workbuddy || {
   systemContext: () => Promise.resolve({ ok: false, error: "disabled" }),
   recallContext: () => Promise.resolve({ ok: false, error: "disabled" }),
   chatFocus() {},
+  callActive() {},
 };
 
 const CHAR_W = 120;
@@ -170,6 +171,26 @@ function setFace(name, force) {
   // wanted his expression to be.
   if (!force && Date.now() < faceLockUntil) return;
   faceEl.innerHTML = (RIG.FACES[name] || RIG.FACES.focused)();
+}
+
+// Conversation status, told entirely through the chest lamps now — his body
+// keeps doing whatever it was already doing (walking, sitting, idling) while
+// you talk to him rather than snapping into a listening pose.
+//
+// Plain idle keeps its original three-dot red/yellow/green decoration —
+// setLeds("idle") clears the override and each dot falls back to its own
+// --led-default (set per-circle in cog.js). Only conversation states force
+// all three to the same colour: red while listening/talking, yellow while
+// composing a reply, green for the agent-done nudge (which only ever fires
+// outside a conversation).
+const LED_COLOR = { red: "#E2564A", yellow: "#E9C244", green: "#6FE3C0" };
+
+function setLeds(mode) {
+  if (!mode || mode === "idle") {
+    el.style.removeProperty("--led-color");
+    return;
+  }
+  el.style.setProperty("--led-color", LED_COLOR[mode] || LED_COLOR.red);
 }
 
 function setFacing(dir) {
@@ -576,8 +597,9 @@ function openChat() {
   lastPoke = Date.now();
   el.classList.add("is-chatting");
   if (bridge.chatFocus) bridge.chatFocus(true);
-  setState("idle");
-  setFace("focused", true);
+  // No forced pose here either — the text box floats above him and he keeps
+  // doing whatever he was doing underneath it.
+  setLeds("red");
   sayInput.value = "";
   bridge.setInteractive(true);
   interactive = true;
@@ -589,6 +611,7 @@ function closeChat() {
   el.classList.remove("is-chatting");
   sayInput.blur();
   if (bridge.chatFocus) bridge.chatFocus(false);
+  setLeds(inCall ? "red" : "idle");
   refreshInteractive();
 }
 
@@ -596,15 +619,13 @@ function closeChat() {
 // socket, so the two share one conversation. His answer comes back through the
 // `said` hook and he speaks it aloud at the same time.
 async function sendToBrain(text) {
-  faceLockUntil = Date.now() + 60000;
-  setState("idle");
-  setFace("curious", true);
+  setLeds("yellow");
   bubbleText("…", 0);
 
   const sent = await window.CogVoice.sendText(text);
   if (sent && sent.ok) return;
 
-  faceLockUntil = 0;
+  setLeds("red");
   const trouble = BRAIN_TROUBLE[sent && sent.error] || ["Something in me broke.", ""];
   await say(trouble[0], 4200, "squint", trouble[1]);
 }
@@ -640,6 +661,13 @@ async function speakLine(bucket, situation, ms, face, hint) {
 // ---------- conversation ----------
 
 let inCall = false;
+
+// Tell the main process a call is live so it can back off window/z-order
+// churn for the duration — see keepOnTop() in main.js.
+function setInCall(v) {
+  inCall = Boolean(v);
+  if (bridge.callActive) bridge.callActive(inCall);
+}
 let voiceReady = false;
 
 const VOICE_TROUBLE = {
@@ -673,20 +701,20 @@ async function startCall() {
   stopWatching();
   forgetAnnoyance();
   target = null;
-  await wakeUp();
+  // Deliberately no wakeUp()/setState() here — he keeps doing whatever he was
+  // already doing. The chest lamp is the only thing that tells you he's live.
   lastPoke = Date.now();
   // Light up straight away — waiting for the socket would leave a second of
   // silence where you can't tell whether the mic is live.
-  inCall = true;
-  setState("listen");
-  setFace("listen", true);
+  setInCall(true);
+  setLeds("red");
   bubbleText("Listening…", 0, "click me to stop");
 
   const result = await window.CogVoice.start({ mic: true });
   if (!result || !result.ok) {
     const trouble = VOICE_TROUBLE[result && result.error] || ["Something went wrong.", ""];
-    inCall = false;
-    setState("idle");
+    setInCall(false);
+    setLeds("idle");
     say(trouble[0], 4200, "squint", trouble[1]);
   }
 }
@@ -780,40 +808,50 @@ function stopContextFeed(save = true) {
 
 window.CogVoice.init({
   open() {
-    inCall = true;
+    setInCall(true);
     cancelAll();
     target = null;
-    setState("listen");
-    setFace("listen");
+    setLeds("red");
     bubbleText("I'm listening.", 0, "click me to hang up");
     startContextFeed();
   },
-  closed() {
-    inCall = false;
+  closed(payload) {
+    setInCall(false);
     stopContextFeed(true);
     sayToken += 1;
     el.classList.remove("is-talking");
-    setState("idle");
-    setFace("focused");
+    setLeds("idle");
     lastPoke = Date.now();
+
+    // A drop you didn't ask for used to look identical to a normal hangup —
+    // same silent reset back to idle — which is exactly what read as "moving
+    // stops his recording": he's always animating now, so every invisible
+    // drop landed on top of whatever he happened to be doing. Say so instead.
+    const reason = payload && payload.reason;
+    if (reason === "dropped") {
+      say("Lost the connection there.", 3600, "squint", "click to try again");
+    } else if (reason === "mic_lost") {
+      say("Something just took my microphone.", 3600, "squint", "click to try again");
+    }
   },
+  // No body/face change for either of these — the lamp already told you
+  // he's composing (heard, below) vs actually talking.
   speakStart() {
-    setState("speak");
-    setFace("speak");
+    setLeds("red");
   },
-  speakEnd() {
-    if (!inCall) return;
-    setState("listen");
-    setFace("listen");
-  },
+  speakEnd() {},
+  // A real transcript came in: he's about to compose a reply. This is the
+  // one moment the lamp goes yellow.
   heard(text) {
     trackSessionLine("jake", text);
     if (text) bubbleText(text, 0);
+    setLeds("yellow");
   },
   said(text) {
     trackSessionLine("cog", text);
     if (!text) return;
     faceLockUntil = 0;
+    setLeds("red");
     // Typed conversations have no call open, so clear the bubble ourselves.
     if (chatting) {
       bubbleText(text, Math.min(12000, 3000 + text.length * 55));
@@ -827,10 +865,13 @@ window.CogVoice.init({
   tool() {},
   // He tried to fill a silence and the gate stopped him. Nothing shown,
   // nothing played — he just stays listening.
-  suppressed() {},
+  suppressed() {
+    setLeds("red");
+  },
   ignored() {},
   error() {
-    inCall = false;
+    setInCall(false);
+    setLeds("idle");
   },
 });
 
@@ -978,7 +1019,9 @@ async function watchCursor(ms) {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     const beat = await wait(70);
-    if (beat === "cancelled" || inHand() || inCall || alerting) break;
+    // inCall deliberately isn't a break condition here: talking to him no
+    // longer interrupts whatever he's doing with his body.
+    if (beat === "cancelled" || inHand() || alerting) break;
     const aim = aimAtPointer();
     if (!aim) break; // lost him — look away rather than crane impossibly
     applyAim(aim);
@@ -1024,7 +1067,9 @@ async function sitDown() {
   const until = Date.now() + rand(14000, 30000);
   while (Date.now() < until) {
     const beat = await wait(rand(2600, 5400));
-    if (beat === "cancelled" || inHand() || inCall || alerting) break;
+    // inCall deliberately isn't a break condition here: talking to him no
+    // longer interrupts whatever he's doing with his body.
+    if (beat === "cancelled" || inHand() || alerting) break;
 
     // Sometimes he clocks the cursor and follows it instead.
     if (Math.random() < 0.3) {
@@ -1040,7 +1085,7 @@ async function sitDown() {
       setFace("wonder");
       const gaze = await wait(rand(3200, 6000));
       el.classList.remove("is-gazing");
-      if (gaze === "cancelled" || inHand() || inCall || alerting) break;
+      if (gaze === "cancelled" || inHand() || alerting) break;
       continue;
     }
 
@@ -1069,7 +1114,9 @@ async function lieDown() {
   const until = Date.now() + rand(18000, 34000);
   while (Date.now() < until) {
     const beat = await wait(rand(3400, 6200));
-    if (beat === "cancelled" || inHand() || inCall || alerting) break;
+    // inCall deliberately isn't a break condition here: talking to him no
+    // longer interrupts whatever he's doing with his body.
+    if (beat === "cancelled" || inHand() || alerting) break;
     if (Math.random() < 0.4) {
       // Picking his head up off the bar to actually look at the thing.
       el.classList.add("is-headup");
@@ -1115,6 +1162,7 @@ async function wakeUp() {
 
 async function live() {
   setFacing(1);
+  setLeds("idle");
   lift = liftAt(x + COM_X);
   place();
   await wait(600);
@@ -1123,7 +1171,11 @@ async function live() {
   setState("idle");
 
   for (;;) {
-    if (inHand() || inCall || chatting) {
+    // Only being physically grabbed pauses this loop now. Talking to him —
+    // voice or typed — used to stop it dead, which is the whole thing he was
+    // complaining about: he'd freeze into a listening pose instead of just
+    // continuing his day with the lamp doing the talking.
+    if (inHand()) {
       await wait(250);
       continue;
     }
@@ -1177,6 +1229,7 @@ async function startAlert(payload) {
 
   setState("alert");
   setFace("alert");
+  setLeds("green");
   speakLine("done", `A coding agent just finished${label ? ` (${label})` : ""} and you are fetching Jake back to his desk.`, 7000, "alert", label || "click me when you're back");
 
   while (alerting) {
@@ -1191,6 +1244,7 @@ async function acknowledge() {
   alerting = false;
   lastPoke = Date.now();
   cancelAll();
+  setLeds("idle");
   await wakeUp();
 
   if (wasAlerting) {
@@ -1240,17 +1294,26 @@ setInterval(nag, NAG_EVERY_MS);
 
 let pointer = { x: -1, y: -1 };
 
-el.addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  cancelAll();
-  target = null;
-  dragMoved = false;
-  el.style.transition = "";
-  el.classList.remove("is-landing");
+// A press doesn't become a grab until it's actually moved. Below that, it's
+// a click — tap() fires with no face change, no pose change, nothing: he
+// just keeps doing whatever he was doing. Only real dragging commits to the
+// physical "held" state (spring physics, the alarmed face, the freeze).
+//
+// A real mouse click is never pixel-perfect — hand tremor while pressing the
+// button routinely moves the cursor several pixels between down and up.
+// 4px was tuned against a synthetic zero-jitter test event and was too tight
+// for an actual hand; a normal click was crossing it and silently becoming a
+// drag; a real fast click gets even more headroom on top of that.
+const TAP_THRESHOLD = 10;
+const TAP_FAST_MS = 180;
+const TAP_FAST_THRESHOLD = 18;
+let pendingGrab = null;
+
+function commitGrab(e) {
+  pendingGrab = null;
+  dragMoved = true;
   // Being picked up trumps whatever the cursor-in-his-face state was.
   forgetAnnoyance();
-
-  pointer = { x: e.clientX, y: e.clientY };
   if (!flying) enterPhysics();
   held = true;
   flying = false;
@@ -1264,21 +1327,45 @@ el.addEventListener("pointerdown", (e) => {
   grabLX = dx * c - dy * s;
   grabLY = dx * s + dy * c;
 
+  setState("held");
+  setFace("alarmed");
+  // Hold the mouse for the whole drag — he'll outrun his own hit box.
+  interactive = true;
+  bridge.setInteractive(true);
+}
+
+el.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  cancelAll();
+  target = null;
+  dragMoved = false;
+  el.style.transition = "";
+  el.classList.remove("is-landing");
+
+  pointer = { x: e.clientX, y: e.clientY };
+
   try {
     el.setPointerCapture(e.pointerId);
   } catch {
     // capture is a nicety; the window listeners cover us either way
   }
 
-  setState("held");
-  setFace("alarmed");
-  // Hold the mouse for the whole drag — he'll outrun his own hit box.
-  interactive = true;
-  bridge.setInteractive(true);
+  pendingGrab = { x0: e.clientX, y0: e.clientY, t0: performance.now() };
 });
 
 window.addEventListener("pointermove", (e) => {
   pointer = { x: e.clientX, y: e.clientY };
+
+  if (pendingGrab) {
+    const moved = Math.hypot(e.clientX - pendingGrab.x0, e.clientY - pendingGrab.y0);
+    // A fast press gets a wider berth — that's still a click, just a
+    // slightly wobbly one, not the start of a deliberate drag.
+    const stillFast = performance.now() - pendingGrab.t0 < TAP_FAST_MS;
+    const limit = stillFast ? TAP_FAST_THRESHOLD : TAP_THRESHOLD;
+    if (moved > limit) commitGrab(e);
+    return;
+  }
+
   if (held) {
     dragMoved = true;
     return;
@@ -1287,23 +1374,27 @@ window.addEventListener("pointermove", (e) => {
 });
 
 window.addEventListener("pointerup", () => {
+  if (pendingGrab) {
+    // Pressed and released without ever dragging past the threshold — a
+    // plain click. He was never grabbed, so there's nothing to release.
+    pendingGrab = null;
+    tap();
+    refreshInteractive();
+    return;
+  }
   if (!held) return;
   // Let go. Whatever momentum the spring built is the throw.
   held = false;
   flying = true;
   setState("fly");
-  if (!dragMoved) {
-    flying = false;
-    theta = 0;
-    place();
-    setState("idle");
-    setFace("focused");
-    tap();
-  }
   refreshInteractive();
 });
 
 window.addEventListener("pointercancel", () => {
+  if (pendingGrab) {
+    pendingGrab = null;
+    return;
+  }
   if (!held) return;
   held = false;
   flying = true;

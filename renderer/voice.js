@@ -217,6 +217,12 @@ async function start(opts) {
   if (micStream) {
     micNode = audio.createMediaStreamSource(micStream);
     micNode.connect(micAnalyser);
+    // If Windows/another app yanks the mic mid-call, this is the only signal
+    // we get — without it the session goes silently dead while everything
+    // else (LEDs, bubble) still claims he's listening.
+    for (const track of micStream.getTracks()) {
+      track.addEventListener("ended", () => teardown("mic_lost"));
+    }
   }
 
   await new Promise((resolve, reject) => {
@@ -287,7 +293,11 @@ async function start(opts) {
     }
   };
 
-  ws.onclose = () => stop();
+  // A close we didn't ask for — network blip, ElevenLabs ending the session,
+  // anything — used to be indistinguishable from a deliberate hangup. Both
+  // called the same stop() and went silently back to idle, so a dropped call
+  // looked identical to nothing having happened. Now it says so.
+  ws.onclose = () => teardown("dropped");
 
   // ScriptProcessor rather than an AudioWorklet: it needs no separate module
   // fetch (which is fragile under file://) and 16kHz mono is nothing to chew.
@@ -321,7 +331,7 @@ async function start(opts) {
   return { ok: true };
 }
 
-function stop() {
+function teardown(reason) {
   if (!active && !ws) return;
   active = false;
   speaking = false;
@@ -360,7 +370,11 @@ function stop() {
   }
   audio = null;
 
-  emit("closed");
+  emit("closed", { reason: reason || "user" });
+}
+
+function stop() {
+  teardown("user");
 }
 
 // Typed input goes down the same socket as speech and runs through the same

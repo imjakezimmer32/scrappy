@@ -332,9 +332,13 @@ function buildCog() {
       <rect x="${TORSO_X}" y="${TORSO_TOP}" width="${P.torsoW}" height="${P.torsoH}" rx="13" fill="${INK.shellNear}"/>
       <rect x="${C - P.torsoW * 0.29 + YAW}" y="${TORSO_TOP + P.torsoH * 0.22}" width="${P.torsoW * 0.58}" height="${P.torsoH * 0.4}" rx="4" fill="${INK.panel}"/>
       <g class="chest-lights" style="${origin(C + YAW, TORSO_TOP + P.torsoH * 0.42)}">
-        <circle class="led led-1" cx="${C - P.torsoW * 0.14 + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledRed}"/>
-        <circle class="led led-2" cx="${C + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledYellow}"/>
-        <circle class="led led-3" cx="${C + P.torsoW * 0.14 + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledGreen}"/>
+        <!-- Idle: each dot keeps its own colour via --led-default. In a
+             conversation buddy.js sets --led-color on .cog, which every dot
+             prefers over its own default — see the two-level var() fallback
+             on .led in style.css. -->
+        <circle class="led led-1" style="--led-default:${INK.ledRed}" cx="${C - P.torsoW * 0.14 + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledRed}"/>
+        <circle class="led led-2" style="--led-default:${INK.ledYellow}" cx="${C + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledYellow}"/>
+        <circle class="led led-3" style="--led-default:${INK.ledGreen}" cx="${C + P.torsoW * 0.14 + YAW}" cy="${TORSO_TOP + P.torsoH * 0.42}" r="2.6" fill="${INK.ledGreen}"/>
       </g>
     </g>
 

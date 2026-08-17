@@ -888,9 +888,20 @@ body {
   }
 }
 
-/* Status lamps ticking over — a vital sign that needs no movement at all. */
+/* Status lamps ticking over — a vital sign that needs no movement at all.
+   No --led-color set on .cog at all by default: each dot falls back to its
+   own --led-default (its original red/yellow/green) via the two-level var()
+   below. buddy.js only sets --led-color while a conversation is actually
+   open — red = listening/talking, yellow = thinking, green = needs you —
+   which is what makes all three dots snap to one colour instead of staying
+   distinct. Plain idle is untouched.
+   This is a real CSS declaration, not the SVG fill="var(...)" presentation
+   attribute — Chromium resolves that once and does not reliably
+   re-invalidate it when a custom property changes later. This does. */
 .led {
+  fill: var(--led-color, var(--led-default, #e2564a));
   animation: ledIdle 3.8s ease-in-out infinite;
+  transition: fill 0.35s ease;
 }
 .led-2 {
   animation-delay: 0.55s;
@@ -1118,15 +1129,15 @@ body {
   animation: eyeThrob 0.5s ease-in-out infinite;
 }
 
+/* Colour comes from --led-color (green, by the time this ever runs — alert
+   only fires outside a conversation). This animation is purely the flash. */
 @keyframes ledFlash {
   0%,
   100% {
-    fill: var(--amber);
     opacity: 1;
   }
   50% {
-    fill: var(--mint);
-    opacity: 0.35;
+    opacity: 0.3;
   }
 }
 

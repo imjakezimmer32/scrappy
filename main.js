@@ -90,9 +90,17 @@ function overlayBounds() {
 // call takes focus, so this never interrupts what you're typing into.
 let topKeeper = null;
 
+// Paused for the duration of any open conversation. This is the one piece of
+// our own code that repeatedly pokes the OS window/z-order state, and a live
+// mic session is the one time that's worth not touching — a few minutes of
+// possible taskbar occlusion is a much smaller cost than any chance of this
+// churn being what silently ends the call.
+let callActive = false;
+
 function keepOnTop() {
   if (topKeeper) return;
   topKeeper = setInterval(() => {
+    if (callActive) return;
     if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
     mainWindow.setAlwaysOnTop(true, "screen-saver");
     mainWindow.moveTop();
@@ -541,6 +549,10 @@ ipcMain.on("workbuddy:chat-focus", (_event, on) => {
   if (!mainWindow) return;
   mainWindow.setFocusable(Boolean(on));
   if (on) mainWindow.focus();
+});
+
+ipcMain.on("workbuddy:call-active", (_event, on) => {
+  callActive = Boolean(on);
 });
 
 ipcMain.on("workbuddy:set-interactive", (_event, interactive) => {
