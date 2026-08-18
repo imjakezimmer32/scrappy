@@ -23,8 +23,16 @@
     "process-log": "node ./scripts/process-log.js",
     "conversations": "node ./scripts/process-log.js 80"
   },
-  "author": "Jake",
+  "author": "Jake Zimmer",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imjakezimmer32/scrappy.git"
+  },
+  "homepage": "https://imscrappy.dev",
+  "bugs": {
+    "url": "https://github.com/imjakezimmer32/scrappy/issues"
+  },
   "devDependencies": {
     "electron": "^35.0.0"
   },

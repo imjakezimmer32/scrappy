@@ -298,3 +298,8 @@ never steals focus from your editor.
 | `SCRAPPY_WAKE_WORD` | `on` | Enable "hey there Scrappy" listener when voice is configured |
 
 Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.
+
+## License
+
+MIT. See [LICENSE](./LICENSE). You can use, copy, change, and share Scrappy,
+including commercially, as long as you keep the copyright and license notice.
