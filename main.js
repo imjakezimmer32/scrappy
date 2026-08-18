@@ -237,6 +237,9 @@ function localVoiceEnv() {
     // The rendered persona, not the raw template — otherwise the local brain
     // reads "{{USER}}" out loud and calls everyone that.
     SCRAPPY_PERSONA: persona.renderToFile(settings.userName(), app.getPath("userData")),
+    // Local Python voice used to hardcode "Jake". Pass the panel name so he
+    // addresses whoever is actually sitting here.
+    SCRAPPY_USER_NAME: settings.userName(),
     // Local Python voice talks back to Electron for Recall tools/memory.
     SCRAPPY_URL: `http://${HOST}:${PORT}`,
     SCRAPPY_TOKEN: localToken || "",
@@ -1240,11 +1243,16 @@ ipcMain.handle("setup:read", () => settings.forPanel());
 
 ipcMain.handle("setup:write", (_event, patch) => {
   if (!patch || typeof patch !== "object") return { ok: false, error: "bad_patch" };
+  const previousName = settings.userName();
   const ok = settings.setMany(patch);
   // A name change has to reach the modules that bake it into text, and the
   // rendered persona has to be rewritten or he keeps using the old one.
   applyUserName();
   persona.renderToFile(settings.userName(), app.getPath("userData"));
+  if (settings.userName() !== previousName && localVoice.pid()) {
+    localVoice.stop("user name changed", "setup");
+    localVoice.start(localVoiceEnv(), { by: "setup", reason: "restart after name change" });
+  }
   rebuildTray();
   if (mainWindow) mainWindow.webContents.send("scrappy:settings-changed");
   return { ok, state: settings.forPanel() };
