@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld("setup", {
   buildVoice() {
     return ipcRenderer.invoke("setup:build-voice");
   },
+  close() {
+    ipcRenderer.send("setup:close");
+  },
 });
