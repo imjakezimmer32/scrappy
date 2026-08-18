@@ -18,7 +18,7 @@ No system-prompt changes needed.
 Names and terms Whisper should expect:
 
 ```json
-"vocabulary": ["Scrappy", "Chief", "Recall", "ArrayBud"]
+"vocabulary": ["Scrappy", "Chief", "Recall", "Cursor"]
 ```
 
 These also get fed into Whisper’s listening hint.
@@ -45,7 +45,7 @@ are safe.
 ## Seeded already
 
 Includes Scrappy wake phrases and its common mishearings (`scrapy`, `crappy`,
-`scrabby`, `snappy`, `scrap he`), plus ArrayBud, Recall, Cloudflare, Wrangler, etc.
+`scrabby`, `snappy`, `scrap he`), plus Recall, Cursor, Cloudflare, Wrangler, etc.
 
 ## Add your own
 
@@ -57,5 +57,5 @@ Includes Scrappy wake phrases and its common mishearings (`scrapy`, `crappy`,
 Example:
 
 ```json
-{ "from": "array bud", "to": "ArrayBud" }
+{ "from": "cloud flare", "to": "Cloudflare" }
 ```

@@ -3,8 +3,6 @@
     "Scrappy",
     "Chief",
     "Recall",
-    "ArrayBud",
-    "Array Bud",
     "Cursor",
     "Cloudflare",
     "Wrangler",
@@ -29,8 +27,6 @@
     { "from": "snappy", "to": "Scrappy" },
     { "from": "skippy", "to": "Scrappy" },
     { "from": "scrappy's", "to": "Scrappy's" },
-    { "from": "array bud", "to": "ArrayBud" },
-    { "from": "arraybud", "to": "ArrayBud" },
     { "from": "cloud flare", "to": "Cloudflare" },
     { "from": "wrangler", "to": "Wrangler" }
   ],

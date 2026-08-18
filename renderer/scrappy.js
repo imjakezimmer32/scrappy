@@ -684,7 +684,7 @@ const VOICE_TROUBLE = {
   socket_failed: ["Couldn't reach the voice server.", "check local voice / connection"],
   network: ["Couldn't reach ElevenLabs.", "check your connection"],
   elevenlabs_401: ["ElevenLabs turned me down.", "the API key looks wrong"],
-  quota_exceeded: ["I'm out of voice credits this month.", "ElevenLabs Starter hit 90k — resets Aug 17, or upgrade the plan"],
+  quota_exceeded: ["I'm out of voice credits this month.", "check your ElevenLabs plan"],
   no_signed_url: ["ElevenLabs didn't hand back a session.", ""],
   not_installed: ["Local voice isn't installed yet.", "run scripts/setup-local-voice.ps1"],
   local_voice_failed: ["Local voice didn't start.", "run scripts/setup-local-voice.ps1"],

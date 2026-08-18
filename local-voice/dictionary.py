@@ -35,7 +35,7 @@ _cache: dict[str, Any] = {
 
 def _default_data() -> dict[str, Any]:
     return {
-        "vocabulary": ["Scrappy", "Chief", "Recall", "ArrayBud"],
+        "vocabulary": ["Scrappy", "Chief", "Recall"],
         "replacements": [
             {"from": "scrapy", "to": "Scrappy"},
             {"from": "crappy", "to": "Scrappy"},
