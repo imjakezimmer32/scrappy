@@ -160,6 +160,14 @@ document.getElementById("build-voice").addEventListener("click", async (e) => {
   out.hidden = false;
 });
 
+document.getElementById("close").addEventListener("click", () => {
+  window.setup.close();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") window.setup.close();
+});
+
 document.getElementById("save").addEventListener("click", async () => {
   const result = await window.setup.write(collect());
   if (!result || !result.ok) {
