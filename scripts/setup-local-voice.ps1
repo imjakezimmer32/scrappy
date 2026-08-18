@@ -11,16 +11,30 @@ $Venv = Join-Path $Voice ".venv"
 
 Write-Host "==> Locating Python 3.12..."
 $py = $null
-foreach ($c in @(
-  "C:\Users\hella\AppData\Local\Programs\Python\Python312\python.exe",
-  "C:\Python312\python.exe"
+
+# The Windows py launcher is the normal way. Then any-user install folders.
+# Never a specific person's home directory.
+foreach ($probe in @(
+  { py -3.12 -c "import sys; print(sys.executable)" },
+  { python3.12 -c "import sys; print(sys.executable)" }
 )) {
-  if (Test-Path $c) { $py = $c; break }
+  try {
+    $out = & $probe 2>$null
+    if ($out -and (Test-Path $out)) { $py = $out.Trim(); break }
+  } catch {}
 }
+
 if (-not $py) {
-  $py = (py -3.12 -c "import sys; print(sys.executable)" 2>$null)
+  foreach ($c in @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"),
+    (Join-Path $env:ProgramFiles "Python312\python.exe"),
+    "C:\Python312\python.exe"
+  )) {
+    if ($c -and (Test-Path $c)) { $py = $c; break }
+  }
 }
-if (-not $py) { throw "Python 3.12 not found. Install it, then re-run." }
+
+if (-not $py) { throw "Python 3.12 not found. Install it from python.org (tick 'Add python.exe to PATH'), then re-run." }
 Write-Host "    using $py"
 
 Write-Host "==> Creating venv..."

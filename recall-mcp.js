@@ -7,15 +7,48 @@
 
 const { spawn } = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const CANDIDATES = [
-  "C:\\Users\\hella\\OneDrive\\Desktop\\Projects\\recall\\src-tauri\\target\\release\\recall.exe",
-  "C:\\Users\\hella\\OneDrive\\Desktop\\Projects\\recall\\src-tauri\\target\\debug\\recall.exe",
-  "C:\\Users\\hella\\OneDrive\\Desktop\\Projects\\recall\\dist\\Recall-portable\\recall.exe",
-];
-
 const CALL_TIMEOUT_MS = 60000;
+
+// Places a normal Windows install (or a nearby source checkout) would put
+// recall.exe. Never a specific person's user folder.
+function candidatePaths(env = process.env, home = os.homedir()) {
+  const local = env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const pf = env.ProgramFiles || "C:\\Program Files";
+  const pf86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const installed = [
+    path.join(local, "Programs", "Recall", "recall.exe"),
+    path.join(local, "Recall", "recall.exe"),
+    path.join(pf, "Recall", "recall.exe"),
+    path.join(pf86, "Recall", "recall.exe"),
+  ];
+  const checkouts = [];
+  for (const root of [
+    path.join(home, "OneDrive", "Desktop", "Projects", "recall"),
+    path.join(home, "Desktop", "Projects", "recall"),
+    path.join(home, "Projects", "recall"),
+    path.join(home, "src", "recall"),
+  ]) {
+    checkouts.push(
+      path.join(root, "src-tauri", "target", "release", "recall.exe"),
+      path.join(root, "src-tauri", "target", "debug", "recall.exe"),
+      path.join(root, "dist", "Recall-portable", "recall.exe")
+    );
+  }
+  return [...installed, ...checkouts];
+}
+
+function fromPathEnv(env = process.env) {
+  const dirs = String(env.PATH || "").split(path.delimiter);
+  for (const dir of dirs) {
+    if (!dir) continue;
+    const exe = path.join(dir, "recall.exe");
+    if (fs.existsSync(exe)) return exe;
+  }
+  return null;
+}
 
 let child = null;
 let ready = null;
@@ -23,10 +56,12 @@ let nextId = 1;
 const pending = new Map();
 let buffer = "";
 
-function exePath(override) {
-  const wanted = override || process.env.RECALL_EXE;
+function exePath(override, env = process.env) {
+  const wanted = override || env.RECALL_EXE;
   if (wanted && fs.existsSync(wanted)) return wanted;
-  return CANDIDATES.find((p) => fs.existsSync(p)) || null;
+  const onPath = fromPathEnv(env);
+  if (onPath) return onPath;
+  return candidatePaths(env).find((p) => fs.existsSync(p)) || null;
 }
 
 function handleLine(line) {
@@ -170,4 +205,4 @@ function stop() {
   teardown();
 }
 
-module.exports = { start, listTools, call, stop, exePath };
+module.exports = { start, listTools, call, stop, exePath, candidatePaths };

@@ -95,6 +95,18 @@
         </label>
       </section>
 
+      <section>
+        <h2>Recall</h2>
+        <p class="hint">
+          Optional. If you have Recall installed, he can use your notes. Leave blank and
+          he'll look on your PATH and in the usual Program Files folders.
+        </p>
+        <label class="field">
+          <span>Path to recall.exe <em>optional</em></span>
+          <input id="RECALL_EXE" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Program Files\Recall\recall.exe" />
+        </label>
+      </section>
+
       <p id="warning" class="warning" hidden>
         Windows wouldn't give me its credential store, so keys are saved unencrypted in your
         user folder. Everything still works — they're just not protected at rest.

@@ -1253,6 +1253,9 @@ ipcMain.handle("setup:write", (_event, patch) => {
     localVoice.stop("user name changed", "setup");
     localVoice.start(localVoiceEnv(), { by: "setup", reason: "restart after name change" });
   }
+  const recallExe = settings.get("RECALL_EXE", "");
+  if (recallExe) process.env.RECALL_EXE = recallExe;
+  else delete process.env.RECALL_EXE;
   rebuildTray();
   if (mainWindow) mainWindow.webContents.send("scrappy:settings-changed");
   return { ok, state: settings.forPanel() };
@@ -1988,6 +1991,8 @@ if (!gotTheLock) {
     // Tell everything who it's talking to before anything can write a log line
     // or build a prompt with the wrong name in it.
     applyUserName();
+    const recallExe = settings.get("RECALL_EXE", "");
+    if (recallExe) process.env.RECALL_EXE = recallExe;
     processJournal.init({ projectRoot: __dirname, userName: settings.userName() });
     conversationStore.init({
       projectRoot: __dirname,

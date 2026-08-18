@@ -44,6 +44,7 @@ const DEFAULTS = {
   SCRAPPY_VAD_SILENCE_MS: "1300",
   SCRAPPY_VAD_ENERGY: "0.008",
   SCRAPPY_TOOL_ROUNDS: "6",
+  RECALL_EXE: "",
 };
 
 const ENV_FILE = path.join(__dirname, ".env.local");
