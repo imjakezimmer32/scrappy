@@ -27,6 +27,7 @@ const SHARED = [
   ["assets/scrappy-face.svg", "scrappy-face.svg"],
   ["assets/scrappy-face-256.png", "scrappy-face-256.png"],
   ["assets/scrappy.ico", "favicon.ico"],
+  ["LICENSE", "LICENSE"],
 ];
 
 // Markdown that gets both copied out as a downloadable file and inlined into
