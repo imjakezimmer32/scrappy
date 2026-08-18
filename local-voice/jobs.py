@@ -46,7 +46,7 @@ BACKGROUND_AUTO_TOOLS = frozenset(
     }
 )
 
-# Tools that should usually stay on the foreground turn (Jake wants the answer now).
+# Tools that should usually stay on the foreground turn (the user wants the answer now).
 FOREGROUND_TOOLS = frozenset(
     {
         "process_recent",

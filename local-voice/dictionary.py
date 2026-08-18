@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import owner
+
 ROOT = Path(__file__).resolve().parent
 DICT_PATH = Path(
     __import__("os").environ.get(
@@ -33,7 +35,7 @@ _cache: dict[str, Any] = {
 
 def _default_data() -> dict[str, Any]:
     return {
-        "vocabulary": ["Scrappy", "Chief", "Jake", "Recall", "ArrayBud"],
+        "vocabulary": ["Scrappy", "Chief", "Recall", "ArrayBud"],
         "replacements": [
             {"from": "scrapy", "to": "Scrappy"},
             {"from": "crappy", "to": "Scrappy"},
@@ -75,7 +77,25 @@ def load(force: bool = False) -> dict[str, Any]:
 
     _cache["mtime"] = mtime
     _cache["loaded_at"] = now
-    _cache["data"] = data
+    _cache["data"] = _with_owner_name(data)
+    return data
+
+
+def _with_owner_name(data: dict[str, Any]) -> dict[str, Any]:
+    """Put the setup-panel name in the vocab so Whisper expects it."""
+    who = owner.name()
+    vocab = [str(w) for w in data.get("vocabulary") or []]
+    lowered = {w.lower() for w in vocab}
+    # Never keep a baked-in owner unless that is actually this user's name.
+    if who.lower() != "jake":
+        vocab = [w for w in vocab if w.lower() != "jake"]
+        lowered = {w.lower() for w in vocab}
+    if who.lower() not in lowered and who.lower() != "the user":
+        if "Chief" in vocab:
+            vocab.insert(vocab.index("Chief") + 1, who)
+        else:
+            vocab.insert(0, who)
+    data["vocabulary"] = vocab
     return data
 
 
@@ -93,7 +113,7 @@ def vocabulary_prompt(extra: str = "") -> str:
         seen.add(key)
         ordered.append(w)
     base = (
-        "Jake talking to Scrappy. Names and words: "
+        f"{owner.name()} talking to Scrappy. Names and words: "
         + ", ".join(ordered[:40])
         + "."
     )

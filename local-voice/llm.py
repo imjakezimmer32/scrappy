@@ -14,7 +14,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
 def backend() -> str:
     raw = (os.environ.get("SCRAPPY_LLM_BACKEND") or "auto").strip().lower()
     if raw in ("cloud", "openai", "api"):
-        # Soft-fallback to local if Jake hasn't pasted a key yet.
+        # Soft-fallback to local if the user hasn't pasted a key yet.
         return "cloud" if _cloud_key() else "ollama"
     if raw in ("ollama", "local"):
         return "ollama"

@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import owner
+
 Lane = Literal["talk", "work"]
 Mode = Literal["chat", "clarify", "act", "dig"]
 WorkKind = Literal["memory", "agents", "agents_start", "none"]
@@ -116,7 +118,7 @@ def classify_intent(user_text: str, *, pending: dict[str, Any] | None = None) ->
         kind = str(pending.get("work_kind") or "none")
         original = str(pending.get("original") or "")
         if kind in ("agents_start", "memory", "agents"):
-            combined = f"{original} — Jake clarified: {text}".strip(" —")
+            combined = f"{original} — {owner.name()} clarified: {text}".strip(" —")
             return Intent(
                 "work",
                 "act",

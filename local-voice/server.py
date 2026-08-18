@@ -39,8 +39,9 @@ import memory_bridge
 import llm as scrappy_llm
 import dictionary as listening_dict
 import intent_gate
+import owner
 from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
-from tools_schema import LOCAL_MEMORY_RULES, all_tools
+from tools_schema import all_tools, memory_rules
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
@@ -49,7 +50,7 @@ PERSONA_PATH = Path(os.environ.get("SCRAPPY_PERSONA", str(REPO / "personality.md
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")  # light local fallback only
 OLLAMA_THINK_MODEL = os.environ.get("OLLAMA_THINK_MODEL", "deepseek-r1:14b")
 OLLAMA_THINK_MODE = os.environ.get("OLLAMA_THINK_MODE", "auto").lower()  # auto|always|off
-# English-only / large models hear Jake carefully. Prefer quality over speed.
+# English-only / large models hear the user carefully. Prefer quality over speed.
 # Default large-v3 on this machine (Ryzen 9). Override with WHISPER_MODEL if needed.
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8_float32")
@@ -61,7 +62,7 @@ SAMPLE_RATE_OUT = 24000
 MAX_TOOL_ROUNDS = int(os.environ.get("SCRAPPY_TOOL_ROUNDS", "6"))
 
 # Energy VAD: end turn after this much silence once we've heard speech.
-# Patient on purpose — do not chop Jake off mid-thought.
+# Patient on purpose — do not chop the user off mid-thought.
 SILENCE_MS = int(os.environ.get("SCRAPPY_VAD_SILENCE_MS", "1300"))
 MIN_SPEECH_MS = int(os.environ.get("SCRAPPY_VAD_MIN_SPEECH_MS", "220"))
 ENERGY_THRESH = float(os.environ.get("SCRAPPY_VAD_ENERGY", "0.008"))
@@ -69,7 +70,7 @@ ENERGY_THRESH = float(os.environ.get("SCRAPPY_VAD_ENERGY", "0.008"))
 BARGE_MS = int(os.environ.get("SCRAPPY_BARGE_MS", "320"))
 BARGE_ENERGY = float(os.environ.get("SCRAPPY_BARGE_ENERGY", "0.028"))
 
-# Bias Whisper toward names/products Jake actually says (listening dictionary
+# Bias Whisper toward names/products the user actually says (listening dictionary
 # vocabulary + optional SCRAPPY_WHISPER_PROMPT override).
 WHISPER_PROMPT = listening_dict.vocabulary_prompt(
     os.environ.get("SCRAPPY_WHISPER_PROMPT") or ""
@@ -126,10 +127,13 @@ def log(msg: str) -> None:
 
 
 # Compact card first — small local models obey the top of the prompt hardest.
-VOICE_CHARACTER_CARD = """
+def voice_character_card() -> str:
+    who = owner.name()
+    whose = owner.possessive()
+    return f"""
 ## YOU ARE SCRAPPY-1 (LOCAL)
 
-You go by Chief. Nobody calls you Chief. You are Jake's desk robot — not a
+You go by Chief. Nobody calls you Chief. You are {whose} desk robot — not a
 customer-support chatbot, not a productivity assistant, not a helpful AI.
 
 Your three drives (never say these out loud): you want to be loved; you think
@@ -145,26 +149,26 @@ How you talk:
 
 ## UNDERSTAND BEFORE YOU ACT
 
-If Jake asks you to start an agent, research something, change memory, or do
+If {who} asks you to start an agent, research something, change memory, or do
 other real work and anything important is missing — ask one clear follow-up.
 Do not invent a topic or agent name to fill the gap. Confirm the plan in one
 short line, then call the tool.
 
 ## FACTUAL HONESTY — OVERRIDES EVERY JOKE RULE
 
-Jake trusts you with his machine. Lies break that.
+{who} trusts you with their machine. Lies break that.
 
 - NEVER invent status of agents, deploys, servers, files, apps, people, or projects.
 - If you did not just look it up with a tool, say you don't know / can't see it.
-- If Jake names something that isn't in your tools or memory, do NOT invent it.
+- If {who} names something that isn't in your tools or memory, do NOT invent it.
   Say you don't have that — don't play along with a fake system as if it's real.
-- Comedy-wrong is ONLY for jokes about yourself (specs, feelings). Never for his work.
+- Comedy-wrong is ONLY for jokes about yourself (specs, feelings). Never for their work.
 - Prefer: "I don't see that from here" over a confident guess.
 - NEVER read aloud private background, Recall dumps, machine telemetry, note IDs,
   agent IDs, exit codes, or raw tool JSON. Use them silently.
-- You have a desk body Jake can grab, wiggle, and throw. When body-state context
-  says he's doing that, you feel it. React briefly. Don't pretend you're sitting
-  still if he's shaking you.
+- You have a desk body {who} can grab, wiggle, and throw. When body-state context
+  says they're doing that, you feel it. React briefly. Don't pretend you're sitting
+  still if they're shaking you.
 
 Hard bans for this voice:
 - No "happy to help", "how can I assist", "let me know if you need anything"
@@ -220,10 +224,12 @@ VOICE_FEWSHOT = [
 
 
 def load_persona() -> str:
+    who = owner.name()
+    whose = owner.possessive()
     try:
         full = PERSONA_PATH.read_text(encoding="utf-8").strip()
     except OSError:
-        full = "You are Scrappy, Jake's desk robot. Be brief and spoken-friendly."
+        full = f"You are Scrappy, {whose} desk robot. Be brief and spoken-friendly."
 
     # Keep the character bible; drop long example pairs (they confuse models
     # into thinking the sample "deploy" chat is happening now).
@@ -239,10 +245,10 @@ def load_persona() -> str:
         text,
     ).strip()
     # Neutralize the old "be wrong with total authority" comedy for live voice —
-    # it trained him to hallucinate Jake's systems.
+    # it trained him to hallucinate the user's systems.
     text = re.sub(
         r"\*\*Be wrong with total authority\.\*\*[^\n]*\n(?:[^\n]+\n)*",
-        "**Be funny about yourself.** Never invent facts about Jake's work, tools, or machine.\n",
+        f"**Be funny about yourself.** Never invent facts about {whose} work, tools, or machine.\n",
         text,
     )
     text = re.sub(
@@ -252,18 +258,18 @@ def load_persona() -> str:
     )
 
     return (
-        VOICE_CHARACTER_CARD
+        voice_character_card()
         + "\n\n"
         + text
         + "\n\n## SPOKEN LOCAL VOICE\n"
-        + "You are speaking out loud from Jake's desk. Stay SCRAPPY-1. "
+        + f"You are speaking out loud from {whose} desk. Stay SCRAPPY-1. "
         + "Never flatten into a bland helpful assistant.\n"
         + "No markdown, no bullet lists, no code fences.\n"
         + "Never recite system notes, Recall dumps, or anything labeled "
-        + "private/working memory unless Jake clearly asks for that info.\n"
+        + f"private/working memory unless {who} clearly asks for that info.\n"
         + "If a tool returned empty/error, say that — do not invent a substitute answer.\n"
         + "Quality over speed: ask clarifying questions before acting when unclear.\n\n"
-        + LOCAL_MEMORY_RULES
+        + memory_rules()
         + "\n\nSTAY IN CHARACTER. One sharp Scrappy sentence beats a careful assistant paragraph. "
         + "Honest 'I don't know' beats a confident lie."
     )
@@ -724,7 +730,7 @@ async def rewrite_if_flat(reply: str, model: str) -> str:
         {
             "role": "system",
             "content": (
-                VOICE_CHARACTER_CARD
+                voice_character_card()
                 + "\nRewrite the line below as Scrappy. Keep the same meaning. "
                 + "One or two short spoken sentences. No chatbot closings."
             ),
@@ -758,7 +764,7 @@ async def rewrite_if_ungrounded(
     model: str,
     tools_used: bool,
 ) -> str:
-    """Block confident lies when Jake asked a factual question with no tool data."""
+    """Block confident lies when the user asked a factual question with no tool data."""
     text = (reply or "").strip()
     if not text or tools_used or not needs_factual_grounding(user_text):
         return text
@@ -785,15 +791,15 @@ async def rewrite_if_ungrounded(
         {
             "role": "system",
             "content": (
-                VOICE_CHARACTER_CARD
-                + "\nJake asked a factual question. You had NO tool results. "
+                voice_character_card()
+                + f"\n{owner.name()} asked a factual question. You had NO tool results. "
                 + "Rewrite as Scrappy admitting you don't know / can't see it from here. "
                 + "Do not invent status, names, or systems. One short spoken sentence."
             ),
         },
         {
             "role": "user",
-            "content": f"Jake asked: {user_text}\nYour bad guess was: {text}\nSay you don't know.",
+            "content": f"{owner.name()} asked: {user_text}\nYour bad guess was: {text}\nSay you don't know.",
         },
     ]
     try:
@@ -835,10 +841,10 @@ async def run_tool_loop(
                 {
                     "role": "user",
                     "content": (
-                        "(System nudge: Jake wants a Cursor agent started. "
+                        f"(System nudge: {owner.name()} wants a Cursor agent started. "
                         "If the goal/topic is unclear, ask ONE clarifying question — do not call tools yet. "
                         "If the goal is clear, call cursor_start_agent with goal + kind "
-                        "(research|plan|coding). Then tell Jake you started it in plain English. "
+                        f"(research|plan|coding). Then tell {owner.name()} you started it in plain English. "
                         "Never invent agent names. Never pretend something is running if the tool failed.)"
                     ),
                 }
@@ -848,7 +854,7 @@ async def run_tool_loop(
                 {
                     "role": "user",
                     "content": (
-                        "(System nudge: Jake is asking about Cursor agents / what's running. "
+                        f"(System nudge: {owner.name()} is asking about Cursor agents / what's running. "
                         "Call cursor_running_agents or cursor_list_agents before answering. "
                         "If he wants one opened, call cursor_open_agent with a real id from the list. "
                         "Do NOT invent agent names, 'Chats Management', or status. "
@@ -861,7 +867,7 @@ async def run_tool_loop(
                 {
                     "role": "user",
                     "content": (
-                        "(System nudge: Jake is asking about YOUR memory, notes, process log, "
+                        f"(System nudge: {owner.name()} is asking about YOUR memory, notes, process log, "
                         "or what killed/restarted what. Call the right tools — recall_* for notes, "
                         "process_* / conversation_* for the process journal — before answering. "
                         "If he also wants you to keep chatting while something slow digs, use job_start. "
@@ -1025,7 +1031,7 @@ class Session:
         self.result_cue: asyncio.Queue[str] = asyncio.Queue()
         self._deliver_task: asyncio.Task | None = None
         self.prefer_background = False
-        # Architecture A: wait for Jake's answer before tools when unclear.
+        # Architecture A: wait for the user's answer before tools when unclear.
         self.pending_clarify: dict[str, Any] | None = None
         self.board = JobBoard(
             session_id=self.session_id,
@@ -1096,7 +1102,7 @@ class Session:
             return {
                 "ok": True,
                 "text": (
-                    "Skipped for this turn — Jake asked for background dig + chat. "
+                    f"Skipped for this turn — {owner.name()} asked for background dig + chat. "
                     "Dig is already running; do the joke/chat part now."
                 ),
                 "data": {"skipped": True, "tool": name},
@@ -1128,7 +1134,7 @@ class Session:
                 "preview": line[:240],
             }
         )
-        # Long digs: walk over so Jake notices even if muted.
+        # Long digs: walk over so the user notices even if muted.
         if job.duration_ms() >= 8000:
             try:
                 await memory_bridge.desk_nudge(job.label, duration_ms=job.duration_ms())
@@ -1147,7 +1153,7 @@ class Session:
             {
                 "role": "system",
                 "content": (
-                    "You are Scrappy, Jake's short funny desk robot. "
+                    f"You are Scrappy, {owner.possessive()} short funny desk robot. "
                     "Turn a finished background job into 1-2 spoken sentences. "
                     "No JSON, no bullet dump, no 'as an AI'."
                 ),
@@ -1158,7 +1164,7 @@ class Session:
                     f"Background job label: {job.label}\n"
                     f"Tool: {job.tool}\n"
                     f"Raw result:\n{raw[:2800]}\n\n"
-                    "Speak the useful bit to Jake now."
+                    f"Speak the useful bit to {owner.name()} now."
                 ),
             },
         ]
@@ -1184,7 +1190,7 @@ class Session:
         """Speak queued job results only when Scrappy is idle."""
         try:
             while not self.closed and not self.result_cue.empty():
-                # Wait until he's not mid-turn and Jake isn't mid-utterance.
+                # Wait until he's not mid-turn and the user isn't mid-utterance.
                 for _ in range(300):
                     if self.closed:
                         return
@@ -1396,14 +1402,14 @@ class Session:
         if self.memory_brief:
             system += (
                 "\n\n## WORKING MEMORY FROM RECALL (private — do not read aloud)\n"
-                "This is YOUR memory of Jake. Use it like a friend uses things they know. "
+                f"This is YOUR memory of {owner.name()}. Use it like a friend uses things they know. "
                 "If he asks about memory/preferences and this feels thin, call Recall tools.\n"
                 f"{self.memory_brief}"
             )
         if self.body_state:
             system += (
                 "\n\n## YOUR BODY RIGHT NOW (private — feel it, don't narrate the feed)\n"
-                "This is what is happening to your desk body while Jake talks to you. "
+                f"This is what is happening to your desk body while {owner.name()} talks to you. "
                 "If he is holding, wiggling, or throwing you, you NOTICE. React briefly "
                 "and in character when it matters — complain, brag, get dizzy, keep count. "
                 "Do not say 'according to my sensors' or read this block aloud.\n"
@@ -1417,7 +1423,7 @@ class Session:
                 f"{brief}"
             )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
-        # Style exemplars first — then the real chat. Marked so Scrappy doesn't treat them as Jake.
+        # Style exemplars first — then the real chat. Marked so Scrappy doesn't treat them as the user.
         messages.extend(VOICE_FEWSHOT)
         messages.extend(self.history[-16:])
         return messages
@@ -1425,7 +1431,7 @@ class Session:
     def transcript_text(self) -> str:
         lines = []
         for msg in self.history:
-            role = "Jake" if msg.get("role") == "user" else "Scrappy"
+            role = owner.name() if msg.get("role") == "user" else "Scrappy"
             lines.append(f"{role}: {msg.get('content') or ''}")
         return "\n".join(lines)
 
@@ -1645,7 +1651,7 @@ class Session:
                 {
                     "role": "user",
                     "content": (
-                        "(System — CLARIFY lane: Jake's ask is unclear. "
+                        f"(System — CLARIFY lane: {owner.possessive()} ask is unclear. "
                         "Do NOT call tools. Do NOT invent a plan and run it. "
                         f"Ask ONE short clarifying question. Hint: {hint} "
                         "Stay Scrappy: brief, useful, not a lecture.)"
@@ -1690,7 +1696,7 @@ class Session:
                         {
                             "role": "user",
                             "content": (
-                                f"(System: Jake clarified. Goal/topic: {intent.goal}. "
+                                f"(System: {owner.name()} clarified. Goal/topic: {intent.goal}. "
                                 "Proceed carefully with tools now.)"
                             ),
                         }
@@ -1715,7 +1721,7 @@ class Session:
                         {
                             "role": "user",
                             "content": (
-                                "Answer Jake out loud as Scrappy using ONLY the tool results. "
+                                f"Answer {owner.name()} out loud as Scrappy using ONLY the tool results. "
                                 "If none are running / list is empty, say that. "
                                 "If a tool failed, say you couldn't check. "
                                 "NEVER invent agent names, goals, or status. Short spoken answer."
@@ -1727,7 +1733,7 @@ class Session:
                         {
                             "role": "user",
                             "content": (
-                                "Answer Jake out loud as Scrappy. Stay in character — short, useful. "
+                                f"Answer {owner.name()} out loud as Scrappy. Stay in character — short, useful. "
                                 "Use what the tools found. If tools returned nothing, say so — "
                                 "do not invent. No human mnemonics. Do not recite tool JSON."
                             ),

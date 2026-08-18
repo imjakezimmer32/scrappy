@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import owner
+
 
 def _fn(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
     return {
@@ -19,12 +21,14 @@ def _fn(name: str, description: str, properties: dict, required: list[str] | Non
 
 
 def recall_tools() -> list[dict]:
+    who = owner.name()
+    whose = owner.possessive()
     s = {"type": "string"}
     i = {"type": "integer"}
     return [
         _fn(
             "recall_search",
-            "Search Jake's Recall notes and repo brains. Use for facts, preferences, past decisions, and what he said before.",
+            f"Search {whose} Recall notes and repo brains. Use for facts, preferences, past decisions, and what they said before.",
             {
                 "query": {**s, "description": "What to look for"},
                 "limit": {**i, "description": "Max results (default 8)"},
@@ -35,7 +39,7 @@ def recall_tools() -> list[dict]:
         ),
         _fn(
             "recall_ask",
-            "Ask a natural-language question against Jake's notes and get an answer grounded in them.",
+            f"Ask a natural-language question against {whose} notes and get an answer grounded in them.",
             {"question": {**s, "description": "Question to answer from notes"}},
             ["question"],
         ),
@@ -49,7 +53,7 @@ def recall_tools() -> list[dict]:
         ),
         _fn(
             "recall_live_context",
-            "What Jake said out loud recently from live Recall recording.",
+            f"What {who} said out loud recently from live Recall recording.",
             {"minutes": {**i, "description": "Minutes back (default 15)"}},
         ),
         _fn(
@@ -90,12 +94,13 @@ def recall_tools() -> list[dict]:
 
 
 def process_tools() -> list[dict]:
+    who = owner.name()
     s = {"type": "string"}
     i = {"type": "integer"}
     return [
         _fn(
             "process_recent",
-            "Read Scrappy's live process journal: starts, stops, kills, restarts, wake events, chat status. Use when Jake asks what crashed, what killed what, or what just happened under the hood.",
+            f"Read Scrappy's live process journal: starts, stops, kills, restarts, wake events, chat status. Use when {who} asks what crashed, what killed what, or what just happened under the hood.",
             {
                 "limit": {**i, "description": "Max events (default 40)"},
                 "kind": {**s, "description": 'Optional filter: process, conversation, note, system, job'},
@@ -113,7 +118,7 @@ def process_tools() -> list[dict]:
         ),
         _fn(
             "process_note",
-            "WRITE: add a timestamped note into the process journal (for Jake or for yourself about what just happened).",
+            f"WRITE: add a timestamped note into the process journal (for {who} or for yourself about what just happened).",
             {
                 "text": {**s, "description": "Note to record"},
                 "reason": {**s, "description": "Optional short reason tag"},
@@ -138,6 +143,7 @@ def process_tools() -> list[dict]:
 
 
 def job_tools() -> list[dict]:
+    who = owner.name()
     s = {"type": "string"}
     return [
         _fn(
@@ -145,9 +151,9 @@ def job_tools() -> list[dict]:
             (
                 "BACKGROUND WORK: kick off a slow tool (Recall search/ask/save, etc.) while you "
                 "keep talking. Returns immediately with a job id. When it finishes, you will be "
-                "cued to tell Jake — or it waits in a queue if you're still speaking. "
-                "Use this when the dig can wait a few seconds and Jake still wants conversation. "
-                "Do NOT use for quick process_recent / conversation reads he needs answered now."
+                f"cued to tell {who} — or it waits in a queue if you're still speaking. "
+                f"Use this when the dig can wait a few seconds and {who} still wants conversation. "
+                "Do NOT use for quick process_recent / conversation reads they need answered now."
             ),
             {
                 "label": {
@@ -180,13 +186,15 @@ def job_tools() -> list[dict]:
 
 
 def cursor_tools() -> list[dict]:
+    who = owner.name()
+    whose = owner.possessive()
     s = {"type": "string"}
     i = {"type": "integer"}
     b = {"type": "boolean"}
     return [
         _fn(
             "cursor_list_agents",
-            "List Cursor agents Scrappy knows about. Use when Jake asks what agents exist. Never invent names.",
+            f"List Cursor agents Scrappy knows about. Use when {who} asks what agents exist. Never invent names.",
             {
                 "limit": {**i, "description": "How many (default 10)"},
                 "running_only": {**b, "description": "If true, only agents working now"},
@@ -200,7 +208,7 @@ def cursor_tools() -> list[dict]:
         ),
         _fn(
             "cursor_start_agent",
-            "Start a Cursor agent for Jake. ONLY after the goal is clear. kind: research|plan|coding.",
+            f"Start a Cursor agent for {who}. ONLY after the goal is clear. kind: research|plan|coding.",
             {
                 "goal": {**s, "description": "What the agent should do (required, be specific)"},
                 "kind": {**s, "description": "research | plan | coding (default research)"},
@@ -219,7 +227,7 @@ def cursor_tools() -> list[dict]:
         ),
         _fn(
             "cursor_list_cloud_agents",
-            "List Jake's cloud agents from Cursor (Agents window overview).",
+            f"List {whose} cloud agents from Cursor (Agents window overview).",
             {
                 "limit": {**i, "description": "How many (default 15)"},
                 "include_archived": {**b, "description": "Include archived"},
@@ -233,13 +241,13 @@ def cursor_tools() -> list[dict]:
         ),
         _fn(
             "cursor_agent_details",
-            "Deep live check on one agent — prefer when Jake wants details.",
+            f"Deep live check on one agent — prefer when {who} wants details.",
             {"id": {**s, "description": "Agent id"}},
             ["id"],
         ),
         _fn(
             "cursor_open_agent",
-            "Open the agent in Jake's browser. Use a real id from list/running. If open fails, say so.",
+            f"Open the agent in {whose} browser. Use a real id from list/running. If open fails, say so.",
             {"id": {**s, "description": "Agent id"}},
             ["id"],
         ),
@@ -256,13 +264,16 @@ def all_tools() -> list[dict]:
     return recall_tools() + process_tools() + job_tools() + cursor_tools()
 
 
-LOCAL_MEMORY_RULES = """
+def memory_rules() -> str:
+    who = owner.name()
+    whose = owner.possessive()
+    return f"""
 ## YOUR MEMORY — RECALL
 
-Jake's long-term memory of you lives in Recall on this PC. You have tools for it.
+{whose} long-term memory of you lives in Recall on this PC. You have tools for it.
 
-When he says "your memory", "remember", "what did I say", or "improve your memory",
-he means YOUR Recall notes about him — not human mnemonic tips or sleep advice.
+When they say "your memory", "remember", "what did I say", or "improve your memory",
+they mean YOUR Recall notes about them — not human mnemonic tips or sleep advice.
 
 Use Recall like a friend uses things they know. Search when unsure. Quietly save
 lasting preferences under project Scrappy. Never dump the whole archive out loud.
@@ -271,28 +282,27 @@ lasting preferences under project Scrappy. Never dump the whole archive out loud
 
 You also have a timestamped process log of yourself: when local-voice starts/stops,
 when wake-listener is killed for a call, model switches, auto-restarts, and notes
-Jake adds. Tools: process_recent, process_search, process_note, conversation_recent,
+{who} adds. Tools: process_recent, process_search, process_note, conversation_recent,
 conversation_get.
 
-When Jake asks what crashed, what killed what, why you went quiet, or what processes
+When {who} asks what crashed, what killed what, why you went quiet, or what processes
 ran — look it up. Don't guess. Summarize briefly out loud; don't read the whole log.
 
 ## BACKGROUND WORK (job_*)
 
-When Jake says dig/search "in the background" / "while that cooks" / keep talking,
+When {who} says dig/search "in the background" / "while that cooks" / keep talking,
 the SYSTEM already starts the dig. You just ack briefly and do the chat/joke part.
 Do not call recall_* or process_* on those turns, and do not invent dig results —
 you'll be cued when the dig finishes (or it waits in a queue if you're busy).
 
 ## CURSOR AGENTS (cursor_*)
 
-When Jake asks what agents are running / working / in the background / status —
+When {who} asks what agents are running / working / in the background / status —
 call cursor_running_agents or cursor_list_agents. Never invent agent names or status.
 If tools return empty, say none are running. If a tool errors, say you couldn't check.
 
-When Jake wants to START an agent: if the topic/goal is unclear, ask first.
+When {who} wants to START an agent: if the topic/goal is unclear, ask first.
 When clear, call cursor_start_agent (kind research|plan|coding). Do not pretend
 you started one unless the tool succeeded. To open one in the browser, call
 cursor_open_agent with a real id from the list — if you can't, say so plainly.
 """.strip()
-
