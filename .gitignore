@@ -3,6 +3,7 @@ node_modules/
 *.log
 dist/
 out/
+release/
 local-token.txt
 .env.local
 .env.local*.bak

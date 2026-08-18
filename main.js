@@ -14,6 +14,7 @@ const processJournal = require("./process-journal");
 const conversationStore = require("./conversation-store");
 const settings = require("./settings");
 const persona = require("./persona");
+const cursorHooks = require("./cursor-hooks");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -208,6 +209,16 @@ function applyUserName() {
   conversationStore.setUserName(name);
   processJournal.setUserName(name);
   return name;
+}
+
+function installCursorHooksNow() {
+  const result = cursorHooks.install({ token: ensureToken() });
+  if (!result.ok) {
+    console.warn("[hooks] install failed:", result.error);
+    return result;
+  }
+  console.log("[hooks] installed", result.hooksJson);
+  return result;
 }
 
 function localVoiceEnv() {
@@ -533,6 +544,10 @@ function rebuildTray() {
       label: "Set up Scrappy…",
       click: () => openSetupWindow(),
     },
+    {
+      label: "Wire up Cursor hooks",
+      click: () => installCursorHooksNow(),
+    },
     { type: "separator" },
     {
       label: cloudReady
@@ -755,7 +770,7 @@ function shortcutDetails() {
     iconIndex: 0,
     appUserModelId: APP_ID,
   };
-  if (target === process.execPath) {
+  if (target === process.execPath && !app.isPackaged) {
     details.args = `"${__dirname}"`;
     details.cwd = __dirname;
   }
@@ -1993,9 +2008,10 @@ if (!gotTheLock) {
     applyUserName();
     const recallExe = settings.get("RECALL_EXE", "");
     if (recallExe) process.env.RECALL_EXE = recallExe;
-    processJournal.init({ projectRoot: __dirname, userName: settings.userName() });
+    const writableRoot = app.isPackaged ? app.getPath("userData") : __dirname;
+    processJournal.init({ projectRoot: writableRoot, userName: settings.userName() });
     conversationStore.init({
-      projectRoot: __dirname,
+      projectRoot: writableRoot,
       userData: app.getPath("userData"),
       userName: settings.userName(),
     });
@@ -2020,6 +2036,7 @@ if (!gotTheLock) {
     createTray();
     setTimeout(keepTrayInHiddenIcons, 2500);
     startServer();
+    installCursorHooksNow();
 
     // Prefer local AMD voice when configured; still start wake word either way.
     const pref = voiceBackendPref();

@@ -21,7 +21,9 @@
     "dev-site": "node ./scripts/build-site.js && npx wrangler dev",
     "deploy-site": "node ./scripts/build-site.js && npx wrangler deploy",
     "process-log": "node ./scripts/process-log.js",
-    "conversations": "node ./scripts/process-log.js 80"
+    "conversations": "node ./scripts/process-log.js 80",
+    "dist": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --win --dir"
   },
   "author": "Jake Zimmer",
   "license": "MIT",
@@ -33,8 +35,51 @@
   "bugs": {
     "url": "https://github.com/imjakezimmer32/scrappy/issues"
   },
+  "build": {
+    "appId": "com.hellalogic.scrappy",
+    "productName": "Scrappy",
+    "copyright": "Copyright © 2026 Jake Zimmer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "!site/**",
+      "!docs/**",
+      "!test/**",
+      "!release/**",
+      "!local-voice/.venv/**",
+      "!local-voice/logs/**",
+      "!local-voice/models/**",
+      "!conversations/**",
+      "!process-logs/**"
+    ],
+    "win": {
+      "icon": "assets/scrappy.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Scrappy-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Scrappy",
+      "runAfterFinish": true,
+      "uninstallDisplayName": "Scrappy"
+    }
+  },
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron": "^35.0.0",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.27"
