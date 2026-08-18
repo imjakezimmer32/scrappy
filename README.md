@@ -1,64 +1,61 @@
 # Scrappy
 
-Scrappy — a small articulated robot who lives on your desktop, walks around above the
-taskbar, and comes to get you when a Cursor agent finishes.
+A small robot who lives above your Windows taskbar and walks over to get you when a
+Cursor agent finishes.
 
-## What you do
+Windows only. [imscrappy.dev](https://imscrappy.dev)
 
-1. Keep Scrappy running (it starts with Windows after install).
-2. Scrappy wanders, sits, dozes off, and pings you now and then to keep you honest.
-3. When an agent finishes (sessions ≥ 2 minutes), he walks to the middle of the
-   screen, goes orange, and jumps until you notice.
-4. Click him. He waves, says something, and goes back to wandering.
+## Install (the normal way)
 
-## Commands
+1. **Download** [Scrappy-Setup.exe](https://github.com/imjakezimmer32/scrappy/releases/latest)
+2. **Run** the installer. Double-click. Let it finish. He should appear above the taskbar.
+3. **Right-click him → Set up Scrappy…**  
+   Type your name. Optionally add a brain (OpenAI/Groq) or a voice (ElevenLabs or local).  
+   He works with none of that — he just can't talk yet.
+
+That's it. He starts with Windows after that. Cursor hooks are wired on first launch, so
+when an agent runs for two minutes or more, he walks to the middle of the screen, goes
+orange, and jumps until you click him.
+
+If there isn't a Release yet, use the developer steps at the bottom.
+
+### Everyday use
+
+- Click him to type. Press Enter. He answers out loud if voice is set up.
+- Pick him up and throw him. This is on purpose.
+- Click the `^` by the clock, then his face, to start him if he's hidden.
+- Right-click → **Turn off Scrappy** to send him away.
+
+## License
+
+MIT. See [LICENSE](./LICENSE). You can use, copy, change, and share him, including
+commercially, as long as you keep the copyright notice.
+
+## For tinkerers
+
+Settings live in `%APPDATA%\scrappy\settings.json`. Keys are encrypted with the Windows
+credential store. An environment variable always wins; `.env.local` is still read but
+nothing writes to it any more.
+
+Cursor hooks POST to `http://127.0.0.1:8787/agent-done` with a local token. Sessions under
+two minutes are ignored unless `force: true`.
+
+### Developer install
 
 ```bash
+git clone https://github.com/imjakezimmer32/scrappy
+cd scrappy
 npm install
 npm start
-npm run install-startup    # launch on Windows sign-in
-npm run uninstall-startup  # stop launching on sign-in
-npm run install-hooks      # wire Cursor agent-finished hooks (app must be running once)
+npm run install-hooks      # if he is already running
+npm run install-startup    # Start Menu + sign-in
+npm run dist               # build Scrappy-Setup.exe on Windows
 ```
-
-## How Cursor talks to it
-
-Cursor hooks POST to `http://127.0.0.1:8787/agent-done` with your local token.
-Short sessions under 2 minutes are ignored (unless `force: true`).
-
-## Setting him up
-
-**Right-click him → Set up Scrappy…** (also on the tray icon). Name, brain, voice, keys.
-
-He runs fine with none of it configured — he walks, sits, gets thrown and fetches you when an
-agent finishes. He just can't hold a conversation, and he'll say so himself the first time
-rather than sitting there mutely.
-
-### Where settings live
-
-`settings.js` resolves every value in this order, highest first:
-
-1. **`process.env`** — an explicit environment variable always wins, so you can override
-   anything for one run.
-2. **The settings store** — `%APPDATA%\scrappy\settings.json`, what the panel writes. API keys
-   in it are encrypted with Electron's `safeStorage` against the Windows credential store. If
-   the credential store is unavailable they're stored in the clear and the panel says so.
-3. **`.env.local`** — still read, so nothing anyone set up by hand breaks. Nothing writes to it
-   any more: two writers on one file is how a key you pasted thirty seconds ago disappears.
-4. **Built-in defaults.**
-
-The panel tells you which of these each value is coming from, and won't pretend it can change
-one that an environment variable has already decided.
-
-Keys are never sent to the renderer. The panel is told *whether* a key is set, not what it is,
-which is also why leaving a key box empty means "leave it alone" rather than "delete it" —
-removing one is a separate, explicit button.
 
 ### Who he thinks you are
 
-`personality.md` ships with a `{{USER}}` placeholder rather than a name. `persona.js` fills it
-in from `SCRAPPY_USER_NAME`, defaulting to your Windows account name. Set it in the panel if he
-should call you something else.
+`personality.md` ships with a `{{USER}}` placeholder. The setup panel fills it in
+(`SCRAPPY_USER_NAME`), defaulting to your Windows account name.
 
 ## The character
 
@@ -297,9 +294,7 @@ never steals focus from your editor.
 | `SCRAPPY_NUDGE_MIN_DURATION_MS` | `120000` (2 min) | Minimum session length before Scrappy walks over |
 | `SCRAPPY_WAKE_WORD` | `on` | Enable "hey there Scrappy" listener when voice is configured |
 
-Run `npm test` after changing status logic. Re-run `npm run install-hooks` after hook script updates.
+Run `npm test` after changing status logic. Restart Scrappy after hook script updates so he
+rewrites `~/.cursor/hooks.json`.
 
-## License
-
-MIT. See [LICENSE](./LICENSE). You can use, copy, change, and share Scrappy,
-including commercially, as long as you keep the copyright and license notice.
+The license text is in [LICENSE](./LICENSE).
