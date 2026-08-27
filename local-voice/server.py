@@ -40,7 +40,14 @@ import llm as scrappy_llm
 import dictionary as listening_dict
 import intent_gate
 import owner
+import turn_timing
 from jobs import BACKGROUND_AUTO_TOOLS, Job, JobBoard, parse_job_args
+from turn_timing import (
+    SPECULATIVE_MS,
+    silence_needed_ms,
+    skip_talk_rewrites,
+    stream_before_rewrite,
+)
 from tools_schema import all_tools, memory_rules
 
 ROOT = Path(__file__).resolve().parent
@@ -61,9 +68,9 @@ SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_OUT = 24000
 MAX_TOOL_ROUNDS = int(os.environ.get("SCRAPPY_TOOL_ROUNDS", "6"))
 
-# Energy VAD: end turn after this much silence once we've heard speech.
-# Patient on purpose — do not chop the user off mid-thought.
-SILENCE_MS = int(os.environ.get("SCRAPPY_VAD_SILENCE_MS", "1300"))
+# Energy VAD: long-thought default. Short utterances use a tighter hang
+# (see turn_timing.silence_needed_ms). Patient on purpose for long takes.
+SILENCE_MS = turn_timing.SILENCE_MS
 MIN_SPEECH_MS = int(os.environ.get("SCRAPPY_VAD_MIN_SPEECH_MS", "220"))
 ENERGY_THRESH = float(os.environ.get("SCRAPPY_VAD_ENERGY", "0.008"))
 # Barge-in while Scrappy is busy: hotter + sustained so TTS echo doesn't false-trigger.
@@ -704,10 +711,7 @@ def needs_agent_status(user_text: str) -> bool:
 
 
 def needs_factual_grounding(user_text: str) -> bool:
-    text = (user_text or "").strip()
-    if not text or WAKE_ONLY.match(text):
-        return False
-    return bool(FACTUAL_ASK.search(text))
+    return turn_timing.needs_factual_grounding(user_text)
 
 
 async def rewrite_if_flat(reply: str, model: str) -> str:
@@ -1008,6 +1012,90 @@ def synthesize(text: str) -> np.ndarray:
     return np.asarray(samples, dtype=np.float32)
 
 
+CONTEXT_LEAK = (
+    "private background",
+    "from jake's recall",
+    "current state of jake",
+    "live speech update",
+    "system prompt",
+    "personality.md",
+    "working memory from recall",
+    "where i'm reading",
+    "drawing information from",
+)
+
+
+class SpeakAhead:
+    """Synthesize sentence N+1 while sentence N is streaming to the client."""
+
+    def __init__(self, session: "Session"):
+        self.session = session
+        self._q: asyncio.Queue[asyncio.Task | None] = asyncio.Queue()
+        self._worker: asyncio.Task | None = None
+        self._synth: list[asyncio.Task] = []
+
+    def _ensure_worker(self) -> None:
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._run())
+
+    async def push(self, text: str) -> None:
+        if self.session.cancelled():
+            return
+        clean = strip_for_speech(text)
+        if not clean:
+            return
+        if any(b in clean.lower() for b in CONTEXT_LEAK):
+            log(f"suppressed context leak: {clean[:80]}")
+            return
+        self.session._partial_reply = (self.session._partial_reply + " " + clean).strip()
+        task = asyncio.create_task(asyncio.to_thread(synthesize, clean))
+        self._synth.append(task)
+        self._ensure_worker()
+        await self._q.put(task)
+
+    async def flush(self) -> None:
+        await self._q.put(None)
+        worker = self._worker
+        if worker:
+            await worker
+            self._worker = None
+
+    def cancel(self) -> None:
+        for task in self._synth:
+            if not task.done():
+                task.cancel()
+        if self._worker and not self._worker.done():
+            self._worker.cancel()
+
+    async def _run(self) -> None:
+        frame = int(SAMPLE_RATE_OUT * 0.2)
+        while True:
+            item = await self._q.get()
+            if item is None:
+                return
+            try:
+                audio = await item
+            except asyncio.CancelledError:
+                return
+            except Exception as err:  # noqa: BLE001
+                log(f"tts failed: {err}")
+                continue
+            if self.session.cancelled():
+                continue
+            for i in range(0, audio.size, frame):
+                if self.session.cancelled():
+                    return
+                piece = audio[i : i + frame]
+                await self.session.send(
+                    {
+                        "type": "audio",
+                        "pcm16_b64": float32_to_pcm16_b64(piece),
+                        "sample_rate": SAMPLE_RATE_OUT,
+                    }
+                )
+                await asyncio.sleep(0)
+
+
 class Session:
     def __init__(self, ws: WebSocket):
         self.ws = ws
@@ -1028,6 +1116,9 @@ class Session:
         self.barge_ms = 0.0
         self.barge_buf = np.zeros(0, dtype=np.float32)
         self._partial_reply = ""
+        self._speak_ahead: SpeakAhead | None = None
+        self._stt_gen = 0
+        self._speculative: asyncio.Task | None = None
         self.result_cue: asyncio.Queue[str] = asyncio.Queue()
         self._deliver_task: asyncio.Task | None = None
         self.prefer_background = False
@@ -1042,6 +1133,60 @@ class Session:
 
     def cancelled(self) -> bool:
         return self.cancel.is_set() or self.closed
+
+    def _drop_speech_pipeline(self) -> None:
+        if self._speak_ahead:
+            self._speak_ahead.cancel()
+            self._speak_ahead = None
+
+    def _speech_pipeline(self) -> SpeakAhead:
+        if self._speak_ahead is None:
+            self._speak_ahead = SpeakAhead(self)
+        return self._speak_ahead
+
+    def _invalidate_speculative(self) -> None:
+        self._stt_gen += 1
+        self._speculative = None
+
+    def _maybe_start_speculative(self) -> None:
+        if self._speculative is not None:
+            return
+        if self.silence_ms < SPECULATIVE_MS or self.speech_ms < MIN_SPEECH_MS:
+            return
+        gen = self._stt_gen
+        clip = self.audio_buf.copy()
+
+        async def _run() -> tuple[int, str]:
+            text = await asyncio.to_thread(transcribe, clip)
+            return gen, text
+
+        self._speculative = asyncio.create_task(_run())
+
+    async def _transcribe_clip(self, clip: np.ndarray) -> str:
+        task = self._speculative
+        self._speculative = None
+        if task is not None:
+            try:
+                gen, text = await task
+                if gen == self._stt_gen:
+                    return text
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001
+                log(f"speculative stt failed: {err}")
+        return await asyncio.to_thread(transcribe, clip)
+
+    async def queue_speech(self, text: str) -> None:
+        await self._speech_pipeline().push(text)
+
+    async def flush_speech(self) -> None:
+        pipe = self._speak_ahead
+        if not pipe:
+            return
+        try:
+            await pipe.flush()
+        finally:
+            self._speak_ahead = None
 
     async def _start_named_job(
         self, *, label: str, tool: str, args: dict[str, Any] | None = None
@@ -1287,6 +1432,8 @@ class Session:
             return
         log(f"interrupt ({reason})")
         self.cancel.set()
+        self._drop_speech_pipeline()
+        self._invalidate_speculative()
         await self.send({"type": "interruption"})
         task = self.turn_task
         if task and not task.done():
@@ -1457,6 +1604,7 @@ class Session:
         self.cancel.clear()
         self.busy = True
         self._partial_reply = ""
+        self._drop_speech_pipeline()
 
         async def _runner() -> None:
             try:
@@ -1504,10 +1652,13 @@ class Session:
             self.speech_ms += duration_ms
             self.silence_ms = 0.0
             self.audio_buf = np.concatenate([self.audio_buf, samples])
+            self._invalidate_speculative()
         elif self.in_speech:
             self.silence_ms += duration_ms
             self.audio_buf = np.concatenate([self.audio_buf, samples])
-            if self.silence_ms >= SILENCE_MS and self.speech_ms >= MIN_SPEECH_MS:
+            self._maybe_start_speculative()
+            needed = silence_needed_ms(self.speech_ms)
+            if self.silence_ms >= needed and self.speech_ms >= MIN_SPEECH_MS:
                 self._start_turn(self._finish_user_turn())
 
         # Cap buffer so we don't grow forever on noise.
@@ -1524,7 +1675,7 @@ class Session:
         self.speech_ms = 0.0
         self.silence_ms = 0.0
         await self.send({"type": "status", "state": "thinking"})
-        text = await asyncio.to_thread(transcribe, clip)
+        text = await self._transcribe_clip(clip)
         if self.cancelled():
             return
         if not text or len(text.strip()) < 2:
@@ -1755,18 +1906,13 @@ class Session:
         pending = ""
         filt = ThinkFilter()
         speak_route = route_label
+        announced = False
 
-        if not use_think:
-            msg = await ollama_chat(messages, model, stream=False)
-            if self.cancelled():
+        async def announce() -> None:
+            nonlocal announced
+            if announced or self.cancelled():
                 return
-            full = strip_thinking((msg.get("content") or "").strip())
-            full = await rewrite_if_flat(full, model)
-            full = await rewrite_if_ungrounded(
-                full, user_text=last_user, model=model, tools_used=tools_used
-            )
-            if self.cancelled():
-                return
+            announced = True
             await self.send(
                 {
                     "type": "status",
@@ -1777,53 +1923,88 @@ class Session:
                     "model": model,
                 }
             )
+
+        async def speak_streamed(buffer: str) -> str:
+            sentences, rest = split_speakable(buffer)
+            for sentence in sentences:
+                if self.cancelled():
+                    return rest
+                await announce()
+                await self.queue_speech(sentence)
+            return rest
+
+        can_stream = stream_before_rewrite(
+            mode=intent.mode,
+            lane=intent.lane,
+            user_text=last_user,
+            tools_used=tools_used,
+        )
+
+        if use_think or can_stream:
+            async for chunk in ollama_stream(messages, model, think=use_think):
+                if self.cancelled():
+                    return
+                visible = filt.feed(chunk) if use_think else (chunk or "")
+                if not visible:
+                    continue
+                full += visible
+                pending += visible
+                pending = await speak_streamed(pending)
+
+            if self.cancelled():
+                return
+            if use_think:
+                visible = filt.flush()
+                if visible:
+                    full += visible
+                    pending += visible
+            tail = pending.strip()
+            if tail:
+                await announce()
+                await self.queue_speech(tail)
+            await self.flush_speech()
+            full = strip_thinking(full).strip()
+            if use_think and not skip_talk_rewrites(
+                mode=intent.mode,
+                lane=intent.lane,
+                reply=full,
+                user_text=last_user,
+                tools_used=tools_used,
+            ):
+                # Already spoken — only rewrite the stored line for history.
+                rewritten = await rewrite_if_flat(full, model)
+                rewritten = await rewrite_if_ungrounded(
+                    rewritten, user_text=last_user, model=model, tools_used=tools_used
+                )
+                if rewritten:
+                    full = rewritten
+        else:
+            msg = await ollama_chat(messages, model, stream=False)
+            if self.cancelled():
+                return
+            full = strip_thinking((msg.get("content") or "").strip())
+            if not skip_talk_rewrites(
+                mode=intent.mode,
+                lane=intent.lane,
+                reply=full,
+                user_text=last_user,
+                tools_used=tools_used,
+            ):
+                full = await rewrite_if_flat(full, model)
+                full = await rewrite_if_ungrounded(
+                    full, user_text=last_user, model=model, tools_used=tools_used
+                )
+            if self.cancelled():
+                return
+            await announce()
             sentences, tail = split_speakable(full + " ")
             for sentence in sentences:
                 if self.cancelled():
                     return
-                await self.speak(sentence)
+                await self.queue_speech(sentence)
             if tail.strip() and not self.cancelled():
-                await self.speak(tail.strip())
-        else:
-            async for chunk in ollama_stream(messages, model, think=True):
-                if self.cancelled():
-                    return
-                visible = filt.feed(chunk)
-                if not visible:
-                    continue
-                if not full and not pending:
-                    await self.send(
-                        {
-                            "type": "status",
-                            "state": "speaking",
-                            "route": speak_route,
-                            "lane": intent.lane,
-                            "mode": intent.mode,
-                            "model": model,
-                        }
-                    )
-                full += visible
-                pending += visible
-                sentences, pending = split_speakable(pending)
-                for sentence in sentences:
-                    if self.cancelled():
-                        return
-                    await self.speak(sentence)
-
-            if self.cancelled():
-                return
-            visible = filt.flush()
-            if visible:
-                full += visible
-                pending += visible
-            tail = pending.strip()
-            if tail:
-                await self.speak(tail)
-            full = strip_thinking(full).strip()
-            full = await rewrite_if_flat(full, model)
-            full = await rewrite_if_ungrounded(
-                full, user_text=last_user, model=model, tools_used=tools_used
-            )
+                await self.queue_speech(tail.strip())
+            await self.flush_speech()
 
         if self.cancelled():
             return
@@ -1851,45 +2032,9 @@ class Session:
         await self.send({"type": "status", "state": "listening"})
 
     async def speak(self, text: str) -> None:
-        if self.cancelled():
-            return
-        clean = strip_for_speech(text)
-        if not clean:
-            return
-        # Hard stop if the model starts dumping system-ish content.
-        lowered = clean.lower()
-        banned = (
-            "private background",
-            "from jake's recall",
-            "current state of jake",
-            "live speech update",
-            "system prompt",
-            "personality.md",
-            "working memory from recall",
-            "where i'm reading",
-            "drawing information from",
-        )
-        if any(b in lowered for b in banned):
-            log(f"suppressed context leak: {clean[:80]}")
-            return
-        self._partial_reply = (self._partial_reply + " " + clean).strip()
-        audio = await asyncio.to_thread(synthesize, clean)
-        if self.cancelled():
-            return
-        # Stream in ~200ms chunks so Scrappy can start playing ASAP.
-        frame = int(SAMPLE_RATE_OUT * 0.2)
-        for i in range(0, audio.size, frame):
-            if self.cancelled():
-                return
-            piece = audio[i : i + frame]
-            await self.send(
-                {
-                    "type": "audio",
-                    "pcm16_b64": float32_to_pcm16_b64(piece),
-                    "sample_rate": SAMPLE_RATE_OUT,
-                }
-            )
-            await asyncio.sleep(0)  # yield
+        """Queue one sentence and wait until it has finished sending."""
+        await self.queue_speech(text)
+        await self.flush_speech()  # yield
 
 
 @app.get("/health")
