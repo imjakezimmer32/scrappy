@@ -22,7 +22,7 @@
     "deploy-site": "node ./scripts/build-site.js && npx wrangler deploy",
     "process-log": "node ./scripts/process-log.js",
     "conversations": "node ./scripts/process-log.js 80",
-    "dist": "electron-builder --win nsis",
+    "dist": "electron-builder --win nsis --publish never",
     "dist:dir": "electron-builder --win --dir"
   },
   "author": "Jake Zimmer",
@@ -75,6 +75,11 @@
       "shortcutName": "Scrappy",
       "runAfterFinish": true,
       "uninstallDisplayName": "Scrappy"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "imjakezimmer32",
+      "repo": "scrappy"
     }
   },
   "devDependencies": {
@@ -82,6 +87,7 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.27"
+    "@cursor/sdk": "^1.0.27",
+    "electron-updater": "^6.8.9"
   }
 }

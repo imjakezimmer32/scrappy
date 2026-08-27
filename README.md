@@ -40,6 +40,10 @@ nothing writes to it any more.
 Cursor hooks POST to `http://127.0.0.1:8787/agent-done` with a local token. Sessions under
 two minutes are ignored unless `force: true`.
 
+Packaged installs check GitHub Releases and apply in the background when you are not
+talking to him (no voice call, typed chat, or setup panel). Git checkouts on `main`
+fast-forward `origin/main` the same way. Set `SCRAPPY_AUTO_UPDATE=off` to stop it.
+
 ### Developer install
 
 ```bash
