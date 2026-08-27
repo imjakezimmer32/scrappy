@@ -456,6 +456,78 @@ async function fetchSignedUrl() {
   }
 }
 
+// Windows will happily paint a real "Scrappy / File / Edit / View / Help"
+// title bar on a frameless overlay — after Alt, after the window becomes
+// focusable for chat, or after a second window (setup) is created and
+// Electron restores the default application menu. Kill that chrome on every
+// window, every time it might come back.
+function killAppMenu() {
+  Menu.setApplicationMenu(null);
+}
+
+function killNativeChrome(win) {
+  killAppMenu();
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.setMenu(null);
+  } catch {
+    // ignore
+  }
+  if (typeof win.removeMenu === "function") {
+    try {
+      win.removeMenu();
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    win.setAutoHideMenuBar(true);
+    win.setMenuBarVisibility(false);
+  } catch {
+    // ignore
+  }
+}
+
+function keepOverlayChromeOff() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  killNativeChrome(mainWindow);
+  try {
+    mainWindow.setTitle("");
+  } catch {
+    // ignore
+  }
+}
+
+function guardAgainstNativeChrome(win, { overlay = false } = {}) {
+  killNativeChrome(win);
+  win.on("page-title-updated", (event) => {
+    if (!overlay) return;
+    event.preventDefault();
+    try {
+      win.setTitle("");
+    } catch {
+      // ignore
+    }
+  });
+  win.on("focus", () => {
+    killNativeChrome(win);
+    if (overlay) keepOverlayChromeOff();
+  });
+  win.on("show", () => {
+    killNativeChrome(win);
+    if (overlay) keepOverlayChromeOff();
+  });
+  win.webContents.on("did-finish-load", () => {
+    killNativeChrome(win);
+    if (overlay) keepOverlayChromeOff();
+  });
+  // Alt toggles the auto-hidden menu bar on Windows. Block it on the overlay
+  // so typing or a stray Alt key cannot summon the white File/Edit bar.
+  win.webContents.on("before-input-event", (event, input) => {
+    if (overlay && input.key === "Alt") event.preventDefault();
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     ...overlayBounds(),
@@ -463,8 +535,12 @@ function createWindow() {
     transparent: true,
     backgroundColor: "#00000000",
     title: "",
+    titleBarStyle: "hidden",
     resizable: false,
     movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     hasShadow: false,
     thickFrame: false,
     autoHideMenuBar: true,
@@ -482,7 +558,8 @@ function createWindow() {
   // The taskbar is itself a topmost window, so "floating" would put Scrappy
   // behind it and his dangling legs would vanish. This level clears it.
   mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.setMenu(null);
+  guardAgainstNativeChrome(mainWindow, { overlay: true });
+  keepOverlayChromeOff();
   // Mouse events pass straight through to whatever is underneath; the
   // renderer flips this off while the pointer is actually over Scrappy.
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -490,6 +567,7 @@ function createWindow() {
   mainWindow.webContents.on("did-finish-load", () => {
     pushLayout();
     pushVisible();
+    keepOverlayChromeOff();
   });
 
   mainWindow.on("close", (e) => {
@@ -891,6 +969,7 @@ function showScrappy() {
   } else {
     fitOverlay();
   }
+  keepOverlayChromeOff();
   pushVisible();
   if (wasHidden) maybeStartWake("main", "scrappy turned on");
   rebuildTray();
@@ -1221,6 +1300,8 @@ let setupWindow = null;
 
 function openSetupWindow() {
   if (setupWindow && !setupWindow.isDestroyed()) {
+    killNativeChrome(setupWindow);
+    keepOverlayChromeOff();
     setupWindow.show();
     setupWindow.focus();
     return;
@@ -1228,9 +1309,12 @@ function openSetupWindow() {
   setupWindow = new BrowserWindow({
     width: 620,
     height: 760,
-    title: "Set up Scrappy",
-    backgroundColor: "#0b0f18",
+    title: "",
+    frame: false,
+    titleBarStyle: "hidden",
     autoHideMenuBar: true,
+    backgroundColor: "#0b0f18",
+    show: false,
     // Unlike the overlay, this window is meant to be focused and typed into.
     webPreferences: {
       preload: path.join(__dirname, "setup", "preload.js"),
@@ -1238,13 +1322,28 @@ function openSetupWindow() {
       nodeIntegration: false,
     },
   });
+  guardAgainstNativeChrome(setupWindow);
+  // Opening this window used to restore Electron's default File/Edit/View/Help
+  // menu on EVERY window — including the fullscreen overlay, which then drew
+  // a white "Scrappy" bar across the top of the desktop.
+  keepOverlayChromeOff();
   setupWindow.loadFile(path.join(__dirname, "setup", "index.html"));
+  setupWindow.once("ready-to-show", () => {
+    killNativeChrome(setupWindow);
+    keepOverlayChromeOff();
+    setupWindow.show();
+  });
   setupWindow.on("closed", () => {
     setupWindow = null;
+    keepOverlayChromeOff();
   });
 }
 
 ipcMain.on("scrappy:open-setup", () => openSetupWindow());
+
+ipcMain.on("setup:close", () => {
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
+});
 
 ipcMain.handle("scrappy:user-name", () => settings.userName());
 
@@ -1975,13 +2074,16 @@ ipcMain.handle("scrappy:process-recent", (_event, limit) => {
 ipcMain.on("scrappy:chat-focus", (_event, on) => {
   if (!mainWindow) return;
   mainWindow.setFocusable(Boolean(on));
+  keepOverlayChromeOff();
   if (on) mainWindow.focus();
+  keepOverlayChromeOff();
 });
 
 ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
   if (!mainWindow) return;
   if (interactive) mainWindow.setIgnoreMouseEvents(false);
   else mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  keepOverlayChromeOff();
 });
 
 ipcMain.on("scrappy:test-grow", () => {
@@ -1998,8 +2100,12 @@ if (!gotTheLock) {
     showScrappy();
   });
 
+  app.on("browser-window-created", (_event, win) => {
+    killNativeChrome(win);
+  });
+
   app.whenReady().then(() => {
-    Menu.setApplicationMenu(null);
+    killAppMenu();
     loadPrefs();
     ensureWindowsPresence();
     ensureToken();
