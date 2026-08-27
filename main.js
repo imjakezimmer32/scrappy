@@ -15,6 +15,7 @@ const conversationStore = require("./conversation-store");
 const settings = require("./settings");
 const persona = require("./persona");
 const cursorHooks = require("./cursor-hooks");
+const autoUpdate = require("./auto-update");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -44,6 +45,10 @@ function savePrefs() {
 }
 
 let activeConversationId = null;
+let chatFocused = false;
+let pendingUpdate = null;
+let applyUpdateTimer = null;
+let packagedUpdater = null;
 
 function minDurationMs() {
   const raw = settings.get("SCRAPPY_NUDGE_MIN_DURATION_MS", "");
@@ -1241,6 +1246,7 @@ function openSetupWindow() {
   setupWindow.loadFile(path.join(__dirname, "setup", "index.html"));
   setupWindow.on("closed", () => {
     setupWindow = null;
+    scheduleApplyIfIdle();
   });
 }
 
@@ -1962,6 +1968,7 @@ ipcMain.handle("scrappy:conversation-end", (_event, sessionId, extra = {}) => {
     meta: extra,
   });
   if (activeConversationId === id) activeConversationId = null;
+  scheduleApplyIfIdle();
   return ended;
 });
 
@@ -1973,9 +1980,11 @@ ipcMain.handle("scrappy:process-recent", (_event, limit) => {
 // off your editor — but a text box needs keystrokes, so focus is granted for
 // exactly as long as the chat is open.
 ipcMain.on("scrappy:chat-focus", (_event, on) => {
+  chatFocused = Boolean(on);
   if (!mainWindow) return;
   mainWindow.setFocusable(Boolean(on));
   if (on) mainWindow.focus();
+  if (!chatFocused) scheduleApplyIfIdle();
 });
 
 ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
@@ -1987,6 +1996,144 @@ ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
 ipcMain.on("scrappy:test-grow", () => {
   triggerGrow({ force: true, source: "ui-test" });
 });
+
+function conversationBusy() {
+  return autoUpdate.inConversation({
+    conversationId: activeConversationId,
+    chatFocused,
+    setupOpen: Boolean(setupWindow && !setupWindow.isDestroyed()),
+  });
+}
+
+function noteUpdate(type, meta = {}) {
+  try {
+    processJournal.record({
+      kind: "process",
+      type,
+      name: "auto-update",
+      by: "main",
+      reason: meta.reason || type,
+      meta,
+    });
+  } catch {
+    // journal may not be ready yet
+  }
+}
+
+function scheduleApplyIfIdle() {
+  if (!pendingUpdate || !autoUpdate.enabled()) return;
+  if (applyUpdateTimer) clearTimeout(applyUpdateTimer);
+  applyUpdateTimer = setTimeout(() => {
+    applyUpdateTimer = null;
+    applyPendingUpdate().catch((err) => {
+      console.warn("[update] apply failed:", err.message || err);
+      noteUpdate("update_failed", { reason: String(err.message || err) });
+    });
+  }, autoUpdate.SETTLE_MS);
+}
+
+function relaunchForUpdate(reason) {
+  noteUpdate("update_relaunch", { reason, kind: pendingUpdate && pendingUpdate.kind });
+  pendingUpdate = null;
+  app.isQuitting = true;
+  app.relaunch();
+  app.quit();
+}
+
+async function applyPendingUpdate() {
+  if (!pendingUpdate || !autoUpdate.enabled()) return;
+  if (conversationBusy()) {
+    scheduleApplyIfIdle();
+    return;
+  }
+  const pending = pendingUpdate;
+  if (pending.kind === "nsis" && packagedUpdater) {
+    noteUpdate("update_install", { reason: "nsis", version: pending.version || "" });
+    packagedUpdater.quitAndInstall(false, true);
+    return;
+  }
+  if (pending.kind === "relaunch") {
+    relaunchForUpdate("code already pulled");
+    return;
+  }
+  if (pending.kind !== "git") return;
+  const beforeLock = pending.lock || autoUpdate.lockStamp(__dirname);
+  const pulled = await autoUpdate.pullFastForward(__dirname);
+  if (!pulled.ok) {
+    noteUpdate("update_failed", { reason: pulled.error || pulled.stderr || "pull_failed" });
+    pendingUpdate = null;
+    return;
+  }
+  if (autoUpdate.needsNpmCi(__dirname, beforeLock)) {
+    const ci = await autoUpdate.npmCi(__dirname);
+    if (!ci.ok) {
+      noteUpdate("update_failed", { reason: ci.error || ci.stderr || "npm_ci_failed" });
+      pendingUpdate = { kind: "relaunch" };
+      scheduleApplyIfIdle();
+      return;
+    }
+  }
+  if (conversationBusy()) {
+    pendingUpdate = { kind: "relaunch" };
+    scheduleApplyIfIdle();
+    return;
+  }
+  relaunchForUpdate("git pull origin/main");
+}
+
+async function checkGitUpdate() {
+  const info = await autoUpdate.inspectGit(__dirname);
+  if (!info.updatable) return info;
+  pendingUpdate = info;
+  noteUpdate("update_ready", { reason: "git", from: info.from, to: info.to });
+  scheduleApplyIfIdle();
+  return info;
+}
+
+function startPackagedUpdates() {
+  try {
+    packagedUpdater = require("electron-updater").autoUpdater;
+  } catch (err) {
+    console.warn("[update] electron-updater missing:", err.message);
+    return;
+  }
+  packagedUpdater.autoDownload = true;
+  packagedUpdater.autoInstallOnAppQuit = true;
+  packagedUpdater.on("update-available", (info) => {
+    noteUpdate("update_available", { reason: "nsis", version: info && info.version });
+  });
+  packagedUpdater.on("update-downloaded", (info) => {
+    pendingUpdate = { kind: "nsis", version: info && info.version };
+    noteUpdate("update_ready", { reason: "nsis", version: info && info.version });
+    scheduleApplyIfIdle();
+  });
+  packagedUpdater.on("error", (err) => {
+    console.warn("[update]", err && err.message ? err.message : err);
+  });
+  const check = () => {
+    packagedUpdater.checkForUpdates().catch((err) => {
+      console.warn("[update] check failed:", err.message || err);
+    });
+  };
+  setTimeout(check, autoUpdate.STARTUP_DELAY_MS);
+  setInterval(check, autoUpdate.CHECK_EVERY_MS);
+}
+
+function startAutoUpdate() {
+  if (!autoUpdate.enabled()) return;
+  if (app.isPackaged) {
+    startPackagedUpdates();
+    return;
+  }
+  if (!autoUpdate.isGitCheckout(__dirname)) return;
+  const check = () => {
+    checkGitUpdate().catch((err) => {
+      console.warn("[update] git check failed:", err.message || err);
+    });
+  };
+  setTimeout(check, autoUpdate.STARTUP_DELAY_MS);
+  setInterval(check, autoUpdate.CHECK_EVERY_MS);
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -2063,6 +2210,8 @@ if (!gotTheLock) {
     // Taskbar autohide, resolution changes, docking — keep the overlay
     // pinned to the current work area.
     keepOnTop();
+
+    startAutoUpdate();
 
     screen.on("display-metrics-changed", fitOverlay);
     screen.on("display-added", fitOverlay);
