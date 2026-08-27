@@ -60,10 +60,18 @@ Avoid `base` / `small` unless the user explicitly asks for a temporary speed tra
 
 Also tunable:
 ```
-SCRAPPY_VAD_SILENCE_MS=1300   # wait after a pause before he answers (higher = more patient)
-SCRAPPY_VAD_ENERGY=0.008      # how loud you must be to count as speech
-SCRAPPY_TOOL_ROUNDS=6         # how many tool steps he may take when digging
+SCRAPPY_VAD_SILENCE_MS=1300        # hang after a long thought (higher = more patient)
+SCRAPPY_VAD_SHORT_SILENCE_MS=800   # hang after a short line
+SCRAPPY_VAD_SPECULATIVE_MS=600     # start Whisper while still waiting for silence
+SCRAPPY_VAD_LONG_SPEECH_MS=2500    # above this, use the patient silence
+SCRAPPY_VAD_ENERGY=0.008           # how loud you must be to count as speech
+SCRAPPY_TOOL_ROUNDS=6              # how many tool steps he may take when digging
 ```
+
+Casual talk streams the first sentence as soon as the fast brain produces it, and
+Kokoro synthesizes the next sentence while the current one plays. Short chat
+skips the extra rewrite LLM calls. Factual asks still wait so he cannot invent
+status out loud.
 
 ## Listening dictionary (Wispr-style)
 

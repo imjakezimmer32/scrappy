@@ -4,7 +4,9 @@ How Scrappy decides what to do after he hears you.
 
 ## Pipeline
 
-1. **Ears** — Whisper + listening dictionary (unchanged)
+1. **Ears** — Whisper + listening dictionary (unchanged). Short lines end after
+   ~800ms of silence; long thoughts still wait ~1300ms. Whisper can start
+   speculatively once silence hits 600ms.
 2. **Intent gate (A)** — `chat` / `clarify` / `act` / `dig`
 3. **Lanes (C)**
    - **Talk** — speak now; no tools (`chat`, `clarify`)
