@@ -32,8 +32,33 @@ body {
 }
 
 header {
-  padding: 20px 24px 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 12px 14px 24px;
   border-bottom: 1px solid var(--edge);
+  -webkit-app-region: drag;
+}
+
+.win-close {
+  -webkit-app-region: no-drag;
+  flex: none;
+  width: 36px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.win-close:hover {
+  background: #3a1d28;
+  color: #f3c4c4;
 }
 
 h1 {
@@ -51,6 +76,21 @@ main {
   flex: 1;
   overflow-y: auto;
   padding: 8px 24px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge-lit) transparent;
+}
+
+main::-webkit-scrollbar {
+  width: 10px;
+}
+
+main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+main::-webkit-scrollbar-thumb {
+  background: var(--edge-lit);
+  border-radius: 8px;
 }
 
 section {
