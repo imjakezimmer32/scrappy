@@ -20,10 +20,14 @@
 
   // A reversal only counts if both the inbound and outbound legs are fast.
   // Ordinary mouse travel is a few hundred px/s; a real shake is thousands.
-  const SHAKE_SPEED = 1200;
-  const SHAKE_NEED = 7.2;
-  const SHAKE_DECAY = 2.4;
+  // A reversal counts against the last FAST motion, not the last frame —
+  // humans (and automation) pause at the turn, which would otherwise zero
+  // the inbound velocity and never register.
+  const SHAKE_SPEED = 900;
+  const SHAKE_NEED = 6.4;
+  const SHAKE_DECAY = 2.2;
   const SHAKE_PUNCH_CAP = 2.2;
+  const SHAKE_TURN_MS = 420;
 
   function inGrabBand(pointerY, floorY, latched) {
     if (pointerY == null || floorY == null) return false;
@@ -54,7 +58,17 @@
   }
 
   function createShake() {
-    return { energy: 0, lastX: null, lastY: null, lastT: 0, lastVx: 0, lastVy: 0 };
+    return {
+      energy: 0,
+      lastX: null,
+      lastY: null,
+      lastT: 0,
+      lastVx: 0,
+      lastVy: 0,
+      fastVx: 0,
+      fastVy: 0,
+      lastFastT: 0,
+    };
   }
 
   function tickShake(state, x, y, now) {
@@ -64,14 +78,18 @@
       const vx = (x - state.lastX) / dt;
       const vy = (y - state.lastY) / dt;
       const speed = Math.hypot(vx, vy);
-      const prev = Math.hypot(state.lastVx, state.lastVy);
-      const reversed = state.lastVx * vx + state.lastVy * vy < 0 && speed > SHAKE_SPEED && prev > SHAKE_SPEED;
-      if (reversed) {
-        const punch = Math.min(SHAKE_PUNCH_CAP, (speed / SHAKE_SPEED) * 0.85);
-        state.energy += punch;
-      } else {
-        state.energy = Math.max(0, state.energy - SHAKE_DECAY * dt);
+      if (speed > SHAKE_SPEED) {
+        const recent = state.lastFastT && now - state.lastFastT < SHAKE_TURN_MS;
+        const opposite = recent && state.fastVx * vx + state.fastVy * vy < 0;
+        if (opposite) {
+          const punch = Math.min(SHAKE_PUNCH_CAP, (speed / SHAKE_SPEED) * 0.85);
+          state.energy += punch;
+        }
+        state.fastVx = vx;
+        state.fastVy = vy;
+        state.lastFastT = now;
       }
+      state.energy = Math.max(0, state.energy - SHAKE_DECAY * dt);
       state.lastVx = vx;
       state.lastVy = vy;
     }

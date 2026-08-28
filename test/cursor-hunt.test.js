@@ -50,6 +50,21 @@ test("vigorous reversals build enough energy to break off", () => {
   assert.equal(hunt.shouldBreakOff(s.energy, false), true);
 });
 
+test("shake still counts when the cursor pauses at each turn", () => {
+  const s = hunt.createShake();
+  let t = 0;
+  hunt.tickShake(s, 0, 0, t);
+  const swings = [90, -90, 90, -90, 90, -90, 90, -90];
+  for (const x of swings) {
+    t += 40;
+    hunt.tickShake(s, x, 0, t);
+    t += 70;
+    hunt.tickShake(s, x, 0, t);
+  }
+  assert.ok(s.energy >= hunt.SHAKE_NEED, `energy ${s.energy} should break off`);
+  assert.equal(hunt.shouldBreakOff(s.energy, false), true);
+});
+
 test("smashing through a monitor always lets go", () => {
   assert.equal(hunt.shouldBreakOff(0, true), true);
   assert.equal(hunt.shouldBreakOff(0, false), false);
