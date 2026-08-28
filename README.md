@@ -26,6 +26,8 @@ If there isn't a Release yet, use the developer steps at the bottom.
 - If the cursor comes down to his height, he will try to grab it and hold on.
   Shake hard or put him through a monitor to get the mouse back.
 - Click the `^` by the clock, then his face, to start him if he's hidden.
+- Right-click him (or the tray icon) → **Check for updates** to fetch a newer
+  installer from GitHub and run it.
 - Right-click → **Turn off Scrappy** to send him away.
 
 ## License
@@ -287,6 +289,7 @@ never steals focus from your editor.
 
 - `main.js` — overlay window, tray, localhost server
 - `preload.js` — the IPC bridge
+- `app-update.js` — compare this build to the latest GitHub Release
 - `renderer/` — Scrappy
 - `settings.js` — config precedence + encrypted key storage (unit tested)
 - `persona.js` — fills `{{USER}}` into `personality.md`

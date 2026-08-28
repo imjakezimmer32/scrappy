@@ -17,6 +17,10 @@ const bridgeStub = {
   setInteractive() {},
   hideScrappy() {},
   quitApp() {},
+  checkUpdates() {
+    return Promise.resolve({ ok: false, error: "browser" });
+  },
+  onNotice() {},
   trackCursor() {},
   onCursor() {},
   isVisible: () => true,
@@ -1965,7 +1969,12 @@ if (menu) {
     else if (act === "type") openChat();
     else if (act === "talk") startCall();
     else if (act === "setup" && bridge.openSetup) bridge.openSetup();
-    else if (act === "quit" && bridge.quitApp) bridge.quitApp();
+    else if (act === "update") {
+      if (bridge.checkUpdates) {
+        say("Checking.", 1600, "curious");
+        bridge.checkUpdates().catch(() => {});
+      }
+    } else if (act === "quit" && bridge.quitApp) bridge.quitApp();
   });
 }
 
@@ -2088,6 +2097,13 @@ bridge.onGrow((payload) => startAlert(payload));
 bridge.onAck(() => {
   if (alerting) acknowledge();
 });
+if (bridge.onNotice) {
+  bridge.onNotice((payload) => {
+    const text = payload && payload.text;
+    if (!text) return;
+    say(text, 3800, payload.kind === "update" ? "wonder" : "focused");
+  });
+}
 
 requestAnimationFrame(frame);
 live();

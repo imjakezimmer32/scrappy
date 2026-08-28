@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld("scrappy", {
   quitApp() {
     ipcRenderer.send("scrappy:quit");
   },
+  checkUpdates() {
+    return ipcRenderer.invoke("scrappy:check-updates");
+  },
+  onNotice(callback) {
+    ipcRenderer.on("scrappy:notice", (_event, payload) => callback(payload || {}));
+  },
   isVisible() {
     try {
       return ipcRenderer.sendSync("scrappy:pref-visible") !== false;
