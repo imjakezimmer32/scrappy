@@ -1,6 +1,6 @@
 {
   "name": "scrappy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Scrappy — an articulated robot desk companion that fetches you when a Cursor agent finishes",
   "main": "main.js",
   "scripts": {
@@ -22,7 +22,7 @@
     "deploy-site": "node ./scripts/build-site.js && npx wrangler deploy",
     "process-log": "node ./scripts/process-log.js",
     "conversations": "node ./scripts/process-log.js 80",
-    "dist": "electron-builder --win nsis",
+    "dist": "electron-builder --win nsis --publish never",
     "dist:dir": "electron-builder --win --dir"
   },
   "author": "Jake Zimmer",
@@ -65,6 +65,11 @@
         }
       ],
       "artifactName": "Scrappy-Setup-${version}.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "imjakezimmer32",
+      "repo": "scrappy"
     },
     "nsis": {
       "oneClick": true,

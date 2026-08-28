@@ -57,8 +57,17 @@ body {
 }
 
 .scrappy[data-state="held"],
-.scrappy[data-state="fly"] {
+.scrappy[data-state="fly"],
+.scrappy[data-state="cling"] {
   cursor: grabbing;
+}
+
+/* While he is going for the cursor, clicks must pass through him — otherwise
+   the hand that is trying to grab it would steal the mouse from the app. */
+.scrappy[data-state="reach"],
+.scrappy[data-state="chase"],
+.scrappy[data-state="cling"] {
+  pointer-events: none;
 }
 
 .scrappy-flip {
@@ -167,6 +176,67 @@ body {
 }
 /* Contact shadow spreads on each footfall — cheap, but it plants him. */
 .scrappy[data-state="walk"] .scrappy-shadow {
+  animation: shadowStep var(--step) ease-in-out infinite;
+}
+
+/* ---------- reach: clocked the cursor, arm out ---------- */
+
+.scrappy[data-state="reach"] .j-body {
+  rotate: 6deg;
+  animation: idleServo 4.2s ease-in-out infinite;
+}
+.scrappy[data-state="reach"] .j-shoulder-l {
+  transform: rotate(-118deg);
+}
+.scrappy[data-state="reach"] .j-elbow-l {
+  transform: rotate(10deg);
+}
+.scrappy[data-state="reach"] .j-shoulder-r {
+  transform: rotate(18deg);
+}
+.scrappy[data-state="reach"] .j-head {
+  rotate: -8deg;
+}
+
+/* ---------- chase: same gait as walk, faster, grabbing arm locked out ----------
+   SPEED in scrappy.js for chase is 130px/s. Keep --step at 0.52s so the
+   planted foot still tracks at ~68px per cycle and he doesn't skate. */
+
+.scrappy[data-state="chase"] {
+  --step: 0.52s;
+}
+.scrappy[data-state="chase"] .j-body {
+  rotate: 5deg;
+  animation: bodyBob var(--step) linear infinite;
+}
+.scrappy[data-state="chase"] .j-hip-l,
+.scrappy[data-state="chase"] .j-hip-r {
+  animation: hip var(--step) infinite;
+}
+.scrappy[data-state="chase"] .j-knee-l,
+.scrappy[data-state="chase"] .j-knee-r {
+  animation: knee var(--step) infinite;
+}
+.scrappy[data-state="chase"] .j-shoulder-r {
+  animation: shoulder var(--step) infinite;
+}
+.scrappy[data-state="chase"] .j-elbow-r {
+  animation: elbow var(--step) infinite;
+}
+.scrappy[data-state="chase"] .j-hip-r,
+.scrappy[data-state="chase"] .j-knee-r {
+  animation-delay: calc(var(--step) / -2);
+}
+.scrappy[data-state="chase"] .j-shoulder-l {
+  transform: rotate(-118deg);
+}
+.scrappy[data-state="chase"] .j-elbow-l {
+  transform: rotate(8deg);
+}
+.scrappy[data-state="chase"] .j-head {
+  animation: headWobble var(--step) ease-in-out infinite;
+}
+.scrappy[data-state="chase"] .scrappy-shadow {
   animation: shadowStep var(--step) ease-in-out infinite;
 }
 
@@ -503,8 +573,41 @@ body {
   animation: kneeFlail 0.44s ease-in-out infinite reverse;
 }
 .scrappy[data-state="held"] .scrappy-shadow,
-.scrappy[data-state="fly"] .scrappy-shadow {
+.scrappy[data-state="fly"] .scrappy-shadow,
+.scrappy[data-state="cling"] .scrappy-shadow {
   opacity: 0;
+}
+
+/* ---------- cling: one hand locked on the cursor, the rest dangling ---------- */
+
+.scrappy[data-state="cling"] .j-shoulder-l {
+  transform: rotate(-142deg);
+}
+.scrappy[data-state="cling"] .j-elbow-l {
+  transform: rotate(-22deg);
+}
+.scrappy[data-state="cling"] .j-hand-l {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(1.22);
+}
+.scrappy[data-state="cling"] .j-shoulder-r {
+  animation: dangleR 0.41s ease-in-out infinite;
+}
+.scrappy[data-state="cling"] .j-elbow-r {
+  animation: elbowFlail 0.36s ease-in-out infinite reverse;
+}
+.scrappy[data-state="cling"] .j-hip-l {
+  animation: kickL 0.39s ease-in-out infinite;
+}
+.scrappy[data-state="cling"] .j-hip-r {
+  animation: kickR 0.48s ease-in-out infinite;
+}
+.scrappy[data-state="cling"] .j-knee-l {
+  animation: kneeFlail 0.31s ease-in-out infinite;
+}
+.scrappy[data-state="cling"] .j-knee-r {
+  animation: kneeFlail 0.44s ease-in-out infinite reverse;
 }
 
 /* ---------- airborne ---------- */
@@ -1330,6 +1433,13 @@ body {
 .scrappy[data-state="point"] {
   --neck-bend: -6deg;
 }
+.scrappy[data-state="reach"],
+.scrappy[data-state="chase"] {
+  --neck-bend: -8deg;
+}
+.scrappy[data-state="cling"] {
+  --neck-bend: 10deg;
+}
 .scrappy.is-gazing {
   --neck-bend: -18deg;
 }
@@ -1391,7 +1501,8 @@ body {
 /* Off the ground he's further from the surface, so the ambient shadow throws
    longer and softer. */
 .scrappy[data-state="held"] .scrappy-svg,
-.scrappy[data-state="fly"] .scrappy-svg {
+.scrappy[data-state="fly"] .scrappy-svg,
+.scrappy[data-state="cling"] .scrappy-svg {
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.28)) drop-shadow(0 13px 24px rgba(0, 0, 0, 0.26));
 }
 

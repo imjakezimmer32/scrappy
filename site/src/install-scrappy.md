@@ -31,6 +31,7 @@ Tell the user, in your own words:
   without a brain or voice — he just can't talk yet. He'll say as much himself the first time.
 - To start him by hand: click the `^` arrow by the clock (hidden icons), then his face.
 - Click him to type at him. Right-click for the menu.
+- Right-click → **Check for updates** downloads a newer installer and runs it.
 - He can be picked up and thrown. This is a feature and he has opinions about it.
 
 ## If something breaks

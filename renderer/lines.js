@@ -58,6 +58,29 @@ const LINES = {
     "Ten out of ten landing.",
   ],
 
+  cling: [
+    "Got it.",
+    "Mine now.",
+    "I live here too.",
+    "Sharing is a myth.",
+    "This is my mouse.",
+  ],
+
+  clingMiss: [
+    "Come back.",
+    "I almost had it.",
+    "Coward.",
+    "Bring that down here.",
+  ],
+
+  clingOff: [
+    "Fine.",
+    "You win.",
+    "I'm telling the glass.",
+    "That was vigorous.",
+    "Ow. Okay.",
+  ],
+
   wake: ["Oh — I'm up.", "I'm awake. I was awake.", "Rebooting my enthusiasm."],
 
   sleepy: ["Quiet around here.", "I'll be right here.", "Powering down a bit."],

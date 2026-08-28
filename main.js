@@ -15,6 +15,7 @@ const conversationStore = require("./conversation-store");
 const settings = require("./settings");
 const persona = require("./persona");
 const cursorHooks = require("./cursor-hooks");
+const appUpdate = require("./app-update");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -22,13 +23,15 @@ const HOST = "127.0.0.1";
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
 const PREFS_PATH = path.join(app.getPath("userData"), "prefs.json");
 
-let prefs = { visible: true };
+let prefs = { visible: true, lastUpdateCheck: 0, lastUpdateTold: "" };
 
 function loadPrefs() {
   try {
     if (!fs.existsSync(PREFS_PATH)) return;
     const data = JSON.parse(fs.readFileSync(PREFS_PATH, "utf8"));
     if (typeof data.visible === "boolean") prefs.visible = data.visible;
+    if (Number.isFinite(data.lastUpdateCheck)) prefs.lastUpdateCheck = data.lastUpdateCheck;
+    if (typeof data.lastUpdateTold === "string") prefs.lastUpdateTold = data.lastUpdateTold;
   } catch (err) {
     console.error("Could not read prefs:", err.message);
   }
@@ -655,6 +658,14 @@ function rebuildTray() {
     },
     { type: "separator" },
     {
+      label: "Check for updates",
+      click: () => {
+        checkForUpdates({ install: true, speak: true }).catch((err) => {
+          console.warn("[update] check failed:", err.message);
+        });
+      },
+    },
+    {
       label: "Quit",
       click: () => {
         app.isQuitting = true;
@@ -859,6 +870,7 @@ function hideScrappy(by = "ui") {
   // Never hide the overlay window itself. On Windows a transparent
   // frameless window grows a fake "Scrappy" title bar after hide/show.
   pushVisible();
+  setCursorTrack(false);
   wakeListener.stop("main", "scrappy turned off");
   if (wasVisible) {
     processJournal.record({
@@ -936,6 +948,91 @@ function triggerAck() {
   if (mainWindow) {
     mainWindow.webContents.send("scrappy:ack", { at: Date.now() });
   }
+}
+
+// ---------- updates ----------
+// The installer lives on the GitHub Release. Checking hits that API; installing
+// downloads Scrappy-Setup-*.exe and runs it, then we quit so the new copy can
+// take the folder.
+
+function tellHim(text, kind = "update") {
+  if (!text || !mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("scrappy:notice", { kind, text });
+}
+
+async function fetchLatestRelease() {
+  const res = await fetch(appUpdate.RELEASES_LATEST, {
+    headers: { "User-Agent": "scrappy", Accept: "application/vnd.github+json" },
+  });
+  if (res.status === 404) return { message: "Not Found" };
+  if (!res.ok) throw new Error(`github ${res.status}`);
+  return res.json();
+}
+
+async function downloadInstaller(url, name) {
+  const dest = path.join(app.getPath("temp"), name || "Scrappy-Setup.exe");
+  const res = await fetch(url, { headers: { "User-Agent": "scrappy" }, redirect: "follow" });
+  if (!res.ok) throw new Error(`download ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(dest, buf);
+  return dest;
+}
+
+async function checkForUpdates({ install = false, speak = true } = {}) {
+  const current = app.getVersion();
+  prefs.lastUpdateCheck = Date.now();
+  savePrefs();
+  let info;
+  try {
+    info = appUpdate.summarizeRelease(await fetchLatestRelease(), current);
+  } catch (err) {
+    if (speak) tellHim("Couldn't reach the update server. imscrappy.dev has the download.");
+    return { ok: false, error: String(err.message || err), current };
+  }
+  if (!info.ok) {
+    if (speak) tellHim("No installer is published yet. I'm this version until there is.");
+    return info;
+  }
+  if (!info.newer) {
+    if (speak) tellHim(`I'm current. ${info.current}.`);
+    return info;
+  }
+  if (!install) {
+    if (speak && prefs.lastUpdateTold !== info.latest) {
+      prefs.lastUpdateTold = info.latest;
+      savePrefs();
+      tellHim(`There's a newer me — ${info.latest}. Right-click → Check for updates.`);
+    }
+    return info;
+  }
+  if (!info.downloadUrl) {
+    if (speak) tellHim("There's a newer me. I opened the download page.");
+    shell.openExternal(info.url || appUpdate.DOWNLOAD_PAGE);
+    return info;
+  }
+  if (speak) tellHim(`Downloading ${info.latest}. I'll open the installer and step aside.`);
+  try {
+    const dest = await downloadInstaller(info.downloadUrl, info.downloadName);
+    const opened = await shell.openPath(dest);
+    if (opened) throw new Error(opened);
+    app.isQuitting = true;
+    setTimeout(() => app.quit(), 600);
+    return { ...info, installing: true, dest };
+  } catch (err) {
+    if (speak) tellHim("Download failed. I opened the page instead.");
+    shell.openExternal(info.url || appUpdate.DOWNLOAD_PAGE);
+    return { ...info, error: String(err.message || err) };
+  }
+}
+
+function scheduleQuietUpdateCheck() {
+  const quietEvery = 20 * 60 * 60 * 1000;
+  setTimeout(() => {
+    if (Date.now() - (prefs.lastUpdateCheck || 0) < quietEvery) return;
+    checkForUpdates({ install: false, speak: true }).catch((err) => {
+      console.warn("[update] quiet check failed:", err.message);
+    });
+  }, 45000);
 }
 
 function readJsonBody(req) {
@@ -1338,6 +1435,10 @@ ipcMain.on("scrappy:hide", () => {
 
 ipcMain.on("scrappy:pref-visible", (event) => {
   event.returnValue = Boolean(prefs.visible);
+});
+
+ipcMain.handle("scrappy:check-updates", async () => {
+  return checkForUpdates({ install: true, speak: true });
 });
 
 ipcMain.on("scrappy:quit", () => {
@@ -1984,6 +2085,27 @@ ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
   else mainWindow.setIgnoreMouseEvents(true, { forward: true });
 });
 
+// While he is hunting or clinging, poll the real cursor so he can follow it
+// even though the overlay stays click-through.
+let cursorTimer = null;
+function setCursorTrack(on) {
+  if (cursorTimer) {
+    clearInterval(cursorTimer);
+    cursorTimer = null;
+  }
+  if (!on) return;
+  cursorTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const pt = screen.getCursorScreenPoint();
+    const b = mainWindow.getBounds();
+    mainWindow.webContents.send("scrappy:cursor", { x: pt.x - b.x, y: pt.y - b.y });
+  }, 16);
+}
+
+ipcMain.on("scrappy:track-cursor", (_event, on) => {
+  setCursorTrack(Boolean(on));
+});
+
 ipcMain.on("scrappy:test-grow", () => {
   triggerGrow({ force: true, source: "ui-test" });
 });
@@ -2035,6 +2157,7 @@ if (!gotTheLock) {
     createWindow();
     createTray();
     setTimeout(keepTrayInHiddenIcons, 2500);
+    scheduleQuietUpdateCheck();
     startServer();
     installCursorHooksNow();
 

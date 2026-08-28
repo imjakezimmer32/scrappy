@@ -2,10 +2,13 @@
 // alias rather than destructure — a bare `pick`/`FACES` here would redeclare.
 const RIG = window.ScrappyRig;
 const pickLine = window.ScrappyLines.pick;
+const HUNT = window.ScrappyHunt;
 
 // Stub the preload bridge so renderer/index.html can be opened in a plain
-// browser while iterating on the animation.
-const bridge = window.scrappy || {
+// browser while iterating on the animation. The character node is id="scrappy",
+// which browsers also expose as window.scrappy — so we only trust the
+// preload object if it actually has the IPC methods.
+const bridgeStub = {
   onGrow() {},
   onAck() {},
   onLayout() {},
@@ -14,6 +17,12 @@ const bridge = window.scrappy || {
   setInteractive() {},
   hideScrappy() {},
   quitApp() {},
+  checkUpdates() {
+    return Promise.resolve({ ok: false, error: "browser" });
+  },
+  onNotice() {},
+  trackCursor() {},
+  onCursor() {},
   isVisible: () => true,
   onVisible() {},
   voiceSignedUrl: () => Promise.resolve({ ok: false, error: "no_api_key" }),
@@ -25,6 +34,8 @@ const bridge = window.scrappy || {
   openSetup() {},
   setupStatus: () => Promise.resolve({ configured: true }),
 };
+const bridge =
+  window.scrappy && typeof window.scrappy.onLayout === "function" ? window.scrappy : bridgeStub;
 
 // Whoever is running him. Resolved from the main process, which owns the
 // settings store; the fallback keeps the browser preview working.
@@ -44,6 +55,9 @@ const CHAR_W = 120;
 // tracks back 87px/s — measured, not derived. Change --step or the hip sweep
 // without re-measuring this and he skates.
 const SPEED = 85;
+// Faster gait while he is running at the cursor. Paired with --step: 0.52s
+// on data-state=chase so the planted foot still tracks ~68px per cycle.
+const CHASE_SPEED = 130;
 // How hard he has to cross a monitor seam before the glass gives.
 const SHATTER_SPEED = 850;
 const NAG_EVERY_MS = 12 * 60 * 1000;
@@ -108,6 +122,14 @@ let settleFor = 0;
 
 let held = false;
 let flying = false;
+let clinging = false;
+let hunting = false;
+let huntSeek = false;
+let lastHuntAt = Date.now();
+let huntCooldown = 8000;
+let huntDwellAt = 0;
+let shake = null;
+let cursorTrackOn = false;
 let grabLX = 0;
 let grabLY = 0;
 let dragMoved = false;
@@ -187,12 +209,14 @@ function place() {
 // While he's in your hand or in the air, physics owns the character — a
 // behaviour that was already mid-flight must not stomp on it.
 function setState(s) {
-  if (inHand() && s !== "held" && s !== "fly") return;
+  if (inHand() && s !== "held" && s !== "fly" && s !== "cling") return;
+  if (hunting && !inHand() && s !== "reach" && s !== "chase") return;
   el.dataset.state = s;
 }
 
 function setFace(name, force) {
-  if (inHand() && name !== "alarmed") return;
+  if (clinging && name !== "alarmed" && name !== "pleased" && !force) return;
+  if (!clinging && inHand() && name !== "alarmed") return;
   // The cursor-in-his-face reaction outranks whatever the behaviour loop
   // wanted his expression to be.
   if (!force && Date.now() < faceLockUntil) return;
@@ -403,15 +427,26 @@ function step(dt) {
 
   // Crossing the seam between two monitors fast enough breaks the glass.
   const nowScreen = screenAt(cx);
+  let smashed = false;
   if (prevScreenLeft !== null && nowScreen.left !== prevScreenLeft && Math.abs(vx) > SHATTER_SPEED) {
     const stamp = performance.now();
     if (stamp - lastShatter > 260) {
       lastShatter = stamp;
       shatterAt(vx > 0 ? nowScreen.left : nowScreen.right, cy, Math.sign(vx), Math.abs(vx));
+      smashed = true;
       vx *= 0.88;
     }
   }
   prevScreenLeft = nowScreen.left;
+
+  if (clinging && held && HUNT) {
+    const energy = HUNT.tickShake(shake, pointer.x, pointer.y, performance.now());
+    if (energy > 2.6) setFace("alarmed", true);
+    else if (energy < 0.8) setFace("pleased", true);
+    if (HUNT.shouldBreakOff(energy, smashed)) {
+      breakCling(smashed ? "shatter" : "shake");
+    }
+  }
 
   if (!held) {
     const resting =
@@ -434,6 +469,9 @@ function step(dt) {
 function land() {
   flying = false;
   held = false;
+  clinging = false;
+  shake = null;
+  setCursorTrack(false);
   // Kick up dust proportional to the impact, before the velocity is cleared.
   puffAtFeet(Math.min(2.4, 0.9 + Math.abs(vy) / 620), 16);
   vx = 0;
@@ -524,17 +562,24 @@ function frame(now) {
     return;
   }
 
+  if (huntSeek && pointer.x >= 0) {
+    target = clampWalk(pointer.x - CHAR_W / 2);
+    setFacing(pointer.x - (x + COM_X));
+  }
+
   if (target !== null) {
     const delta = target - x;
-    const stride = SPEED * dt;
+    const stride = (huntSeek ? CHASE_SPEED : SPEED) * dt;
     if (Math.abs(delta) <= stride) {
       x = target;
-      target = null;
-      setState("idle");
-      if (resolveWalk) {
-        const done = resolveWalk;
-        resolveWalk = null;
-        done("done");
+      if (!huntSeek) {
+        target = null;
+        setState("idle");
+        if (resolveWalk) {
+          const done = resolveWalk;
+          resolveWalk = null;
+          done("done");
+        }
       }
     } else {
       x += Math.sign(delta) * stride;
@@ -1033,7 +1078,7 @@ function forgetAnnoyance() {
 }
 
 function pollFace() {
-  if (hiddenAway || inCall || inHand()) return;
+  if (hiddenAway || inCall || inHand() || hunting) return;
   const box = headBox();
   if (!box || pointer.x < 0) return;
 
@@ -1141,6 +1186,175 @@ async function watchCursor(ms) {
   return "done";
 }
 
+// ---------- hunting the cursor ----------
+// If it comes down to his height and stays there a beat, he reaches, runs,
+// and tries to grab it. Latch uses the same spring as a pick-up, but the
+// window stays click-through so he isn't stealing the mouse — only a real
+// shake or a monitor smash lets go.
+
+function setCursorTrack(on) {
+  if (!bridge.trackCursor) return;
+  const next = Boolean(on);
+  if (next === cursorTrackOn) return;
+  cursorTrackOn = next;
+  bridge.trackCursor(next);
+}
+
+function nearHand() {
+  const hand = flip.querySelector(".j-hand-l");
+  const r = hand && hand.getBoundingClientRect();
+  if (!r || !r.width) return null;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+function cursorHuntOpen() {
+  if (!HUNT || pointer.x < 0) return false;
+  const here = screenAt(x + COM_X);
+  return HUNT.inGrabBand(pointer.y, here.bottom, false) && HUNT.onScreen(pointer.x, here);
+}
+
+function occupiedForHunt() {
+  return hiddenAway || alerting || inCall || chatting || inHand() || hunting || asleep || clinging;
+}
+
+function missCursor() {
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("miss") : 11000;
+  huntSeek = false;
+  target = null;
+  if (Math.random() < 0.55) say(pickLine("clingMiss"), 2000, "annoyed");
+  else setFace("annoyed", true);
+}
+
+function latchGrabPoint(px, py) {
+  const c = Math.cos(-theta);
+  const s = Math.sin(-theta);
+  const dx = px - cx;
+  const dy = py - cy;
+  grabLX = dx * c - dy * s;
+  grabLY = dx * s + dy * c;
+}
+
+async function latchCling() {
+  huntSeek = false;
+  target = null;
+  forgetAnnoyance();
+  stopWatching();
+  if (!flying) enterPhysics();
+  clinging = true;
+  held = true;
+  flying = false;
+  shake = HUNT ? HUNT.createShake() : null;
+  setState("cling");
+  setFace("pleased", true);
+  await wait(50);
+  const hand = nearHand();
+  latchGrabPoint(hand ? hand.x : pointer.x, hand ? hand.y : pointer.y);
+  interactive = false;
+  if (bridge.setInteractive) bridge.setInteractive(false);
+  setCursorTrack(true);
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("shake") : 16000;
+  pushBodyAwareness(true);
+  say(pickLine("cling"), 2200, "pleased");
+}
+
+function breakCling(reason) {
+  if (!clinging) return;
+  clinging = false;
+  held = false;
+  flying = true;
+  shake = null;
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("shake") : 16000;
+  setState("fly");
+  setCursorTrack(false);
+  if (reason === "hide") return;
+  setFace(reason === "shatter" ? "dizzy" : "alarmed", true);
+  say(pickLine("clingOff"), 2400, reason === "shatter" ? "dizzy" : "alarmed");
+  pushBodyAwareness(true);
+}
+
+async function huntCursor() {
+  if (!HUNT || hunting || clinging || occupiedForHunt()) return;
+  hunting = true;
+  huntSeek = false;
+  cancelAll();
+  stopWatching();
+  forgetAnnoyance();
+  setCursorTrack(true);
+  if (interactive) {
+    interactive = false;
+    if (bridge.setInteractive) bridge.setInteractive(false);
+  }
+  try {
+    setFacing(pointer.x - (x + COM_X));
+    setFace("curious", true);
+    setState("reach");
+    puffAtFeet(0.7);
+    if ((await wait(280)) === "cancelled") return;
+    if (inHand() || alerting || inCall || chatting || hiddenAway) return;
+    if (!cursorHuntOpen()) {
+      missCursor();
+      return;
+    }
+
+    huntSeek = true;
+    setState("chase");
+    setFace("curious", true);
+    const until = Date.now() + HUNT.CHASE_MS;
+    while (Date.now() < until) {
+      if (inHand() || alerting || inCall || chatting || hiddenAway) return;
+      if (!cursorHuntOpen()) {
+        missCursor();
+        return;
+      }
+      const hand = nearHand();
+      if (hand && HUNT.handCanGrab(hand, pointer)) {
+        huntSeek = false;
+        await latchCling();
+        return;
+      }
+      if ((await wait(40)) === "cancelled") return;
+    }
+    missCursor();
+  } finally {
+    huntSeek = false;
+    hunting = false;
+    if (!clinging) {
+      setCursorTrack(false);
+      if (
+        (el.dataset.state === "reach" || el.dataset.state === "chase") &&
+        !inHand() &&
+        !alerting &&
+        !inCall &&
+        !chatting &&
+        !hiddenAway
+      ) {
+        setState("idle");
+      }
+    }
+  }
+}
+
+function pollHunt() {
+  if (!HUNT || occupiedForHunt()) {
+    huntDwellAt = 0;
+    return;
+  }
+  if (Date.now() - lastHuntAt < huntCooldown) return;
+  if (!cursorHuntOpen()) {
+    huntDwellAt = 0;
+    return;
+  }
+  if (!huntDwellAt) huntDwellAt = Date.now();
+  if (!HUNT.dwellReady(huntDwellAt, Date.now())) return;
+  huntDwellAt = 0;
+  huntCursor();
+}
+
+setInterval(pollHunt, 70);
+
 // ---------- idle behaviours ----------
 
 const IDLE_LOOKS = ["curious", "squint", "pleased", "focused"];
@@ -1148,7 +1362,8 @@ const IDLE_LOOKS = ["curious", "squint", "pleased", "focused"];
 async function stroll() {
   const dest = clampWalk(x + rand(-760, 760));
   if (Math.abs(dest - x) < 60) return wait(1200);
-  await walkTo(dest);
+  const result = await walkTo(dest);
+  if (result === "cancelled" || hunting || inHand()) return;
   setState("idle");
   return wait(rand(1500, 4000));
 }
@@ -1204,6 +1419,7 @@ async function sitDown() {
   }
 
   el.classList.remove("is-gazing");
+  if (inHand() || hunting || clinging || alerting || inCall) return;
   setState("idle");
   puffAtFeet(0.8);
   setFace("focused");
@@ -1244,6 +1460,7 @@ async function lieDown() {
 
   stopWatching();
   el.classList.remove("is-headup");
+  if (inHand() || hunting || clinging || alerting || inCall) return;
   setState("idle");
   puffAtFeet(0.85);
   setFace("focused");
@@ -1283,7 +1500,7 @@ async function live() {
       await wait(400);
       continue;
     }
-    if (inHand() || inCall || chatting) {
+    if (inHand() || inCall || chatting || hunting || clinging) {
       await wait(250);
       continue;
     }
@@ -1321,7 +1538,7 @@ async function startAlert(payload) {
   stopWatching();
   // If you're mid-conversation with him you're obviously at your desk, so
   // there's nothing to fetch you back from — he just mentions it.
-  if (inCall) {
+  if (inCall || clinging) {
     bubbleText("Agent's done, by the way.", 5000);
     bridge.ack();
     return;
@@ -1385,7 +1602,7 @@ function tap() {
 }
 
 async function nag() {
-  if (alerting || asleep || inHand() || inCall || chatting || hiddenAway) return;
+  if (alerting || asleep || inHand() || inCall || chatting || hiddenAway || hunting || clinging) return;
   cancelAll();
   setState("point");
   setFace("nag");
@@ -1444,6 +1661,19 @@ function describeBodyState() {
 
   if (held) {
     const wiggling = wiggleMs >= 220 || bodySpeed() > 520;
+    if (clinging) {
+      if (wiggling) {
+        return (
+          `${USER_NAME} is shaking you hard, trying to get their cursor back. You are holding onto it.` +
+          countBit
+        );
+      }
+      return (
+        `${USER_NAME}'s cursor is in your hand — you grabbed it and you are hanging off it.` +
+        ` They have to shake you vigorously or smash you through a monitor to break you off.` +
+        countBit
+      );
+    }
     if (wiggling) {
       return (
         `${USER_NAME} is holding you with the cursor and actively wiggling / shaking you around.` +
@@ -1516,6 +1746,13 @@ function stopBodyAwarenessTick() {
 
 let pointer = { x: -1, y: -1 };
 
+if (bridge.onCursor) {
+  bridge.onCursor((p) => {
+    if (!p || typeof p.x !== "number") return;
+    pointer = { x: p.x, y: p.y };
+  });
+}
+
 el.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) {
     e.preventDefault();
@@ -1575,7 +1812,7 @@ window.addEventListener("pointermove", (e) => {
 });
 
 window.addEventListener("pointerup", () => {
-  if (!held) return;
+  if (!held || clinging) return;
   // Let go. Whatever momentum the spring built is the throw.
   held = false;
   flying = true;
@@ -1595,7 +1832,7 @@ window.addEventListener("pointerup", () => {
 });
 
 window.addEventListener("pointercancel", () => {
-  if (!held) return;
+  if (!held || clinging) return;
   held = false;
   flying = true;
   setState("fly");
@@ -1618,6 +1855,13 @@ function hits(rect, pad) {
 }
 
 function refreshInteractive() {
+  if (clinging || hunting) {
+    if (interactive) {
+      interactive = false;
+      bridge.setInteractive(false);
+    }
+    return;
+  }
   if (held) return;
   if (hiddenAway) {
     if (interactive) {
@@ -1686,6 +1930,7 @@ function applyVisible(on) {
 }
 
 function hush() {
+  if (clinging) breakCling("hide");
   if (inCall) endCall();
   if (chatting) closeChat();
   if (window.ScrappyWake) window.ScrappyWake.stop();
@@ -1724,7 +1969,12 @@ if (menu) {
     else if (act === "type") openChat();
     else if (act === "talk") startCall();
     else if (act === "setup" && bridge.openSetup) bridge.openSetup();
-    else if (act === "quit" && bridge.quitApp) bridge.quitApp();
+    else if (act === "update") {
+      if (bridge.checkUpdates) {
+        say("Checking.", 1600, "curious");
+        bridge.checkUpdates().catch(() => {});
+      }
+    } else if (act === "quit" && bridge.quitApp) bridge.quitApp();
   });
 }
 
@@ -1751,6 +2001,7 @@ window.addEventListener("resize", () => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "n") startAlert({ title: "test nudge" });
   if (e.key === "s") lastPoke = 0;
+  if (e.key === "g") huntCursor();
 });
 
 // ---------- first run ----------
@@ -1798,6 +2049,9 @@ window.__scrappy = {
     cy,
     held,
     flying,
+    hunting,
+    clinging,
+    hunt: () => huntCursor(),
     wiggleMs,
     sessionThrows,
     lifetimeThrows: lifetimeThrows(),
@@ -1843,6 +2097,13 @@ bridge.onGrow((payload) => startAlert(payload));
 bridge.onAck(() => {
   if (alerting) acknowledge();
 });
+if (bridge.onNotice) {
+  bridge.onNotice((payload) => {
+    const text = payload && payload.text;
+    if (!text) return;
+    say(text, 3800, payload.kind === "update" ? "wonder" : "focused");
+  });
+}
 
 requestAnimationFrame(frame);
 live();

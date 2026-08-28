@@ -23,7 +23,11 @@ If there isn't a Release yet, use the developer steps at the bottom.
 
 - Click him to type. Press Enter. He answers out loud if voice is set up.
 - Pick him up and throw him. This is on purpose.
+- If the cursor comes down to his height, he will try to grab it and hold on.
+  Shake hard or put him through a monitor to get the mouse back.
 - Click the `^` by the clock, then his face, to start him if he's hidden.
+- Right-click him (or the tray icon) → **Check for updates** to fetch a newer
+  installer from GitHub and run it.
 - Right-click → **Turn off Scrappy** to send him away.
 
 ## License
@@ -67,8 +71,11 @@ animate one (talking, panic, dizzy).
 
 - `renderer/rig.js` — the rig. Proportions, gear geometry, and the face set.
 - `renderer/style.css` — every state (`idle`, `walk`, `sit`, `sleep`, `alert`,
-  `wave`, `point`) as CSS keyframes on the `.j-*` joint classes.
+  `wave`, `point`, `reach`, `chase`, `cling`) as CSS keyframes on the `.j-*`
+  joint classes.
 - `renderer/lines.js` — what he says.
+- `renderer/cursor-hunt.js` — when the cursor is low enough to grab, and how
+  hard you have to shake to break him off.
 - `renderer/scrappy.js` — behaviour loop, movement, and mouse hit-testing.
 
 The walk is a proper gait, not a pendulum: the planted leg tracks backwards at a
@@ -132,11 +139,13 @@ icon — rivets at 16px are mud.
 | What he says | `renderer/lines.js` |
 | Tray / favicon icon | `scripts/build-icon.js`, then `npm run build-icon` |
 | Throw feel (spring, inertia, bounce) | the rigid body constants in `renderer/scrappy.js` |
+| How low the cursor has to be, shake to let go | `renderer/cursor-hunt.js` |
 
 Open `renderer/index.html` straight in a browser to iterate on the animation
 without launching Electron — the preload bridge is stubbed. Press `n` to fake a
-nudge, `s` to make him sleepy. `window.__scrappy.setScreens([...])` fakes a
-multi-monitor layout and `window.__scrappy.state()` dumps his physics state.
+nudge, `s` to make him sleepy, `g` to send him after the cursor.
+`window.__scrappy.setScreens([...])` fakes a multi-monitor layout and
+`window.__scrappy.state()` dumps his physics state.
 
 ## Grab and throw
 
@@ -148,6 +157,11 @@ is the throw. In the air: gravity, drag, and walls, floor and ceiling that bounc
 him with restitution, bleeding sideways speed into spin on each glancing hit so
 he tumbles instead of mirroring. When he stops he snaps upright and gets on with
 his day.
+
+If the cursor comes down to his height and stays there a beat, he reaches out,
+runs at it, and tries to grab it. A catch hangs him off the pointer — the overlay
+stays click-through so he is not stealing the mouse. Getting him off takes a
+real shake or putting him through a monitor seam hard enough to shatter the glass.
 
 ## His brain and his voice
 
@@ -275,6 +289,7 @@ never steals focus from your editor.
 
 - `main.js` — overlay window, tray, localhost server
 - `preload.js` — the IPC bridge
+- `app-update.js` — compare this build to the latest GitHub Release
 - `renderer/` — Scrappy
 - `settings.js` — config precedence + encrypted key storage (unit tested)
 - `persona.js` — fills `{{USER}}` into `personality.md`

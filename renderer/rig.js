@@ -407,7 +407,7 @@ function arm(side, x, shell, shellLit, handFill, gearFill, far) {
             WEAR.rust({ x: fore.x, y: fore.y + fore.h * 0.3, w: fore.w, h: fore.h * 0.7 }, { seed: sd + 8, tier: 2, lobes: 3, flecks: 4 }),
           far
         )}
-        <circle cx="${x}" cy="${HAND_Y}" r="${hr}" fill="${handFill}"/>
+        <circle class="j-hand j-hand-${side}" cx="${x}" cy="${HAND_Y}" r="${hr}" fill="${handFill}"/>
         ${worn(
           `w-hand-${side}`,
           `<circle cx="${x}" cy="${HAND_Y}" r="${hr}"/>`,
