@@ -859,6 +859,7 @@ function hideScrappy(by = "ui") {
   // Never hide the overlay window itself. On Windows a transparent
   // frameless window grows a fake "Scrappy" title bar after hide/show.
   pushVisible();
+  setCursorTrack(false);
   wakeListener.stop("main", "scrappy turned off");
   if (wasVisible) {
     processJournal.record({
@@ -1982,6 +1983,27 @@ ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
   if (!mainWindow) return;
   if (interactive) mainWindow.setIgnoreMouseEvents(false);
   else mainWindow.setIgnoreMouseEvents(true, { forward: true });
+});
+
+// While he is hunting or clinging, poll the real cursor so he can follow it
+// even though the overlay stays click-through.
+let cursorTimer = null;
+function setCursorTrack(on) {
+  if (cursorTimer) {
+    clearInterval(cursorTimer);
+    cursorTimer = null;
+  }
+  if (!on) return;
+  cursorTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const pt = screen.getCursorScreenPoint();
+    const b = mainWindow.getBounds();
+    mainWindow.webContents.send("scrappy:cursor", { x: pt.x - b.x, y: pt.y - b.y });
+  }, 16);
+}
+
+ipcMain.on("scrappy:track-cursor", (_event, on) => {
+  setCursorTrack(Boolean(on));
 });
 
 ipcMain.on("scrappy:test-grow", () => {

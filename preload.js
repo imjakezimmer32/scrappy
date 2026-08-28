@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld("scrappy", {
   setInteractive(value) {
     ipcRenderer.send("scrappy:set-interactive", Boolean(value));
   },
+  trackCursor(on) {
+    ipcRenderer.send("scrappy:track-cursor", Boolean(on));
+  },
+  onCursor(callback) {
+    ipcRenderer.on("scrappy:cursor", (_event, payload) => callback(payload));
+  },
   hideScrappy() {
     ipcRenderer.send("scrappy:hide");
   },

@@ -24,6 +24,7 @@ const SHARED = [
   ["renderer/rig.js", "rig.js"],
   ["renderer/style.css", "character.css"],
   ["renderer/lines.js", "lines.js"],
+  ["renderer/cursor-hunt.js", "cursor-hunt.js"],
   ["assets/scrappy-face.svg", "scrappy-face.svg"],
   ["assets/scrappy-face-256.png", "scrappy-face-256.png"],
   ["assets/scrappy.ico", "favicon.ico"],

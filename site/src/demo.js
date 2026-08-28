@@ -12,6 +12,7 @@
 
 const RIG = window.ScrappyRig;
 const pickLine = window.ScrappyLines.pick;
+const HUNT = window.ScrappyHunt;
 
 const stage = document.getElementById("stage");
 const el = document.getElementById("scrappy");
@@ -30,6 +31,7 @@ const CHAR_W = 120;
 // point traces an arc and the knee flexes under load, so the foot actually
 // tracks back 87px/s. Change this without re-measuring and he skates.
 const SPEED = 85;
+const CHASE_SPEED = 130;
 const STRIDE_DUST = 34; // px of travel between footfalls
 
 const COM_X = 60; // centre of mass, element-local
@@ -99,6 +101,13 @@ let settleFor = 0;
 
 let held = false;
 let flying = false;
+let clinging = false;
+let hunting = false;
+let huntSeek = false;
+let lastHuntAt = Date.now();
+let huntCooldown = 4000;
+let huntDwellAt = 0;
+let shake = null;
 let grabLX = 0;
 let grabLY = 0;
 let dragMoved = false;
@@ -130,12 +139,14 @@ function place() {
 // While he's in your hand or in the air, physics owns the character — a
 // behaviour that was already mid-flight must not stomp on it.
 function setState(s) {
-  if (inHand() && s !== "held" && s !== "fly") return;
+  if (inHand() && s !== "held" && s !== "fly" && s !== "cling") return;
+  if (hunting && !inHand() && s !== "reach" && s !== "chase") return;
   el.dataset.state = s;
 }
 
 function setFace(name, force) {
-  if (inHand() && name !== "alarmed") return;
+  if (clinging && name !== "alarmed" && name !== "pleased" && !force) return;
+  if (!clinging && inHand() && name !== "alarmed") return;
   // The cursor-in-his-face reaction outranks whatever the behaviour loop wanted.
   if (!force && Date.now() < faceLockUntil) return;
   faceEl.innerHTML = (RIG.FACES[name] || RIG.FACES.focused)();
@@ -284,11 +295,21 @@ function step(dt) {
 
   x = clamp(cx - COM_X);
   place();
+
+  if (clinging && held && HUNT) {
+    const p = toStage(pointer.x, pointer.y);
+    const energy = HUNT.tickShake(shake, p.x, p.y, performance.now());
+    if (energy > 2.6) setFace("alarmed", true);
+    else if (energy < 0.8) setFace("pleased", true);
+    if (HUNT.shouldBreakOff(energy, false)) breakCling("shake");
+  }
 }
 
 function land() {
   flying = false;
   held = false;
+  clinging = false;
+  shake = null;
   // Kick up dust proportional to the impact, before the velocity is cleared.
   puffAtFeet(Math.min(2.4, 0.9 + Math.abs(vy) / 620), 16);
   const spun = Math.abs(theta) > 0.8;
@@ -385,17 +406,25 @@ function advance(dt) {
     place();
   }
 
+  if (huntSeek && pointer.x >= 0) {
+    const p = toStage(pointer.x, pointer.y);
+    target = clamp(p.x - CHAR_W / 2);
+    setFacing(p.x - (x + COM_X));
+  }
+
   if (target !== null) {
     const delta = target - x;
-    const stride = SPEED * dt;
+    const stride = (huntSeek ? CHASE_SPEED : SPEED) * dt;
     if (Math.abs(delta) <= stride) {
       x = target;
-      target = null;
-      setState("idle");
-      if (resolveWalk) {
-        const done = resolveWalk;
-        resolveWalk = null;
-        done("done");
+      if (!huntSeek) {
+        target = null;
+        setState("idle");
+        if (resolveWalk) {
+          const done = resolveWalk;
+          resolveWalk = null;
+          done("done");
+        }
       }
     } else {
       x += Math.sign(delta) * stride;
@@ -480,7 +509,7 @@ function forgetAnnoyance() {
 }
 
 function pollFace() {
-  if (paused || inHand() || asleep) return;
+  if (paused || inHand() || asleep || hunting) return;
   const box = headBox();
   if (!box || pointer.x < 0) return;
 
@@ -538,7 +567,7 @@ function stopWatching() {
 }
 
 function watchPointer() {
-  if (paused || inHand() || asleep || pointer.x < 0) return;
+  if (paused || inHand() || asleep || hunting || pointer.x < 0) return;
   const r = el.getBoundingClientRect();
   if (!r.width) return;
 
@@ -565,7 +594,152 @@ function watchPointer() {
 setInterval(() => {
   pollFace();
   watchPointer();
+  pollHunt();
 }, 50);
+
+// ---------- hunting the cursor ----------
+
+function nearHand() {
+  const hand = flip.querySelector(".j-hand-l");
+  const r = hand && hand.getBoundingClientRect();
+  if (!r || !r.width) return null;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+function cursorHuntOpen() {
+  if (!HUNT || pointer.x < 0) return false;
+  const box = stage.getBoundingClientRect();
+  return HUNT.inGrabBand(pointer.y, box.bottom, false) && pointer.x >= box.left && pointer.x <= box.right;
+}
+
+function occupiedForHunt() {
+  return paused || alerting || inHand() || hunting || asleep || clinging || reduceMotion.matches;
+}
+
+function missCursor() {
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("miss") : 11000;
+  huntSeek = false;
+  target = null;
+  if (Math.random() < 0.55) say(pickLine("clingMiss"), 2000, "annoyed");
+  else setFace("annoyed", true);
+}
+
+function latchGrabPoint(px, py) {
+  const c = Math.cos(-theta);
+  const s = Math.sin(-theta);
+  const dx = px - cx;
+  const dy = py - cy;
+  grabLX = dx * c - dy * s;
+  grabLY = dx * s + dy * c;
+}
+
+async function latchCling() {
+  huntSeek = false;
+  target = null;
+  forgetAnnoyance();
+  stopWatching();
+  if (!flying) enterPhysics();
+  clinging = true;
+  held = true;
+  flying = false;
+  shake = HUNT ? HUNT.createShake() : null;
+  setState("cling");
+  setFace("pleased", true);
+  await wait(50);
+  const hand = nearHand();
+  const p = hand || toStage(pointer.x, pointer.y);
+  // Spring lives in stage space; getBoundingClientRect is client.
+  const staged = hand ? toStage(hand.x, hand.y) : p;
+  latchGrabPoint(staged.x, staged.y);
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("shake") : 16000;
+  say(pickLine("cling"), 2200, "pleased");
+}
+
+function breakCling(reason) {
+  if (!clinging) return;
+  clinging = false;
+  held = false;
+  flying = true;
+  shake = null;
+  lastHuntAt = Date.now();
+  huntCooldown = HUNT ? HUNT.cooldownMs("shake") : 16000;
+  setState("fly");
+  if (reason === "hide") return;
+  setFace("alarmed", true);
+  say(pickLine("clingOff"), 2400, "alarmed");
+}
+
+async function huntCursor() {
+  if (!HUNT || hunting || clinging || occupiedForHunt()) return;
+  hunting = true;
+  huntSeek = false;
+  cancelAll();
+  stopWatching();
+  forgetAnnoyance();
+  poke();
+  try {
+    const p = toStage(pointer.x, pointer.y);
+    setFacing(p.x - (x + COM_X));
+    setFace("curious", true);
+    setState("reach");
+    puffAtFeet(0.7);
+    if ((await wait(280)) === "cancelled") return;
+    if (inHand() || alerting || paused) return;
+    if (!cursorHuntOpen()) {
+      missCursor();
+      return;
+    }
+
+    huntSeek = true;
+    setState("chase");
+    setFace("curious", true);
+    const until = Date.now() + HUNT.CHASE_MS;
+    while (Date.now() < until) {
+      if (inHand() || alerting || paused) return;
+      if (!cursorHuntOpen()) {
+        missCursor();
+        return;
+      }
+      const hand = nearHand();
+      if (hand && HUNT.handCanGrab(hand, pointer)) {
+        huntSeek = false;
+        await latchCling();
+        return;
+      }
+      if ((await wait(40)) === "cancelled") return;
+    }
+    missCursor();
+  } finally {
+    huntSeek = false;
+    hunting = false;
+    if (
+      !clinging &&
+      (el.dataset.state === "reach" || el.dataset.state === "chase") &&
+      !inHand() &&
+      !alerting
+    ) {
+      setState("idle");
+    }
+  }
+}
+
+function pollHunt() {
+  if (!HUNT || occupiedForHunt()) {
+    huntDwellAt = 0;
+    return;
+  }
+  if (Date.now() - lastHuntAt < huntCooldown) return;
+  if (!cursorHuntOpen()) {
+    huntDwellAt = 0;
+    return;
+  }
+  if (!huntDwellAt) huntDwellAt = Date.now();
+  if (!HUNT.dwellReady(huntDwellAt, Date.now())) return;
+  huntDwellAt = 0;
+  huntCursor();
+}
 
 // ---------- behaviour ----------
 
@@ -638,7 +812,7 @@ async function loop() {
   if (reduceMotion.matches) return;
 
   while (true) {
-    if (paused || inHand() || alerting) {
+    if (paused || inHand() || alerting || hunting || clinging) {
       await wait(500);
       continue;
     }
@@ -729,7 +903,7 @@ window.addEventListener("pointermove", (e) => {
 });
 
 function release() {
-  if (!held) return;
+  if (!held || clinging) return;
   // Let go. Whatever momentum the spring built is the throw.
   held = false;
   poke();
@@ -817,6 +991,9 @@ window.__scrappyDemo = {
     omega,
     held,
     flying,
+    hunting,
+    clinging,
+    hunt: () => huntCursor(),
     target,
     state: el.dataset.state,
     facing: el.dataset.facing,
