@@ -5,8 +5,10 @@ const pickLine = window.ScrappyLines.pick;
 const HUNT = window.ScrappyHunt;
 
 // Stub the preload bridge so renderer/index.html can be opened in a plain
-// browser while iterating on the animation.
-const bridge = window.scrappy || {
+// browser while iterating on the animation. The character node is id="scrappy",
+// which browsers also expose as window.scrappy — so we only trust the
+// preload object if it actually has the IPC methods.
+const bridgeStub = {
   onGrow() {},
   onAck() {},
   onLayout() {},
@@ -28,6 +30,8 @@ const bridge = window.scrappy || {
   openSetup() {},
   setupStatus: () => Promise.resolve({ configured: true }),
 };
+const bridge =
+  window.scrappy && typeof window.scrappy.onLayout === "function" ? window.scrappy : bridgeStub;
 
 // Whoever is running him. Resolved from the main process, which owns the
 // settings store; the fallback keeps the browser preview working.

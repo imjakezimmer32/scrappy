@@ -20,6 +20,11 @@ test("overlay and site load the hunt math", () => {
   assert.match(site, /cursor-hunt\.js/);
 });
 
+test("browser preview does not treat the character node as the IPC bridge", () => {
+  const text = fs.readFileSync(path.join(root, "renderer", "scrappy.js"), "utf8");
+  assert.match(text, /typeof window\.scrappy\.onLayout === "function"/);
+});
+
 test("he has lines for grabbing and being shaken off", () => {
   const lines = fs.readFileSync(path.join(root, "renderer", "lines.js"), "utf8");
   assert.match(lines, /cling:/);
