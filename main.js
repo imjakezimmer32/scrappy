@@ -1873,10 +1873,15 @@ async function runRecallTool(name, args) {
   try {
     const normalized = normalizeRecallArgs(tool, args && typeof args === "object" ? args : {});
     const result = await recall.call(tool, normalized);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return {
+        ...result,
+        text: "Recall didn't answer, so I couldn't search notes.",
+      };
+    }
     return {
       ok: true,
-      text: result.text || "",
+      text: result.text || "Recall answered, and there is no note about that.",
       data: result.data,
       isError: Boolean(result.isError),
     };
@@ -1985,6 +1990,14 @@ async function runLocalTool(name, args) {
   return { ok: false, error: "invalid_tool" };
 }
 
+function cursorFailureText(out) {
+  const code = String((out && out.error) || "");
+  if (code === "missing_api_key") {
+    return "No Cursor API key in settings, so I can't start or see cloud agents. Add it in Set up Scrappy.";
+  }
+  return (out && (out.hint || out.error)) || "failed";
+}
+
 function agentsNowText() {
   try {
     return agentStatus.spokenRoster(cursorAgents.listAgents({ limit: 12 }));
@@ -2050,7 +2063,7 @@ async function runCursorAgentAction(action, args) {
           ...out,
           text: out.ok
             ? `Started ${out.kind || "agent"} (${out.status || "running"}). [id ${out.id}]`
-            : out.error || out.hint || "failed",
+            : cursorFailureText(out),
         };
       }
       case "continue": {
@@ -2084,14 +2097,39 @@ async function runCursorAgentAction(action, args) {
         return { ok: true, agents, text: formatAgentsText(agents) };
       }
       case "running": {
-        const agents = cursorAgents.listAgents({
+        const local = cursorAgents.listAgents({
           limit: asInt(a.limit) || 10,
           runningOnly: true,
+        });
+        let cloud = [];
+        let cloudNote = "";
+        if (!apiKey) {
+          cloudNote = " I only checked agents I started. No Cursor API key, so I cannot see the Agents window.";
+        } else {
+          try {
+            const out = await cursorAgents.listCloudAgents({ limit: 15, apiKey });
+            if (out.ok) {
+              cloud = (out.agents || []).filter(
+                (agent) => agent.isRunning || String(agent.status || "").toLowerCase() === "running"
+              );
+            } else {
+              cloudNote = ` I couldn't read the Agents window: ${cursorFailureText(out)}`;
+            }
+          } catch (err) {
+            cloudNote = ` I couldn't read the Agents window: ${err.message || err}`;
+          }
+        }
+        const seen = new Set();
+        const agents = [...local, ...cloud].filter((agent) => {
+          const id = agent && agent.id;
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
         });
         return {
           ok: true,
           agents,
-          text: agents.length ? formatAgentsText(agents) : "No agents running right now.",
+          text: (agents.length ? formatAgentsText(agents) : "No agents running right now.") + cloudNote,
         };
       }
       case "list_cloud": {
