@@ -34,6 +34,8 @@ let prefs = {
   visible: true,
   lastUpdateCheck: 0,
   lastUpdateTold: "",
+  lastRunningVersion: "",
+  updateNote: "",
   setupIntroduced: false,
   pendingUpdate: null,
 };
@@ -45,6 +47,8 @@ function loadPrefs() {
     if (typeof data.visible === "boolean") prefs.visible = data.visible;
     if (Number.isFinite(data.lastUpdateCheck)) prefs.lastUpdateCheck = data.lastUpdateCheck;
     if (typeof data.lastUpdateTold === "string") prefs.lastUpdateTold = data.lastUpdateTold;
+    if (typeof data.lastRunningVersion === "string") prefs.lastRunningVersion = data.lastRunningVersion;
+    if (typeof data.updateNote === "string") prefs.updateNote = data.updateNote;
     if (typeof data.setupIntroduced === "boolean") prefs.setupIntroduced = data.setupIntroduced;
     if (data.pendingUpdate && typeof data.pendingUpdate === "object") {
       prefs.pendingUpdate = data.pendingUpdate;
