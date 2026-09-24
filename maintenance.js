@@ -103,6 +103,19 @@ function runLocalVoiceInstaller(repoRoot, { timeoutMs = 45 * 60 * 1000 } = {}) {
   });
 }
 
+// A staged installer waits until he is idle. Alerting, chat, voice, or holding
+// the cursor are all bad times. He also needs a quiet stretch so a restart
+// does not land in the middle of a sentence that just ended.
+function goodTimeToApplyUpdate(state, now = Date.now()) {
+  if (!state || !state.hasPending) return false;
+  if (state.alerting || state.chatOpen || state.voiceActive || state.cursorHeld) return false;
+  const quietFor = Number.isFinite(state.quietForMs)
+    ? state.quietForMs
+    : now - (state.lastActivityAt || now);
+  const need = Number.isFinite(state.minQuietMs) ? state.minQuietMs : 90 * 1000;
+  return quietFor >= need;
+}
+
 function summarizePendingForTray(prefs, currentVersion) {
   if (!pendingUpdateValid(prefs)) return null;
   const v = prefs.pendingUpdate.version;
@@ -121,4 +134,5 @@ module.exports = {
   localVoiceInstalled,
   runLocalVoiceInstaller,
   summarizePendingForTray,
+  goodTimeToApplyUpdate,
 };

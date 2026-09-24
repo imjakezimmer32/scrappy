@@ -31,6 +31,24 @@ test("summarizePendingForTray ignores stale or same version", () => {
   assert.equal(maintenance.summarizePendingForTray(prefs, "9.9.9"), null);
 });
 
+test("good time to update waits out work and a quiet stretch", () => {
+  const base = {
+    hasPending: true,
+    alerting: false,
+    chatOpen: false,
+    voiceActive: false,
+    cursorHeld: false,
+    quietForMs: 120000,
+  };
+  assert.equal(maintenance.goodTimeToApplyUpdate(base), true);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, hasPending: false }), false);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, alerting: true }), false);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, chatOpen: true }), false);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, voiceActive: true }), false);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, cursorHeld: true }), false);
+  assert.equal(maintenance.goodTimeToApplyUpdate({ ...base, quietForMs: 10000 }), false);
+});
+
 test("isNewer used for pending tray label", () => {
   assert.equal(appUpdate.isNewer("1.2.0", "1.1.0"), true);
 });
