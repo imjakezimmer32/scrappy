@@ -83,9 +83,8 @@ function liveCycle(filePath, input = {}) {
     kind: input.nagKind || "work",
     actionTaken: input.actionTaken,
   });
-  if (sitting && !second.inQuietHours(now) && second.skipNagAfterThrow(input.thrownRecently).nag) {
-    lines.push(sitting);
-  }
+  const allowNag = second.skipNagAfterThrow(input.thrownRecently).nag && !second.inQuietHours(now);
+  if (sitting && allowNag) lines.push(sitting);
 
   if (!second.inQuietHours(now)) {
     const seen = watch.observe({
@@ -120,10 +119,10 @@ function liveCycle(filePath, input = {}) {
   const retry = second.retryWithOtherTool(input.toolsTried, toolsFirst.TOOLS);
   const duplicate = second.refuseDuplicate(input.running || [], input.goal);
   const cap = second.capVoiceAgents(Number(input.voiceAgents) || 0);
-  if (input.prUrl) second.rememberPr(filePath, input.prUrl);
-  const recap = input.events ? second.sessionRecap(input.events) : null;
+  second.rememberPr(filePath, input.prUrl || null);
+  const recap = second.sessionRecap(input.events || []);
   if (recap) lines.push(recap);
-  const clipped = input.result ? second.clipResult(input.result) : null;
+  const clipped = second.clipResult(input.result || "");
   const pushBlocked = second.blockPushMain(input.command || input.goal || "");
   const done = second.doneToday(input.doneEntries || [], now);
   const status = second.statusLine(input.agents || []);

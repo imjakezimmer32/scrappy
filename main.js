@@ -1404,6 +1404,7 @@ function startServer() {
           actionTaken: decided.follow && decided.follow.message,
           result: body.result || body.summary || "",
           command: body.command,
+          hand: body.hand,
           prUrl: body.prUrl,
           events: body.events,
           toolFired: true,
