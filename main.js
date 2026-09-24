@@ -1213,24 +1213,26 @@ function agenticPrompt() {
 }
 
 function speakStartupGoals() {
-  let goal = null;
+  let cycle;
   try {
-    goal = goals.getGoal(agenticFile());
-  } catch {
-    goal = null;
+    cycle = agenticRuntime.liveCycle(agenticFile(), {
+      now: new Date(),
+      lastBriefAt: prefs.lastBriefAt || null,
+      wantBrief: true,
+      includeResume: true,
+      idleMs: Date.now() - lastActivityAt,
+      activeWindow: "desktop",
+      toolFired: true,
+    });
+  } catch (err) {
+    console.warn("[agentic] startup cycle failed:", err.message || err);
+    return;
   }
-  const line = goals.resumeLine(goal);
-  if (line) tellHim(line, "goal");
-  const report = morning.morningBrief({
-    now: new Date(),
-    lastBriefAt: prefs.lastBriefAt || null,
-    agents: [],
-    unfinishedGoal: goal && goal.text,
-  });
-  if (report.skip) return;
-  prefs.lastBriefAt = new Date().toISOString();
-  savePrefs();
-  if (report.speech) tellHim(report.speech, "brief");
+  if (cycle.briefed) {
+    prefs.lastBriefAt = new Date().toISOString();
+    savePrefs();
+  }
+  cycle.lines.forEach((line) => tellHim(line, "goal"));
 }
 
 function watchQuietDesktop() {
@@ -1391,6 +1393,25 @@ function startServer() {
         tellHim(summary.speech, "agent-done");
       } else if (summary && !summary.skip && decided.follow && decided.follow.message) {
         tellHim(decided.follow.message, "agent-done");
+      }
+      try {
+        const cycle = agenticRuntime.liveCycle(agenticFile(), {
+          complaint: body.complaint,
+          planText: body.plan,
+          goal: goalText,
+          sittingMs: body.sittingMs,
+          nagKind: body.kind,
+          actionTaken: decided.follow && decided.follow.message,
+          result: body.result || body.summary || "",
+          command: body.command,
+          prUrl: body.prUrl,
+          events: body.events,
+          toolFired: true,
+          thrownRecently: false,
+        });
+        cycle.lines.forEach((line) => tellHim(line, "agent-done"));
+      } catch (err) {
+        console.warn("[agentic] live cycle failed:", err.message || err);
       }
 
       triggerGrow({
@@ -2098,6 +2119,24 @@ async function runCursorTool(name, args) {
     const goal = String((args && (args.goal || args.prompt)) || "").trim();
     if (second.blockPushMain(goal)) {
       return { ok: false, error: "needs_you", text: "Pushing main needs you." };
+    }
+    const cycle = agenticRuntime.liveCycle(agenticFile(), {
+      goal,
+      command: goal,
+      ownerId: "voice",
+      voiceAgents: 0,
+      running: [],
+      reversible: true,
+      toolFired: true,
+    });
+    if (cycle.pushBlocked) {
+      return { ok: false, error: "needs_you", text: "Pushing main needs you." };
+    }
+    if (cycle.duplicate && cycle.duplicate.refuse) {
+      return { ok: false, error: "duplicate", text: "That goal is already running." };
+    }
+    if (cycle.cap && cycle.cap.allow === false) {
+      return { ok: false, error: "capped", text: "One voice agent at a time." };
     }
     const gate = agenticRuntime.beforeAction(agenticFile(), {
       goal: goal || "cursor-agent",
