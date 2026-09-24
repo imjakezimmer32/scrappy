@@ -260,6 +260,7 @@ async function start(opts) {
   allowSpeech = false;
   suppressTurn = false;
 
+  emit("status", { state: "warming" });
   const auth = window.scrappy
     ? await window.scrappy.voiceSignedUrl()
     : { ok: false, error: "no_api_key" };
@@ -476,6 +477,13 @@ function handleLocalMessage(msg) {
       // Turn hiccups should not hang up the whole call.
       if (/quota|unauthorized|not_installed|mic_/i.test(err)) {
         emit("error", err);
+        stop();
+      } else if (err.startsWith("tts_failed:")) {
+        emit("turnError", "tts_failed");
+      } else if (
+        /ollama_|cloud_not_configured|voice_not_ready|Kokoro models missing/i.test(err)
+      ) {
+        emit("error", err.startsWith("ollama_model_missing:") ? "ollama_model_missing" : err);
         stop();
       } else {
         emit("turnError", err);

@@ -185,12 +185,18 @@ function start(env = {}, opts = {}) {
 
 async function waitReady(ms = 90000) {
   const startAt = Date.now();
+  let last = { ok: false };
   while (Date.now() - startAt < ms) {
     const h = await health();
-    if (h.ok) return h;
+    last = h;
+    if (h.ok && h.voiceReady) return h;
     await new Promise((r) => setTimeout(r, 500));
   }
-  return { ok: false, error: "timeout" };
+  if (last.ok && !last.voiceReady) {
+    const reason = last.loadError || last.llmError || "voice_not_ready";
+    return { ok: false, error: reason, health: last };
+  }
+  return { ok: false, error: "timeout", health: last };
 }
 
 function wsUrl() {

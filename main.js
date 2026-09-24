@@ -392,7 +392,20 @@ async function resolveVoiceSession() {
         return { ok: true, url: localVoice.wsUrl(), backend: "local" };
       }
       if (pref === "local") {
-        return { ok: false, error: "local_voice_timeout" };
+        const detail = ready.error || "local_voice_timeout";
+        const mapped =
+          detail === "timeout"
+            ? "local_voice_timeout"
+            : detail.startsWith("ollama_model_missing:")
+              ? "ollama_model_missing"
+              : detail === "ollama_unreachable"
+                ? "ollama_unreachable"
+                : detail === "cloud_not_configured"
+                  ? "no_api_key"
+                  : detail.includes("Kokoro models missing") || detail === "not_installed"
+                    ? "not_installed"
+                    : "local_voice_timeout";
+        return { ok: false, error: mapped, detail };
       }
     }
   }
@@ -1981,7 +1994,7 @@ ipcMain.handle("scrappy:voice-status", async () => {
   const localInstalled = fs.existsSync(
     path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
   );
-  const localReady = Boolean(localHealth && localHealth.ok);
+  const localReady = Boolean(localHealth && localHealth.ok && localHealth.voiceReady);
   const elevenReady = Boolean(apiKey && agentId);
   const configured =
     pref === "local"

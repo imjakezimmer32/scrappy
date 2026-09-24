@@ -734,6 +734,10 @@ const VOICE_TROUBLE = {
   not_installed: ["Local voice isn't installed yet.", "run scripts/setup-local-voice.ps1"],
   local_voice_failed: ["Local voice didn't start.", "run scripts/setup-local-voice.ps1"],
   local_voice_timeout: ["Local voice is still waking up.", "give it a minute on first launch"],
+  ollama_unreachable: ["Ollama isn't running.", "start Ollama, then try voice again"],
+  ollama_model_missing: ["The local brain model isn't pulled yet.", "ollama pull qwen2.5:7b (or your model)"],
+  voice_not_ready: ["Voice models aren't ready yet.", "wait a minute and try again"],
+  tts_failed: ["My mouth loaded but TTS failed.", "re-run setup-local-voice.ps1"],
 };
 
 // While he's listening his eyes ARE the level meter: the halo swells and
@@ -999,6 +1003,10 @@ window.ScrappyVoice.init({
       setFace("focused");
       const hard = s.route === "think";
       bubbleText(hard ? "Thinking hard…" : "One sec…", 0, "still with you — click to hang up");
+    } else if (s.state === "warming") {
+      setState("listen");
+      setFace("focused");
+      bubbleText("Warming up voice…", 0, "Whisper + TTS + brain — first launch can take a minute");
     } else if (s.state === "listening") {
       setState("listen");
       setFace("listen");

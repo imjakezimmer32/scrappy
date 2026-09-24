@@ -393,6 +393,67 @@ def get_kokoro():
     return _kokoro
 
 
+def ensure_voice_models() -> None:
+    """Load Whisper + Kokoro so the first spoken turn is not silent."""
+    get_whisper()
+    get_kokoro()
+
+
+def _model_in_tags(want: str, models: list[dict[str, Any]]) -> bool:
+    want = (want or "").strip()
+    if not want:
+        return False
+    for entry in models:
+        name = str(entry.get("name") or "")
+        if name == want or name.startswith(f"{want}:"):
+            return True
+    return False
+
+
+async def llm_ready() -> tuple[bool, str]:
+    info = scrappy_llm.health_label()
+    if info["backend"] == "cloud":
+        if info["cloudConfigured"]:
+            return True, ""
+        return False, "cloud_not_configured"
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            r = await client.get(f"{scrappy_llm.OLLAMA_URL}/api/tags")
+            if r.status_code != 200:
+                return False, "ollama_unreachable"
+            models = r.json().get("models") or []
+            want = scrappy_llm.active_model(False)
+            if not _model_in_tags(want, models):
+                return False, f"ollama_model_missing:{want}"
+            return True, ""
+    except Exception:  # noqa: BLE001
+        return False, "ollama_unreachable"
+
+
+async def voice_stack_status() -> dict[str, Any]:
+    """Whether ears, mouth, and brain can run a full spoken turn."""
+    whisper_ready = _whisper is not None
+    kokoro_ready = _kokoro is not None
+    load_error = ""
+    if not whisper_ready or not kokoro_ready:
+        try:
+            await asyncio.to_thread(ensure_voice_models)
+            whisper_ready = _whisper is not None
+            kokoro_ready = _kokoro is not None
+        except Exception as err:  # noqa: BLE001
+            load_error = str(err)
+    llm_ok, llm_reason = await llm_ready()
+    voice_ready = whisper_ready and kokoro_ready and llm_ok
+    return {
+        "whisperReady": whisper_ready,
+        "kokoroReady": kokoro_ready,
+        "llmReady": llm_ok,
+        "voiceReady": voice_ready,
+        "loadError": load_error,
+        "llmError": llm_reason,
+    }
+
+
 def pcm16_b64_to_float32(b64: str) -> np.ndarray:
     raw = base64.b64decode(b64)
     if len(raw) < 2:
@@ -1079,6 +1140,12 @@ class SpeakAhead:
                 return
             except Exception as err:  # noqa: BLE001
                 log(f"tts failed: {err}")
+                try:
+                    await self.session.send(
+                        {"type": "error", "error": f"tts_failed:{err}"}
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 continue
             if self.session.cancelled():
                 continue
@@ -2040,24 +2107,18 @@ class Session:
 @app.get("/health")
 async def health():
     info = scrappy_llm.health_label()
-    ollama_ok = False
-    if info["backend"] == "ollama":
-        try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                r = await client.get(f"{scrappy_llm.OLLAMA_URL}/api/tags")
-                ollama_ok = r.status_code == 200
-        except Exception:  # noqa: BLE001
-            ollama_ok = False
+    stack = await voice_stack_status()
     return {
         "ok": True,
         "llmBackend": info["backend"],
         "cloudConfigured": info["cloudConfigured"],
-        "ollama": ollama_ok,
+        "ollama": stack["llmReady"] if info["backend"] == "ollama" else False,
         "model": info["model"],
         "thinkModel": info["thinkModel"],
         "thinkMode": OLLAMA_THINK_MODE,
         "whisper": WHISPER_MODEL,
         "persona": PERSONA_PATH.name,
+        **stack,
     }
 
 
@@ -2065,6 +2126,13 @@ async def health():
 async def voice_socket(ws: WebSocket):
     await ws.accept()
     session = Session(ws)
+    await session.send({"type": "status", "state": "warming"})
+    stack = await voice_stack_status()
+    if not stack["voiceReady"]:
+        reason = stack["loadError"] or stack["llmError"] or "voice_not_ready"
+        await session.send({"type": "error", "error": reason})
+        await ws.close()
+        return
     await session.send(
         {
             "type": "ready",
@@ -2073,6 +2141,7 @@ async def voice_socket(ws: WebSocket):
             "model": scrappy_llm.active_model(False),
             "session_id": session.session_id,
             "memory": True,
+            "voiceReady": True,
         }
     )
     await session.send({"type": "status", "state": "listening"})
@@ -2120,13 +2189,9 @@ def warm_models() -> None:
     _persona = load_persona()
     log(f"persona loaded ({len(_persona)} chars)")
     try:
-        get_whisper()
+        ensure_voice_models()
     except Exception as err:  # noqa: BLE001
-        log(f"Whisper warm failed (will retry on first use): {err}")
-    try:
-        get_kokoro()
-    except Exception as err:  # noqa: BLE001
-        log(f"Kokoro warm failed (run setup script): {err}")
+        log(f"voice model warm failed (health will retry): {err}")
 
 
 if __name__ == "__main__":
