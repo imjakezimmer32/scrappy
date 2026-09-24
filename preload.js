@@ -115,6 +115,12 @@ contextBridge.exposeInMainWorld("scrappy", {
   onWake(callback) {
     ipcRenderer.on("scrappy:wake", (_event, payload) => callback(payload));
   },
+  onSettingsChanged(callback) {
+    ipcRenderer.on("scrappy:settings-changed", () => callback());
+  },
+  onVoiceStackReady(callback) {
+    ipcRenderer.on("scrappy:voice-stack-ready", () => callback());
+  },
   wakePause() {
     ipcRenderer.send("scrappy:wake-pause");
   },

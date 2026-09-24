@@ -16,6 +16,7 @@ const settings = require("./settings");
 const persona = require("./persona");
 const cursorHooks = require("./cursor-hooks");
 const appUpdate = require("./app-update");
+const maintenance = require("./maintenance");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -23,7 +24,13 @@ const HOST = "127.0.0.1";
 const TOKEN_PATH = path.join(app.getPath("userData"), "local-token.txt");
 const PREFS_PATH = path.join(app.getPath("userData"), "prefs.json");
 
-let prefs = { visible: true, lastUpdateCheck: 0, lastUpdateTold: "" };
+let prefs = {
+  visible: true,
+  lastUpdateCheck: 0,
+  lastUpdateTold: "",
+  setupIntroduced: false,
+  pendingUpdate: null,
+};
 
 function loadPrefs() {
   try {
@@ -32,6 +39,13 @@ function loadPrefs() {
     if (typeof data.visible === "boolean") prefs.visible = data.visible;
     if (Number.isFinite(data.lastUpdateCheck)) prefs.lastUpdateCheck = data.lastUpdateCheck;
     if (typeof data.lastUpdateTold === "string") prefs.lastUpdateTold = data.lastUpdateTold;
+    if (typeof data.setupIntroduced === "boolean") prefs.setupIntroduced = data.setupIntroduced;
+    if (data.pendingUpdate && typeof data.pendingUpdate === "object") {
+      prefs.pendingUpdate = data.pendingUpdate;
+    }
+    if (!maintenance.pendingUpdateValid(prefs)) {
+      prefs.pendingUpdate = null;
+    }
   } catch (err) {
     console.error("Could not read prefs:", err.message);
   }
@@ -222,6 +236,51 @@ function installCursorHooksNow() {
   }
   console.log("[hooks] installed", result.hooksJson);
   return result;
+}
+
+function applySettingsLive() {
+  applyUserName();
+  persona.renderToFile(settings.userName(), app.getPath("userData"));
+  const pref = voiceBackendPref();
+  const localInstalled = maintenance.localVoiceInstalled(__dirname);
+  if ((pref === "local" || pref === "auto") && localInstalled) {
+    localVoice.stop("settings changed", "setup");
+    localVoice.start(localVoiceEnv(), { by: "setup", reason: "apply settings live" });
+  }
+  rebuildTray();
+  maybeStartWake("main", "settings applied");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("scrappy:settings-changed");
+  }
+}
+
+function runFirstLaunchFlow() {
+  installCursorHooksNow();
+  if (!maintenance.shouldOpenSetupIntro(prefs, settings.isConfigured())) return;
+  setTimeout(() => {
+    if (app.isQuitting) return;
+    maintenance.markSetupIntroduced(prefs);
+    savePrefs();
+    openSetupWindow();
+  }, 9000);
+}
+
+async function installPendingUpdateIfAny({ speak = true } = {}) {
+  const pending = maintenance.summarizePendingForTray(prefs, app.getVersion());
+  if (!pending) return { ok: false, error: "no_pending" };
+  if (speak) tellHim(`Installing ${pending.version}. I'll step aside for the installer.`);
+  try {
+    const opened = await shell.openPath(pending.path);
+    if (opened) throw new Error(opened);
+    maintenance.clearPendingUpdate(prefs);
+    savePrefs();
+    app.isQuitting = true;
+    setTimeout(() => app.quit(), 600);
+    return { ok: true, installing: true, version: pending.version };
+  } catch (err) {
+    if (speak) tellHim("Couldn't run the installer. Try Check for updates again.");
+    return { ok: false, error: String(err.message || err) };
+  }
 }
 
 function localVoiceEnv() {
@@ -670,6 +729,18 @@ function rebuildTray() {
       },
     },
     { type: "separator" },
+    ...(maintenance.summarizePendingForTray(prefs, app.getVersion())
+      ? [
+          {
+            label: `Install update (v${prefs.pendingUpdate.version})`,
+            click: () => {
+              installPendingUpdateIfAny({ speak: true }).catch((err) => {
+                console.warn("[update] install failed:", err.message);
+              });
+            },
+          },
+        ]
+      : []),
     {
       label: "Check for updates",
       click: () => {
@@ -991,10 +1062,18 @@ async function downloadInstaller(url, name) {
   return dest;
 }
 
-async function checkForUpdates({ install = false, speak = true } = {}) {
+async function checkForUpdates({ install = false, speak = true, background = false } = {}) {
   const current = app.getVersion();
   prefs.lastUpdateCheck = Date.now();
   savePrefs();
+
+  if (install) {
+    const pending = maintenance.summarizePendingForTray(prefs, current);
+    if (pending) {
+      return installPendingUpdateIfAny({ speak });
+    }
+  }
+
   let info;
   try {
     info = appUpdate.summarizeRelease(await fetchLatestRelease(), current);
@@ -1007,14 +1086,42 @@ async function checkForUpdates({ install = false, speak = true } = {}) {
     return info;
   }
   if (!info.newer) {
-    if (speak) tellHim(`I'm current. ${info.current}.`);
+    maintenance.clearPendingUpdate(prefs);
+    savePrefs();
+    rebuildTray();
+    if (speak) tellHim(`I'm current — version ${info.current}.`);
     return info;
   }
+
+  if (background && info.downloadUrl) {
+    const already =
+      prefs.pendingUpdate &&
+      prefs.pendingUpdate.version === info.latest &&
+      maintenance.pendingUpdateValid(prefs);
+    if (!already) {
+      try {
+        const dest = await downloadInstaller(info.downloadUrl, info.downloadName);
+        maintenance.stashPendingUpdate(prefs, { version: info.latest, dest });
+        savePrefs();
+        rebuildTray();
+        if (speak && prefs.lastUpdateTold !== info.latest) {
+          prefs.lastUpdateTold = info.latest;
+          savePrefs();
+          tellHim(`Update ${info.latest} is ready. Tray → Install update.`);
+        }
+        return { ...info, downloaded: true, dest };
+      } catch (err) {
+        console.warn("[update] background download failed:", err.message || err);
+      }
+    }
+    return info;
+  }
+
   if (!install) {
     if (speak && prefs.lastUpdateTold !== info.latest) {
       prefs.lastUpdateTold = info.latest;
       savePrefs();
-      tellHim(`There's a newer me — ${info.latest}. Right-click → Check for updates.`);
+      tellHim(`There's a newer me — ${info.latest}. Tray → Check for updates.`);
     }
     return info;
   }
@@ -1026,11 +1133,9 @@ async function checkForUpdates({ install = false, speak = true } = {}) {
   if (speak) tellHim(`Downloading ${info.latest}. I'll open the installer and step aside.`);
   try {
     const dest = await downloadInstaller(info.downloadUrl, info.downloadName);
-    const opened = await shell.openPath(dest);
-    if (opened) throw new Error(opened);
-    app.isQuitting = true;
-    setTimeout(() => app.quit(), 600);
-    return { ...info, installing: true, dest };
+    maintenance.stashPendingUpdate(prefs, { version: info.latest, dest });
+    savePrefs();
+    return installPendingUpdateIfAny({ speak: false });
   } catch (err) {
     if (speak) tellHim("Download failed. I opened the page instead.");
     shell.openExternal(info.url || appUpdate.DOWNLOAD_PAGE);
@@ -1042,7 +1147,7 @@ function scheduleQuietUpdateCheck() {
   const quietEvery = 20 * 60 * 60 * 1000;
   setTimeout(() => {
     if (Date.now() - (prefs.lastUpdateCheck || 0) < quietEvery) return;
-    checkForUpdates({ install: false, speak: true }).catch((err) => {
+    checkForUpdates({ install: false, speak: true, background: true }).catch((err) => {
       console.warn("[update] quiet check failed:", err.message);
     });
   }, 45000);
@@ -1368,23 +1473,31 @@ ipcMain.handle("setup:read", () => settings.forPanel());
 
 ipcMain.handle("setup:write", (_event, patch) => {
   if (!patch || typeof patch !== "object") return { ok: false, error: "bad_patch" };
-  const previousName = settings.userName();
   const ok = settings.setMany(patch);
-  // A name change has to reach the modules that bake it into text, and the
-  // rendered persona has to be rewritten or he keeps using the old one.
-  applyUserName();
-  persona.renderToFile(settings.userName(), app.getPath("userData"));
-  if (settings.userName() !== previousName && localVoice.pid()) {
-    localVoice.stop("user name changed", "setup");
-    localVoice.start(localVoiceEnv(), { by: "setup", reason: "restart after name change" });
-  }
   const recallExe = settings.get("RECALL_EXE", "");
   if (recallExe) process.env.RECALL_EXE = recallExe;
   else delete process.env.RECALL_EXE;
-  rebuildTray();
-  if (mainWindow) mainWindow.webContents.send("scrappy:settings-changed");
+  applySettingsLive();
   return { ok, state: settings.forPanel() };
 });
+
+ipcMain.handle("setup:install-local-voice", async () => {
+  if (process.platform !== "win32") {
+    return { ok: false, error: "windows_only" };
+  }
+  const result = await maintenance.runLocalVoiceInstaller(__dirname);
+  if (result.ok) {
+    localVoice.stop("local voice installed", "setup");
+    localVoice.start(localVoiceEnv(), { by: "setup", reason: "after local voice install" });
+    rebuildTray();
+  }
+  return result;
+});
+
+ipcMain.handle("setup:local-voice-installed", () => ({
+  ok: true,
+  installed: maintenance.localVoiceInstalled(__dirname),
+}));
 
 // Build the ElevenLabs agent from inside the app.
 //
@@ -1425,6 +1538,7 @@ ipcMain.handle("setup:build-voice", async () => {
         settings.reload();
         const agentId = settings.readEnvFile().ELEVENLABS_AGENT_ID;
         if (agentId) settings.set("ELEVENLABS_AGENT_ID", agentId);
+        applySettingsLive();
         resolve({ ok: true, output: output.slice(-1200), state: settings.forPanel() });
       }
     );
@@ -2182,7 +2296,7 @@ if (!gotTheLock) {
     setTimeout(keepTrayInHiddenIcons, 2500);
     scheduleQuietUpdateCheck();
     startServer();
-    installCursorHooksNow();
+    runFirstLaunchFlow();
 
     // Prefer local AMD voice when configured; still start wake word either way.
     const pref = voiceBackendPref();

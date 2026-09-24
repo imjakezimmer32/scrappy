@@ -17,4 +17,10 @@ contextBridge.exposeInMainWorld("setup", {
   buildVoice() {
     return ipcRenderer.invoke("setup:build-voice");
   },
+  localVoiceInstalled() {
+    return ipcRenderer.invoke("setup:local-voice-installed");
+  },
+  installLocalVoice() {
+    return ipcRenderer.invoke("setup:install-local-voice");
+  },
 });

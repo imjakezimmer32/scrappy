@@ -638,8 +638,8 @@ const sayInput = document.getElementById("sayInput");
 let chatting = false;
 
 const BRAIN_TROUBLE = {
-  no_api_key: ["I'm not wired up yet.", "add your key to .env.local"],
-  no_agent_id: ["I don't have an agent.", "run npm run setup-voice"],
+  no_api_key: ["I'm not wired up yet.", "right-click → Set up Scrappy"],
+  no_agent_id: ["I don't have a voice agent yet.", "Set up Scrappy → Build his voice agent"],
   socket_failed: ["Couldn't reach ElevenLabs.", "check your connection"],
   network: ["Couldn't reach ElevenLabs.", "check your connection"],
   elevenlabs_401: ["ElevenLabs turned me down.", "the API key looks wrong"],
@@ -723,21 +723,21 @@ let inCall = false;
 let voiceReady = false;
 
 const VOICE_TROUBLE = {
-  no_api_key: ["Voice isn't wired up yet.", "add your key to .env.local"],
-  no_agent_id: ["I don't have an agent yet.", "run npm run setup-voice"],
+  no_api_key: ["Voice isn't wired up yet.", "right-click → Set up Scrappy"],
+  no_agent_id: ["I don't have a voice agent yet.", "Set up Scrappy → Build his voice agent"],
   mic_denied: ["I can't hear you.", "microphone permission is blocked"],
   socket_failed: ["Couldn't reach the voice server.", "check local voice / connection"],
   network: ["Couldn't reach ElevenLabs.", "check your connection"],
   elevenlabs_401: ["ElevenLabs turned me down.", "the API key looks wrong"],
   quota_exceeded: ["I'm out of voice credits this month.", "check your ElevenLabs plan"],
   no_signed_url: ["ElevenLabs didn't hand back a session.", ""],
-  not_installed: ["Local voice isn't installed yet.", "run scripts/setup-local-voice.ps1"],
-  local_voice_failed: ["Local voice didn't start.", "run scripts/setup-local-voice.ps1"],
+  not_installed: ["Local voice isn't installed yet.", "Set up Scrappy → Install local voice stack"],
+  local_voice_failed: ["Local voice didn't start.", "Set up Scrappy → Install local voice stack"],
   local_voice_timeout: ["Local voice is still waking up.", "give it a minute on first launch"],
   ollama_unreachable: ["Ollama isn't running.", "start Ollama, then try voice again"],
-  ollama_model_missing: ["The local brain model isn't pulled yet.", "ollama pull qwen2.5:7b (or your model)"],
+  ollama_model_missing: ["The local brain model isn't pulled yet.", "Set up Scrappy → Ollama model"],
   voice_not_ready: ["Voice models aren't ready yet.", "wait a minute and try again"],
-  tts_failed: ["My mouth loaded but TTS failed.", "re-run setup-local-voice.ps1"],
+  tts_failed: ["My mouth loaded but TTS failed.", "Set up Scrappy → Install local voice stack"],
 };
 
 // While he's listening his eyes ARE the level meter: the halo swells and
@@ -2028,16 +2028,38 @@ async function offerSetup() {
   }
   if (!status || status.configured) return;
 
-  // Long enough that he's clearly been standing there a while first.
-  if ((await wait(6000)) === "cancelled") return;
+  // After the one-time setup window has had a chance to open (see main.js).
+  if ((await wait(12000)) === "cancelled") return;
   if (hiddenAway || inCall || alerting || inHand()) return;
 
   await say(
-    "I can't talk yet — I need a key or a local brain.",
+    "I can't talk yet — open Set up Scrappy and give me a brain or a voice.",
     5200,
     "wonder",
     "right-click me → Set up Scrappy"
   );
+}
+
+function refreshVoiceReady() {
+  if (!bridge.voiceStatus) return;
+  bridge
+    .voiceStatus()
+    .then((s) => {
+      voiceReady = Boolean(s && s.configured);
+      if (voiceReady && !hiddenAway && s.wakeWord !== false && s.wakeSupported && window.ScrappyWake) {
+        window.ScrappyWake.start();
+      }
+    })
+    .catch(() => {
+      voiceReady = false;
+    });
+}
+
+if (bridge.onSettingsChanged) {
+  bridge.onSettingsChanged(() => refreshVoiceReady());
+}
+if (bridge.onVoiceStackReady) {
+  bridge.onVoiceStackReady(() => refreshVoiceReady());
 }
 
 offerSetup();
@@ -2079,20 +2101,7 @@ if (window.ScrappyWake) {
   });
 }
 
-if (bridge.voiceStatus) {
-  bridge
-    .voiceStatus()
-    .then((s) => {
-      voiceReady = Boolean(s && s.configured);
-      if (voiceReady && !hiddenAway && s.wakeWord !== false && s.wakeSupported && window.ScrappyWake) {
-        window.ScrappyWake.start();
-        console.log("[wake] listening for:", (s.wakePhrases || ["hey scrappy"]).join(", "));
-      }
-    })
-    .catch(() => {
-      voiceReady = false;
-    });
-}
+refreshVoiceReady();
 
 if (bridge.onChatOpen) bridge.onChatOpen(() => (chatting ? closeChat() : openChat()));
 if (bridge.onVoiceStart) {
