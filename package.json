@@ -1,6 +1,6 @@
 {
   "name": "scrappy",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Scrappy — an articulated robot desk companion that fetches you when a Cursor agent finishes",
   "main": "main.js",
   "scripts": {
