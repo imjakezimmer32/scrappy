@@ -1,0 +1,30 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const second = require("../agentic/second");
+
+test("second set of fifteen decisions", () => {
+  assert.deepEqual(second.retryWithOtherTool(["recall"], ["recall", "chats"]), { retry: true, tool: "chats" });
+  assert.equal(second.refuseDuplicate([{ goal: "ship", status: "running", id: "a" }], "ship").refuse, true);
+  assert.match(second.statusLine([{ status: "running" }, { status: "idle" }]), /1 running/);
+  assert.equal(second.capVoiceAgents(1).allow, false);
+  const file = path.join(os.tmpdir(), `scrappy-pr-${Date.now()}.json`);
+  assert.equal(second.rememberPr(file, "https://example/pr/1"), "https://example/pr/1");
+  fs.unlinkSync(file);
+  assert.equal(second.inQuietHours(new Date("2026-09-24T23:30:00")), true);
+  assert.equal(second.inQuietHours(new Date("2026-09-24T12:00:00")), false);
+  assert.equal(second.skipNagAfterThrow(true).nag, false);
+  assert.match(second.sessionRecap([{ text: "hooks" }]), /hooks/);
+  assert.match(second.commitRuleFromPhrase("always commit"), /always commit/);
+  const old = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  assert.equal(second.staleGoal(old, Date.now()).stale, true);
+  assert.deepEqual(second.coalesceNotices(["a", "a", "b"]), ["a", "b"]);
+  assert.equal(second.preferContinue(true), "continue");
+  assert.equal(second.clipResult("abcdef", 4), "abc…");
+  assert.equal(second.blockPushMain("git push origin main"), true);
+  assert.equal(second.blockPushMain("git status"), false);
+  const today = new Date();
+  assert.equal(second.doneToday([{ at: today.toISOString(), status: "done" }], today).length, 1);
+});

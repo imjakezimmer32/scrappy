@@ -17,6 +17,11 @@ const persona = require("./persona");
 const cursorHooks = require("./cursor-hooks");
 const appUpdate = require("./app-update");
 const maintenance = require("./maintenance");
+const agenticRuntime = require("./agentic/runtime");
+const goals = require("./agentic/goals");
+const morning = require("./agentic/brief");
+const watch = require("./agentic/watch");
+const learnedRules = require("./agentic/rules");
 
 const APP_ID = "com.hellalogic.scrappy";
 const PORT = 8787;
@@ -1182,6 +1187,69 @@ function armUpdateApply() {
   }, 30 * 1000);
 }
 
+function agenticFile() {
+  return path.join(app.getPath("userData"), "agentic.json");
+}
+
+function agenticPrompt() {
+  let goal = null;
+  try {
+    goal = goals.getGoal(agenticFile());
+  } catch {
+    goal = null;
+  }
+  const line = goals.resumeLine(goal);
+  let learned = [];
+  try {
+    learned = learnedRules.applicableRules(agenticFile(), (goal && goal.text) || "");
+  } catch {
+    learned = [];
+  }
+  const bits = [];
+  if (line) bits.push(line);
+  if (learned.length) bits.push(`Rules: ${learned.map((rule) => rule.text).join("; ")}.`);
+  bits.push("End the turn with a tool already fired or one real question.");
+  return bits.join(" ");
+}
+
+function speakStartupGoals() {
+  let goal = null;
+  try {
+    goal = goals.getGoal(agenticFile());
+  } catch {
+    goal = null;
+  }
+  const line = goals.resumeLine(goal);
+  if (line) tellHim(line, "goal");
+  const report = morning.morningBrief({
+    now: new Date(),
+    lastBriefAt: prefs.lastBriefAt || null,
+    agents: [],
+    unfinishedGoal: goal && goal.text,
+  });
+  if (report.skip) return;
+  prefs.lastBriefAt = new Date().toISOString();
+  savePrefs();
+  if (report.speech) tellHim(report.speech, "brief");
+}
+
+function watchQuietDesktop() {
+  const second = require("./agentic/second");
+  if (second.inQuietHours(new Date())) return;
+  const seen = watch.observe({
+    idleMs: Date.now() - lastActivityAt,
+    agentStatus: null,
+    lastError: "",
+    errorRepeatCount: 0,
+    activeWindow: "desktop",
+  });
+  if (!seen) return;
+  if (prefs.lastWatchReason === seen.reason) return;
+  prefs.lastWatchReason = seen.reason;
+  savePrefs();
+  tellHim(seen.speech, "watch");
+}
+
 function scheduleQuietUpdateCheck() {
   const quietEvery = 6 * 60 * 60 * 1000;
   setTimeout(() => {
@@ -1298,6 +1366,33 @@ function startServer() {
         return;
       }
 
+      const decided = agenticRuntime.afterAgentRun({
+        goal: body.goal || body.title || body.session_title || null,
+        result: body.result || body.summary || "",
+        durationMs,
+        status: body.status || "completed",
+        force,
+        checks: body.checks,
+        hops: body.hops,
+      });
+      const summary = decided.summary;
+      const goalText = String(body.goal || body.title || body.session_title || "").trim();
+      if (goalText) {
+        try {
+          goals.setGoal(path.join(app.getPath("userData"), "agentic.json"), {
+            text: goalText,
+            source: "agent-done",
+          });
+        } catch (err) {
+          console.warn("[agentic] set goal failed:", err.message || err);
+        }
+      }
+      if (summary && !summary.skip && summary.speech && decided.verdict && decided.verdict.celebrate) {
+        tellHim(summary.speech, "agent-done");
+      } else if (summary && !summary.skip && decided.follow && decided.follow.message) {
+        tellHim(decided.follow.message, "agent-done");
+      }
+
       triggerGrow({
         force,
         source: body.source || "hook",
@@ -1306,7 +1401,7 @@ function startServer() {
       });
 
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, alerting: true, durationMs }));
+      res.end(JSON.stringify({ ok: true, alerting: true, durationMs, summary: summary || null }));
       return;
     }
 
@@ -1691,6 +1786,8 @@ async function buildRecallBrief(opts = {}) {
     } else if (actions.ok && actions.text) {
       parts.push(`Open tasks summary:\n${clip(actions.text, actionsMax)}`);
     }
+    const steer = agenticPrompt();
+    if (steer) parts.push(steer);
     if (!parts.length) return { ok: false, error: "empty" };
     return {
       ok: true,
@@ -1996,6 +2093,21 @@ const CURSOR_TOOL_ACTIONS = {
 async function runCursorTool(name, args) {
   const action = CURSOR_TOOL_ACTIONS[String(name || "").trim()];
   if (!action) return { ok: false, error: "invalid_tool", text: "Unknown cursor tool." };
+  if (action === "start") {
+    const second = require("./agentic/second");
+    const goal = String((args && (args.goal || args.prompt)) || "").trim();
+    if (second.blockPushMain(goal)) {
+      return { ok: false, error: "needs_you", text: "Pushing main needs you." };
+    }
+    const gate = agenticRuntime.beforeAction(agenticFile(), {
+      goal: goal || "cursor-agent",
+      ownerId: "voice",
+      reversible: true,
+    });
+    if (!gate.ok && gate.reason === "owned") {
+      return { ok: false, error: "owned", text: "That goal already has an owner." };
+    }
+  }
   return runCursorAgentAction(action, args || {});
 }
 
@@ -2187,6 +2299,15 @@ ipcMain.on("scrappy:wake-resume", () => {
 });
 
 ipcMain.handle("scrappy:process-note", (_event, text) => {
+  const second = require("./agentic/second");
+  const rule = second.commitRuleFromPhrase(text);
+  if (rule) {
+    try {
+      learnedRules.learnRule(agenticFile(), rule);
+    } catch (err) {
+      console.warn("[agentic] learn rule failed:", err.message || err);
+    }
+  }
   return processJournal.note(text, { by: "ui", reason: "from Scrappy UI" });
 });
 
@@ -2346,6 +2467,8 @@ if (!gotTheLock) {
     createTray();
     setTimeout(keepTrayInHiddenIcons, 2500);
     scheduleQuietUpdateCheck();
+    setInterval(watchQuietDesktop, 60 * 1000);
+    setTimeout(speakStartupGoals, 4000);
     startServer();
     runFirstLaunchFlow();
 
