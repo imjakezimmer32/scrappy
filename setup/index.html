@@ -68,6 +68,33 @@
           <label><input type="radio" name="voice" value="auto" /> <span>Auto<em>local if installed, else ElevenLabs</em></span></label>
           <label><input type="radio" name="voice" value="elevenlabs" /> <span>ElevenLabs<em>needs a key</em></span></label>
           <label><input type="radio" name="voice" value="local" /> <span>Local<em>Whisper + Kokoro</em></span></label>
+          <label><input type="radio" name="voice" value="personaplex" /> <span>PersonaPlex<em>full-duplex, NVIDIA GPU</em></span></label>
+        </div>
+
+        <div class="group" data-when-voice="personaplex">
+          <p class="hint">
+            Full-duplex speech on a <strong>cloud GPU</strong> (your PC runs a light bridge only).
+            Install the bridge below, set your moshi server URL, and keep local voice installed for
+            agents, Recall, and tools. See <code>docs/personaplex.md</code>.
+          </p>
+          <label class="field">
+            <span>Hugging Face token <em>optional on this PC — set on GPU server</em></span>
+            <input id="HF_TOKEN" type="password" autocomplete="off" data-secret placeholder="hf_…" />
+          </label>
+          <label class="field">
+            <span>Voice (PersonaPlex)</span>
+            <input id="PERSONAPLEX_VOICE_PROMPT" type="text" autocomplete="off" spellcheck="false" placeholder="NATM1.pt" />
+          </label>
+          <label class="field">
+            <span>Role text prompt <em>optional</em></span>
+            <input id="PERSONAPLEX_TEXT_PROMPT" type="text" autocomplete="off" spellcheck="false" placeholder="You work for Detail Solar…" />
+          </label>
+          <label class="field">
+            <span>Cloud PersonaPlex URL <em>required</em></span>
+            <input id="PERSONAPLEX_SERVER_URL" type="text" autocomplete="off" spellcheck="false" placeholder="https://gpu-box:8998" />
+          </label>
+          <button id="install-personaplex" type="button" class="secondary">Install PersonaPlex bridge</button>
+          <pre id="personaplex-output" class="output" hidden></pre>
         </div>
 
         <div class="group" data-when-voice="elevenlabs auto">

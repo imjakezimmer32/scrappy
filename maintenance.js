@@ -51,6 +51,49 @@ function localVoiceInstalled(repoRoot) {
   );
 }
 
+function personaplexBridgeInstalled(repoRoot) {
+  return fs.existsSync(
+    path.join(repoRoot, "personaplex-bridge", ".venv", "Scripts", "python.exe")
+  );
+}
+
+function runPersonaplexInstaller(repoRoot, { timeoutMs = 90 * 60 * 1000 } = {}) {
+  const script = path.join(repoRoot, "scripts", "setup-personaplex-bridge.ps1");
+  if (!fs.existsSync(script)) {
+    return Promise.resolve({ ok: false, error: "script_missing" });
+  }
+  return new Promise((resolve) => {
+    const lines = [];
+    const proc = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+      { cwd: repoRoot, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* ignore */
+      }
+      resolve({ ok: false, error: "timeout", output: lines.join("\n").slice(-4000) });
+    }, timeoutMs);
+    const onData = (chunk) => {
+      String(chunk)
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .forEach((line) => lines.push(line));
+    };
+    proc.stdout.on("data", onData);
+    proc.stderr.on("data", onData);
+    proc.on("exit", (code) => {
+      clearTimeout(timer);
+      const output = lines.join("\n").slice(-4000);
+      const ok = code === 0 && personaplexBridgeInstalled(repoRoot);
+      resolve({ ok, error: ok ? "" : `exit_${code}`, output });
+    });
+  });
+}
+
 function runLocalVoiceInstaller(repoRoot, { timeoutMs = 45 * 60 * 1000 } = {}) {
   const script = path.join(repoRoot, "scripts", "setup-local-voice.ps1");
   if (!fs.existsSync(script)) {
@@ -132,7 +175,9 @@ module.exports = {
   shouldOpenSetupIntro,
   markSetupIntroduced,
   localVoiceInstalled,
+  personaplexBridgeInstalled,
   runLocalVoiceInstaller,
+  runPersonaplexInstaller,
   summarizePendingForTray,
   goodTimeToApplyUpdate,
 };

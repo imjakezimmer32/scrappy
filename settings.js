@@ -26,6 +26,7 @@ const SECRET_KEYS = new Set([
   "SCRAPPY_LLM_API_KEY",
   "CURSOR_API_KEY",
   "CURSOR_SDK_API_KEY",
+  "HF_TOKEN",
 ]);
 
 const DEFAULTS = {
@@ -45,6 +46,9 @@ const DEFAULTS = {
   SCRAPPY_VAD_ENERGY: "0.008",
   SCRAPPY_TOOL_ROUNDS: "6",
   RECALL_EXE: "",
+  PERSONAPLEX_VOICE_PROMPT: "NATM1.pt",
+  PERSONAPLEX_TEXT_PROMPT: "",
+  PERSONAPLEX_SERVER_URL: "",
 };
 
 const ENV_FILE = path.join(__dirname, ".env.local");
@@ -272,9 +276,13 @@ function isConfigured() {
     isSet("OPENAI_API_KEY") || isSet("GROQ_API_KEY") || isSet("SCRAPPY_LLM_API_KEY");
   const localVenv = path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe");
   const hasLocalVoice = fs.existsSync(localVenv);
+  const bridgeVenv = path.join(__dirname, "personaplex-bridge", ".venv", "Scripts", "python.exe");
+  const hasPersonaplex =
+    fs.existsSync(bridgeVenv) && isSet("PERSONAPLEX_SERVER_URL");
   if (voice === "elevenlabs") return hasEleven;
   if (voice === "local") return hasLocalVoice;
-  return hasEleven || hasCloudBrain || hasLocalVoice;
+  if (voice === "personaplex") return hasPersonaplex;
+  return hasEleven || hasCloudBrain || hasLocalVoice || hasPersonaplex;
 }
 
 function reload() {
