@@ -7,7 +7,7 @@ Windows only. [imscrappy.dev](https://imscrappy.dev)
 
 ## Install (the normal way)
 
-1. **Download** [Scrappy-Setup.exe](https://github.com/imjakezimmer32/scrappy/releases/latest)
+1. **Download** [Scrappy-Setup.exe](https://imscrappy.dev/download/windows) (direct installer; [release notes](https://github.com/imjakezimmer32/scrappy/releases/latest))
 2. **Run** the installer. Double-click. Let it finish. He should appear above the taskbar.
 3. **Right-click him → Set up Scrappy…**  
    Type your name. Optionally add a brain (OpenAI/Groq) or a voice (ElevenLabs or local).  
