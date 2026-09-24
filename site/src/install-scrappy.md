@@ -13,7 +13,7 @@ Download the installer (starts the file download — not the GitHub releases pag
 
 https://imscrappy.dev/download/windows
 
-Or: https://github.com/imjakezimmer32/scrappy/releases/latest/download/Scrappy-Setup-1.1.0.exe
+Or: https://github.com/imjakezimmer32/scrappy/releases/latest/download/Scrappy-Setup-1.2.0.exe
 (replace the version in the filename if the release tag is newer — see [releases](https://github.com/imjakezimmer32/scrappy/releases/latest).)
 
 Double-click **Scrappy-Setup.exe**. Let it finish.
