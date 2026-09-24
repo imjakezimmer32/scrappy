@@ -965,6 +965,10 @@ window.ScrappyVoice.init({
     trackSessionLine("user", text);
     if (text) bubbleText(text, 0);
   },
+  executive(report) {
+    const line = String(report || "").split("\n").slice(0, 2).join(" — ");
+    if (line) bubbleText(bubble.textContent || "Working.", 0, line.slice(0, 180));
+  },
   said(text) {
     trackSessionLine("scrappy", text);
     if (!text) return;

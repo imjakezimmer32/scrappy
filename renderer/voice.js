@@ -471,6 +471,9 @@ function handleLocalMessage(msg) {
     case "job":
       emit("job", msg);
       break;
+    case "executive":
+      emit("executive", msg.report || "");
+      break;
     case "error": {
       const err = String(msg.error || "local_voice_failed");
       // Turn hiccups should not hang up the whole call.

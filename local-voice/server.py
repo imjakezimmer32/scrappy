@@ -38,6 +38,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import memory_bridge
 import llm as scrappy_llm
 import dictionary as listening_dict
+import executive
 import intent_gate
 import owner
 import turn_timing
@@ -1171,6 +1172,8 @@ class Session:
         self.side_context: list[str] = []
         self.body_state = ""
         self.memory_brief = ""
+        self.talk_notes: list[str] = []
+        self.executive_reports: list[str] = []
         self.audio_buf = np.zeros(0, dtype=np.float32)
         self.speech_ms = 0.0
         self.silence_ms = 0.0
@@ -1621,6 +1624,20 @@ class Session:
 
     def build_messages(self) -> list[dict[str, Any]]:
         system = _persona
+        if self.talk_notes:
+            system += (
+                "\n\n## YOUR CONVERSATION NOTES (yours — keep these warm and short)\n"
+                "This is the talking memory. You may rely on it and it is not the work log.\n"
+                + "\n".join(f"- {note}" for note in self.talk_notes[-8:])
+            )
+        if self.executive_reports:
+            system += (
+                "\n\n## WORK REPORTS (from the other brain — read, do not rewrite)\n"
+                "A separate brain did the work. Use the latest report for facts. "
+                "Do not call tools. Do not recite the labels Thought/Did/Result. "
+                "Say the result like you already knew.\n"
+                + "\n\n".join(self.executive_reports[-4:])
+            )
         if self.memory_brief:
             system += (
                 "\n\n## WORKING MEMORY FROM RECALL (private — do not read aloud)\n"
@@ -1926,54 +1943,37 @@ class Session:
                 "agents_start",
             ):
                 force_kind = intent.work_kind
-                if intent.reason == "clarify_followup" and intent.goal:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"(System: {owner.name()} clarified. Goal/topic: {intent.goal}. "
-                                "Proceed carefully with tools now.)"
-                            ),
-                        }
-                    )
-                tool_model = scrappy_llm.active_model(False)
+                goal = intent.goal or last_user
                 try:
-                    messages = await run_tool_loop(
-                        messages,
-                        tool_model,
-                        force=True,
+                    report = await executive.run(
+                        goal,
+                        run_tool_loop=run_tool_loop,
+                        model=scrappy_llm.active_model(False),
                         force_kind=force_kind,
                         should_cancel=self.cancelled,
                         execute_tool=self.execute_tool,
                     )
                     tools_used = True
+                    self.executive_reports.append(report["text"])
+                    self.executive_reports = self.executive_reports[-8:]
+                    await self.send({"type": "executive", "report": report["text"]})
                 except Exception as err:  # noqa: BLE001
-                    log(f"tool loop failed (continuing without): {err}")
+                    log(f"executive failed: {err}")
+                    report = None
                 if self.cancelled():
                     return
-                if force_kind.startswith("agents"):
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Answer {owner.name()} out loud as Scrappy using ONLY the tool results. "
-                                "If none are running / list is empty, say that. "
-                                "If a tool failed, say you couldn't check. "
-                                "NEVER invent agent names, goals, or status. Short spoken answer."
-                            ),
-                        }
-                    )
-                else:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"Answer {owner.name()} out loud as Scrappy. Stay in character — short, useful. "
-                                "Use what the tools found. If tools returned nothing, say so — "
-                                "do not invent. No human mnemonics. Do not recite tool JSON."
-                            ),
-                        }
-                    )
+                # Rebuild so the voice never sees the work brain's tool transcript.
+                messages = self.build_messages()
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"(System — VOICE only. The work brain already ran. "
+                            f"Say the result to {owner.name()} in character, short. "
+                            "Do not call tools. Do not invent anything that is not in the work report.)"
+                        ),
+                    }
+                )
             else:
                 # Pure Talk lane — casual chat, body awareness, no tools.
                 messages.append(
@@ -2100,6 +2100,9 @@ class Session:
             return
         if reply:
             self.history.append({"role": "assistant", "content": reply})
+            note = f"He said: {last_user[:160]}. I said: {reply[:160]}."
+            self.talk_notes.append(note)
+            self.talk_notes = self.talk_notes[-12:]
             append_transcript(self.session_id, "scrappy", reply)
             self._partial_reply = ""
             if len(self.history) > 20:
