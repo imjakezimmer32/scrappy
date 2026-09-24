@@ -49,6 +49,23 @@ function pickInstaller(assets) {
   return list.find((a) => /\.exe$/i.test(a.name || "") && !/\.blockmap$/i.test(a.name || "")) || null;
 }
 
+function updateAwareness({ current, previous, pending } = {}) {
+  const notes = [];
+  const now = String(current || "").trim();
+  const before = String(previous || "").trim();
+  const waiting = String(pending || "").trim();
+  if (before && now && before !== now) {
+    notes.push({ kind: "updated", speech: `I updated. I'm version ${now} now.` });
+  }
+  if (waiting && now && waiting !== now) {
+    notes.push({
+      kind: "waiting",
+      speech: `Version ${waiting} is downloaded. I'll switch when you're not using me.`,
+    });
+  }
+  return notes;
+}
+
 function summarizeRelease(release, currentVersion) {
   if (!release || release.message === "Not Found") {
     return { ok: false, error: "no_release", current: currentVersion };
@@ -79,4 +96,5 @@ module.exports = {
   windowsDownloadUrl,
   pickInstaller,
   summarizeRelease,
+  updateAwareness,
 };

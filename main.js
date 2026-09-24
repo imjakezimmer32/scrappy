@@ -1222,6 +1222,7 @@ function agenticPrompt() {
   const bits = [];
   if (line) bits.push(line);
   if (learned.length) bits.push(`Rules: ${learned.map((rule) => rule.text).join("; ")}.`);
+  if (prefs.updateNote) bits.push(prefs.updateNote);
   bits.push("End the turn with a tool already fired or one real question.");
   try {
     const style = require("./agentic/adapt").stance(agenticFile());
@@ -1230,6 +1231,20 @@ function agenticPrompt() {
     console.warn("[agentic] stance failed:", err.message || err);
   }
   return bits.join(" ");
+}
+
+function announceUpdateAwareness() {
+  const current = app.getVersion();
+  const notes = appUpdate.updateAwareness({
+    current,
+    previous: prefs.lastRunningVersion || "",
+    pending: prefs.pendingUpdate && prefs.pendingUpdate.version,
+  });
+  prefs.lastRunningVersion = current;
+  prefs.updateNote = notes.map((note) => note.speech).join(" ");
+  savePrefs();
+  const updated = notes.find((note) => note.kind === "updated");
+  if (updated) tellHim(updated.speech, "update");
 }
 
 function speakStartupGoals() {
@@ -2622,6 +2637,7 @@ if (!gotTheLock) {
     setTimeout(keepTrayInHiddenIcons, 2500);
     scheduleQuietUpdateCheck();
     setInterval(watchQuietDesktop, 60 * 1000);
+    announceUpdateAwareness();
     setTimeout(speakStartupGoals, 4000);
     startServer();
     runFirstLaunchFlow();

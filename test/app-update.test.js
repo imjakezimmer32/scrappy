@@ -18,6 +18,14 @@ test("pickInstaller prefers Scrappy-Setup-*.exe and skips blockmaps", () => {
   assert.equal(asset.name, "Scrappy-Setup-1.1.0.exe");
 });
 
+test("he notices a fresh version and a downloaded one waiting", () => {
+  const notes = upd.updateAwareness({ current: "1.2.1", previous: "1.2.0", pending: "1.2.2" });
+  assert.equal(notes[0].speech, "I updated. I'm version 1.2.1 now.");
+  assert.match(notes[1].speech, /1\.2\.2 is downloaded/);
+  assert.equal(upd.updateAwareness({ current: "1.2.0", previous: "" }).length, 0);
+  assert.equal(upd.updateAwareness({ current: "1.2.0", previous: "1.2.0", pending: "1.2.0" }).length, 0);
+});
+
 test("windowsDownloadUrl points at latest/download not the releases HTML page", () => {
   const url = upd.windowsDownloadUrl("1.1.0");
   assert.match(url, /\/releases\/latest\/download\/Scrappy-Setup\.exe$/);
