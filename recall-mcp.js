@@ -6,6 +6,7 @@
 // child process, spawned lazily on first use and restarted if it dies.
 
 const { spawn } = require("child_process");
+const { killProcessTree } = require("./process-kill");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -196,11 +197,7 @@ async function call(name, args) {
 
 function stop() {
   if (child) {
-    try {
-      child.kill();
-    } catch {
-      // already gone
-    }
+    killProcessTree(child);
   }
   teardown();
 }

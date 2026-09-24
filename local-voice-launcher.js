@@ -4,6 +4,7 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const { killProcessTree } = require("./process-kill");
 
 const ROOT = path.join(__dirname);
 const VOICE_DIR = path.join(ROOT, "local-voice");
@@ -17,9 +18,19 @@ let wanted = false;
 let restartTimer = null;
 let journal = null;
 let lastEnv = {};
+let warmPromise = null;
+let onStackReady = null;
 
 function setJournal(j) {
   journal = j;
+}
+
+function setOnStackReady(fn) {
+  onStackReady = typeof fn === "function" ? fn : null;
+}
+
+function resetWarm() {
+  warmPromise = null;
 }
 
 function log(...args) {
@@ -69,11 +80,8 @@ function stop(reason = "stop requested", by = "main") {
   if (journal) {
     journal.killed("local-voice", { pid, by, reason });
   }
-  try {
-    proc.kill();
-  } catch {
-    /* ignore */
-  }
+  killProcessTree(proc);
+  resetWarm();
   return { ok: true, killed: pid };
 }
 
@@ -93,6 +101,7 @@ function start(env = {}, opts = {}) {
         reason: "already running",
       });
     }
+    beginBackgroundWarm();
     return { ok: true, already: true, pid: child.pid };
   }
 
@@ -180,6 +189,7 @@ function start(env = {}, opts = {}) {
     }, 2000);
   });
 
+  beginBackgroundWarm();
   return { ok: true, url: `ws://${HOST}:${PORT}/v1/voice`, pid };
 }
 
@@ -187,6 +197,7 @@ async function waitReady(ms = 90000) {
   const startAt = Date.now();
   let last = { ok: false };
   while (Date.now() - startAt < ms) {
+    if (!wanted) return { ok: false, error: "stopped" };
     const h = await health();
     last = h;
     if (h.ok && h.voiceReady) return h;
@@ -197,6 +208,39 @@ async function waitReady(ms = 90000) {
     return { ok: false, error: reason, health: last };
   }
   return { ok: false, error: "timeout", health: last };
+}
+
+function beginBackgroundWarm(ms = 180000) {
+  if (warmPromise) return warmPromise;
+  warmPromise = waitReady(ms)
+    .then((result) => {
+      if (result.ok && onStackReady) {
+        try {
+          onStackReady(result);
+        } catch {
+          /* ignore */
+        }
+      }
+      return result;
+    })
+    .catch((err) => ({ ok: false, error: String(err && err.message ? err.message : err) }));
+  return warmPromise;
+}
+
+async function ensureReady(ms = 120000) {
+  let result = await (warmPromise || beginBackgroundWarm(ms));
+  if (result.ok || result.error === "stopped") return result;
+  resetWarm();
+  result = await waitReady(ms);
+  if (result.ok && onStackReady) {
+    try {
+      onStackReady(result);
+    } catch {
+      /* ignore */
+    }
+  }
+  warmPromise = Promise.resolve(result);
+  return result;
 }
 
 function wsUrl() {
@@ -212,8 +256,11 @@ module.exports = {
   stop,
   health,
   waitReady,
+  ensureReady,
+  beginBackgroundWarm,
   wsUrl,
   setJournal,
+  setOnStackReady,
   pid,
   PORT,
 };

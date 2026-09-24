@@ -2127,7 +2127,11 @@ async def voice_socket(ws: WebSocket):
     await ws.accept()
     session = Session(ws)
     await session.send({"type": "status", "state": "warming"})
+    deadline = time.time() + 120.0
     stack = await voice_stack_status()
+    while not stack["voiceReady"] and time.time() < deadline:
+        await asyncio.sleep(0.4)
+        stack = await voice_stack_status()
     if not stack["voiceReady"]:
         reason = stack["loadError"] or stack["llmError"] or "voice_not_ready"
         await session.send({"type": "error", "error": reason})

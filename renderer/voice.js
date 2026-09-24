@@ -260,7 +260,6 @@ async function start(opts) {
   allowSpeech = false;
   suppressTurn = false;
 
-  emit("status", { state: "warming" });
   const auth = window.scrappy
     ? await window.scrappy.voiceSignedUrl()
     : { ok: false, error: "no_api_key" };

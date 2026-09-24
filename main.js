@@ -387,7 +387,7 @@ async function resolveVoiceSession() {
       return { ok: false, error: started.error || "local_voice_failed" };
     }
     if (started.ok) {
-      const ready = await localVoice.waitReady(120000);
+      const ready = await localVoice.ensureReady(120000);
       if (ready.ok) {
         return { ok: true, url: localVoice.wsUrl(), backend: "local" };
       }
@@ -1995,6 +1995,9 @@ ipcMain.handle("scrappy:voice-status", async () => {
     path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
   );
   const localReady = Boolean(localHealth && localHealth.ok && localHealth.voiceReady);
+  const localWarming = Boolean(
+    localInstalled && localHealth && localHealth.ok && !localHealth.voiceReady
+  );
   const elevenReady = Boolean(apiKey && agentId);
   const configured =
     pref === "local"
@@ -2007,6 +2010,7 @@ ipcMain.handle("scrappy:voice-status", async () => {
     backend: pref,
     localInstalled,
     localReady,
+    localWarming,
     ollamaModel: ollamaModel(),
     hasKey: Boolean(apiKey),
     hasAgent: Boolean(agentId),
@@ -2151,6 +2155,12 @@ if (!gotTheLock) {
       userName: settings.userName(),
     });
     localVoice.setJournal(processJournal);
+    localVoice.setOnStackReady(() => {
+      rebuildTray();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("scrappy:voice-stack-ready");
+      }
+    });
     wakeListener.setJournal(processJournal);
     processJournal.started("scrappy", {
       pid: process.pid,
@@ -2235,6 +2245,19 @@ if (!gotTheLock) {
       } catch {
         // ignore
       }
+      server = null;
+    }
+    if (tray) {
+      try {
+        tray.destroy();
+      } catch {
+        /* ignore */
+      }
+      tray = null;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.destroy();
+      mainWindow = null;
     }
   });
 }

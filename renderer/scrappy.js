@@ -1006,7 +1006,7 @@ window.ScrappyVoice.init({
     } else if (s.state === "warming") {
       setState("listen");
       setFace("focused");
-      bubbleText("Warming up voice…", 0, "Whisper + TTS + brain — first launch can take a minute");
+      bubbleText("One sec…", 0, "still with you — click to hang up");
     } else if (s.state === "listening") {
       setState("listen");
       setFace("listen");

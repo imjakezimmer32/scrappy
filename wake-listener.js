@@ -2,6 +2,7 @@
 // Spawns a small PowerShell loop that listens for a short grammar and prints WAKE lines.
 
 const { spawn } = require("child_process");
+const { killProcessTree } = require("./process-kill");
 
 const PHRASES = [
   // Longer phrases resist cough/throat-clear false wakes.
@@ -93,22 +94,7 @@ function killChild(reason = "kill wake listener", by = "main") {
   } catch {
     /* ignore */
   }
-  try {
-    if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-    } else {
-      proc.kill();
-    }
-  } catch {
-    try {
-      proc.kill();
-    } catch {
-      /* ignore */
-    }
-  }
+  killProcessTree(proc);
 }
 
 function handleLine(line) {
