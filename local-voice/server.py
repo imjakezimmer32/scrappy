@@ -1598,6 +1598,14 @@ class Session:
         except Exception as err:  # noqa: BLE001
             log(f"system context skip: {err}")
 
+    async def refresh_agents(self) -> None:
+        try:
+            roster = await memory_bridge.agents_now()
+            if roster.get("ok") and roster.get("text"):
+                self.agent_roster = str(roster["text"])[:800]
+        except Exception as err:  # noqa: BLE001
+            log(f"agent roster skip: {err}")
+
     def add_context(self, text: str) -> None:
         line = (text or "").strip()
         if not line:
@@ -1619,6 +1627,14 @@ class Session:
                 f"This is YOUR memory of {owner.name()}. Use it like a friend uses things they know. "
                 "If he asks about memory/preferences and this feels thin, call Recall tools.\n"
                 f"{self.memory_brief}"
+            )
+        if getattr(self, "agent_roster", ""):
+            system += (
+                "\n\n## SUBAGENTS RIGHT NOW (private — you already know this)\n"
+                "This is live. Talk about it the way you would if you had just looked over. "
+                "Plain words. No ids, no status codes, no 'according to my list' unless he asks for the list. "
+                "Mention one only when it matters to what he just said.\n"
+                f"{self.agent_roster}"
             )
         if self.body_state:
             system += (
@@ -1796,6 +1812,7 @@ class Session:
         if self.cancelled():
             return
         await self.ensure_memory_brief()
+        await self.refresh_agents()
         if self.cancelled():
             return
 

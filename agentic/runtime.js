@@ -16,9 +16,11 @@ const morning = require("./brief");
 const nag = require("./nag");
 const rules = require("./rules");
 const second = require("./second");
+const adapt = require("./adapt");
 
 function afterAgentRun(input = {}) {
   const summary = agentDone.summarizeAgentDone(input);
+  const style = input.filePath ? adapt.stance(input.filePath) : { maxHops: 3 };
   if (summary.skip) return { summary };
   const checks = Array.isArray(input.checks) && input.checks.length
     ? input.checks
@@ -32,7 +34,7 @@ function afterAgentRun(input = {}) {
     result: input.result || "",
     goalMet: verdict.celebrate,
     hops: Number(input.hops) || 0,
-    maxHops: input.maxHops,
+    maxHops: input.maxHops || style.maxHops,
   });
   const closed = turn.closeTurn({ toolFired: true });
   return { summary, verdict, follow, closed };
@@ -70,6 +72,17 @@ function liveCycle(filePath, input = {}) {
   }
 
   if (input.rule) rules.learnRule(filePath, input.rule);
+  if (input.outcome) {
+    adapt.record(filePath, {
+      outcome: input.outcome,
+      approach: input.approach,
+      note: input.note,
+    });
+  }
+  const style = adapt.stance(filePath);
+  if (style.autonomy === "ask" && input.goal && !input.confirmed) {
+    lines.push("I'll check with you before the next step.");
+  }
 
   if (input.planText) {
     const parsed = plan.parsePlan(input.planText);
@@ -114,7 +127,7 @@ function liveCycle(filePath, input = {}) {
   }
 
   const learned = rules.applicableRules(filePath, (open && open.text) || input.goal || "");
-  const hand = input.hand ? hands.describe(input.hand) : null;
+  const hand = hands.describe(input.hand || "");
   const gate = beforeAction(filePath, input);
   const retry = second.retryWithOtherTool(input.toolsTried, toolsFirst.TOOLS);
   const duplicate = second.refuseDuplicate(input.running || [], input.goal);
@@ -148,6 +161,7 @@ function liveCycle(filePath, input = {}) {
     status,
     choice,
     closed,
+    style,
     briefed: Boolean(input.wantBrief && report && !report.skip),
   };
 }

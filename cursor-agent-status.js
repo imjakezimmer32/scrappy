@@ -98,6 +98,37 @@ function resolveEffectiveStatus({
   };
 }
 
+function spokenRoster(agents) {
+  const list = Array.isArray(agents) ? agents : [];
+  if (!list.length) return "No subagents are out right now.";
+  const running = list.filter((agent) => agent.isRunning || agent.status === "running");
+  const done = list.filter((agent) => !running.includes(agent)).slice(0, 4);
+  const parts = [];
+  if (running.length === 1) {
+    parts.push(`One is still working on ${shortGoal(running[0])}.`);
+  } else if (running.length > 1) {
+    parts.push(
+      `${running.length} are still working: ${running
+        .slice(0, 4)
+        .map((agent) => shortGoal(agent))
+        .join(", ")}.`
+    );
+  }
+  if (done.length) {
+    parts.push(
+      done
+        .map((agent) => `${friendlyStatus(agent.status, false)} with ${shortGoal(agent)}`)
+        .join(". ") + "."
+    );
+  }
+  return parts.join(" ");
+}
+
+function shortGoal(agent) {
+  const goal = String((agent && agent.goal) || "something unnamed").replace(/\s+/g, " ").trim();
+  return goal.length > 72 ? `${goal.slice(0, 71)}…` : goal;
+}
+
 function friendlyStatus(status, isRunning) {
   if (isRunning || status === "running") return "Working";
   if (status === "finished") return "Done";
@@ -179,6 +210,7 @@ module.exports = {
   isRegistryStale,
   resolveEffectiveStatus,
   friendlyStatus,
+  spokenRoster,
   formatDurationMs,
   terminalRunStatus,
   buildStatusNote,

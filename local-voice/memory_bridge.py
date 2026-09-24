@@ -93,6 +93,18 @@ async def system_context() -> dict[str, Any]:
         return r.json()
 
 
+async def agents_now() -> dict[str, Any]:
+    token = _token()
+    if not token:
+        return {"ok": False, "error": "no_token"}
+    url = f"{SCRAPPY_URL}/local/agents-now"
+    async with httpx.AsyncClient(timeout=4.0) as client:
+        r = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+        if r.status_code != 200:
+            return {"ok": False, "error": f"http_{r.status_code}"}
+        return r.json()
+
+
 async def process_event(event: dict[str, Any]) -> dict[str, Any]:
     token = _token()
     if not token:

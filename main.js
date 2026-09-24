@@ -7,6 +7,7 @@ const { execFile, spawn, execFileSync } = require("child_process");
 const systemInfo = require("./system-info");
 const recall = require("./recall-mcp");
 const cursorAgents = require("./cursor-agents");
+const agentStatus = require("./cursor-agent-status");
 const cursorChats = require("./cursor-chats");
 const wakeListener = require("./wake-listener");
 const localVoice = require("./local-voice-launcher");
@@ -1187,6 +1188,19 @@ function armUpdateApply() {
   }, 30 * 1000);
 }
 
+function learnFromTalk(text) {
+  const adapt = require("./agentic/adapt");
+  const heard = adapt.hear(text);
+  if (!heard) return;
+  try {
+    adapt.record(agenticFile(), heard);
+    const fix = adapt.selfFix(agenticFile());
+    if (fix && fix.goal) goals.setGoal(agenticFile(), { text: fix.goal, source: "self-fix" });
+  } catch (err) {
+    console.warn("[agentic] learn from talk failed:", err.message || err);
+  }
+}
+
 function agenticFile() {
   return path.join(app.getPath("userData"), "agentic.json");
 }
@@ -1209,6 +1223,12 @@ function agenticPrompt() {
   if (line) bits.push(line);
   if (learned.length) bits.push(`Rules: ${learned.map((rule) => rule.text).join("; ")}.`);
   bits.push("End the turn with a tool already fired or one real question.");
+  try {
+    const style = require("./agentic/adapt").stance(agenticFile());
+    if (style && style.speech) bits.push(`Adapt: ${style.speech}`);
+  } catch (err) {
+    console.warn("[agentic] stance failed:", err.message || err);
+  }
   return bits.join(" ");
 }
 
@@ -1376,6 +1396,7 @@ function startServer() {
         force,
         checks: body.checks,
         hops: body.hops,
+        filePath: agenticFile(),
       });
       const summary = decided.summary;
       const goalText = String(body.goal || body.title || body.session_title || "").trim();
@@ -1407,6 +1428,10 @@ function startServer() {
           hand: body.hand,
           prUrl: body.prUrl,
           events: body.events,
+          outcome: body.outcome || (summary && summary.celebrate ? "worked" : body.status),
+          approach: body.approach,
+          note: body.note,
+          confirmed: body.confirmed === true,
           toolFired: true,
           thrownRecently: false,
         });
@@ -1516,6 +1541,17 @@ function startServer() {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/local/agents-now") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, text: agentsNowText() }));
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/local/process-event") {
       if (!authorized(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });
@@ -1534,6 +1570,7 @@ function startServer() {
       if (body.session_id && (body.kind === "conversation" || body.type === "user" || body.type === "assistant")) {
         conversationStore.recordEvent(body.session_id, body);
       }
+      if (body.type === "user" && body.text) learnFromTalk(body.text);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
       return;
@@ -1810,6 +1847,7 @@ async function buildRecallBrief(opts = {}) {
     }
     const steer = agenticPrompt();
     if (steer) parts.push(steer);
+    parts.push(`Subagents right now: ${agentsNowText()}`);
     if (!parts.length) return { ok: false, error: "empty" };
     return {
       ok: true,
@@ -1947,6 +1985,15 @@ async function runLocalTool(name, args) {
   return { ok: false, error: "invalid_tool" };
 }
 
+function agentsNowText() {
+  try {
+    return agentStatus.spokenRoster(cursorAgents.listAgents({ limit: 12 }));
+  } catch (err) {
+    console.warn("[agents] roster failed:", err.message || err);
+    return "I couldn't check the subagents.";
+  }
+}
+
 function formatAgentsText(agents) {
   const list = Array.isArray(agents) ? agents : [];
   if (!list.length) return "No agents found.";
@@ -1963,6 +2010,16 @@ function formatAgentsText(agents) {
 }
 
 async function runCursorAgentAction(action, args) {
+  const control = require("./agentic/control");
+  const a0 = args && typeof args === "object" ? args : {};
+  const gate = control.respect({
+    action: `cursor-${action}`,
+    goal: a0.goal || a0.prompt || a0.message || "",
+    voiceActive,
+    chatOpen,
+  });
+  if (gate.decision === "refuse") return { ok: false, error: "refused", text: gate.reason };
+  if (gate.decision === "ask") return { ok: false, error: "needs_you", text: gate.reason };
   const setting = settings.getLower("SCRAPPY_CURSOR_AGENTS", "on");
   if (setting === "off" || setting === "false" || setting === "0") {
     return { ok: false, error: "disabled", text: "Cursor agents are turned off." };
@@ -2157,6 +2214,24 @@ ipcMain.handle("scrappy:local-tool", async (_event, name, args) => runLocalTool(
 
 // Cursor planning/research agents — start, continue, list, status, open.
 ipcMain.handle("scrappy:cursor-agent", async (_event, action, args) => runCursorAgentAction(action, args));
+
+ipcMain.handle("scrappy:control", async (_event, input = {}) => {
+  const control = require("./agentic/control");
+  const gate = control.respect({ ...input, voiceActive, chatOpen });
+  if (gate.decision !== "allow") return { ok: false, error: gate.decision, text: gate.reason };
+  if (gate.action === "open-url") {
+    await shell.openExternal(String(input.target));
+    return { ok: true, text: "Opened it." };
+  }
+  if (gate.action === "open-app") {
+    const { spawn } = require("child_process");
+    const name = String(input.target || "").toLowerCase();
+    const cmd = name === "explorer" ? "explorer.exe" : name === "notepad" ? "notepad.exe" : name;
+    spawn(cmd, [], { detached: true, stdio: "ignore" }).unref();
+    return { ok: true, text: `Opened ${name}.` };
+  }
+  return { ok: true, text: gate.reason };
+});
 
 let lastScrappyChatFingerprint = "";
 let lastScrappyChatAt = 0;
@@ -2381,6 +2456,7 @@ ipcMain.handle("scrappy:conversation-event", (_event, sessionId, event) => {
   const id = sessionId || activeConversationId || conversationStore.newSessionId();
   activeConversationId = id;
   conversationStore.recordEvent(id, event || {});
+  if ((event?.type === "user" || event?.role === "user") && event?.text) learnFromTalk(event.text);
   processJournal.conversation(event?.type || "event", {
     session_id: id,
     text: event?.text,

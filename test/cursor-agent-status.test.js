@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   resolveEffectiveStatus,
+  spokenRoster,
   mapSdkRunStatus,
   isRegistryStale,
   terminalRunStatus,
@@ -69,6 +70,17 @@ test("friendlyStatus covers timeout and stale", () => {
   assert.equal(friendlyStatus("timeout", false), "Timed out");
   assert.equal(friendlyStatus("stale", false), "Probably stopped");
   assert.equal(friendlyStatus("running", true), "Working");
+});
+
+test("spokenRoster is plain speech with no ids", () => {
+  const line = spokenRoster([
+    { status: "running", isRunning: true, goal: "fix the hook", id: "bc-secret" },
+    { status: "finished", goal: "write the plan", id: "bc-other" },
+  ]);
+  assert.match(line, /still working on fix the hook/);
+  assert.match(line, /Done with write the plan/);
+  assert.equal(line.includes("bc-"), false);
+  assert.match(spokenRoster([]), /No subagents/);
 });
 
 test("formatDurationMs renders human durations", () => {
