@@ -35,9 +35,8 @@ function installerFileName(version) {
   return `Scrappy-Setup-${v}.exe`;
 }
 
-function windowsDownloadUrl(version) {
-  const file = installerFileName(version);
-  return `https://github.com/${REPO}/releases/latest/download/${file}`;
+function windowsDownloadUrl() {
+  return `https://github.com/${REPO}/releases/latest/download/Scrappy-Setup.exe`;
 }
 
 function pickInstaller(assets) {

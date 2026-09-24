@@ -20,7 +20,7 @@ test("pickInstaller prefers Scrappy-Setup-*.exe and skips blockmaps", () => {
 
 test("windowsDownloadUrl points at latest/download not the releases HTML page", () => {
   const url = upd.windowsDownloadUrl("1.1.0");
-  assert.match(url, /\/releases\/latest\/download\/Scrappy-Setup-1\.1\.0\.exe$/);
+  assert.match(url, /\/releases\/latest\/download\/Scrappy-Setup\.exe$/);
 });
 
 test("summarizeRelease reports when he is behind", () => {
