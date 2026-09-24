@@ -1292,16 +1292,18 @@ function watchQuietDesktop() {
 }
 
 function scheduleQuietUpdateCheck() {
-  const quietEvery = 6 * 60 * 60 * 1000;
-  setTimeout(() => {
-    if (Date.now() - (prefs.lastUpdateCheck || 0) < quietEvery) {
+  const lookEvery = 3 * 60 * 1000;
+  const look = () => {
+    if (Date.now() - (prefs.lastUpdateCheck || 0) < lookEvery) {
       if (maintenance.summarizePendingForTray(prefs, app.getVersion())) armUpdateApply();
       return;
     }
     checkForUpdates({ install: false, speak: true, background: true }).catch((err) => {
       console.warn("[update] quiet check failed:", err.message);
     });
-  }, 45000);
+  };
+  setTimeout(look, 20000);
+  setInterval(look, lookEvery);
   if (maintenance.pendingUpdateValid(prefs)) armUpdateApply();
 }
 
