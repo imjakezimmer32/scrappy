@@ -267,7 +267,12 @@ async function start(opts) {
     emit("error", auth && auth.error ? auth.error : "voice_not_configured");
     return { ok: false, error: auth && auth.error };
   }
-  voiceBackend = auth.backend === "local" ? "local" : "elevenlabs";
+  voiceBackend =
+    auth.backend === "local"
+      ? "local"
+      : auth.backend === "personaplex"
+        ? "personaplex"
+        : "elevenlabs";
 
   try {
     if (!wantMic) throw new Error("skip-mic");
@@ -331,7 +336,7 @@ async function start(opts) {
       return;
     }
 
-    if (voiceBackend === "local") {
+    if (voiceBackend === "local" || voiceBackend === "personaplex") {
       handleLocalMessage(msg);
       return;
     }
@@ -391,7 +396,11 @@ async function start(opts) {
 
   ws.onclose = () => {
     if (intentionalStop) return;
-    if (active && voiceBackend === "local" && reconnectAttempts < 2) {
+    if (
+      active &&
+      (voiceBackend === "local" || voiceBackend === "personaplex") &&
+      reconnectAttempts < 2
+    ) {
       void softReconnect();
       return;
     }
@@ -421,7 +430,7 @@ async function start(opts) {
         pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
       }
       const b64 = encodeBase64(new Uint8Array(pcm.buffer));
-      if (voiceBackend === "local") {
+      if (voiceBackend === "local" || voiceBackend === "personaplex") {
         ws.send(JSON.stringify({ type: "audio", pcm16_b64: b64 }));
       } else {
         ws.send(JSON.stringify({ user_audio_chunk: b64 }));
@@ -517,9 +526,15 @@ async function softReconnect() {
     const auth = window.scrappy
       ? await window.scrappy.voiceSignedUrl()
       : { ok: false };
-    if (!auth || !auth.ok || auth.backend !== "local") {
+    if (!auth || !auth.ok || (auth.backend !== "local" && auth.backend !== "personaplex")) {
       throw new Error("no_local");
     }
+    voiceBackend =
+      auth.backend === "personaplex"
+        ? "personaplex"
+        : auth.backend === "local"
+          ? "local"
+          : "elevenlabs";
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("timeout")), 10000);
       ws = new WebSocket(auth.url);
@@ -543,7 +558,11 @@ async function softReconnect() {
     };
     ws.onclose = () => {
       if (intentionalStop) return;
-      if (active && voiceBackend === "local" && reconnectAttempts < 2) {
+      if (
+        active &&
+        (voiceBackend === "local" || voiceBackend === "personaplex") &&
+        reconnectAttempts < 2
+      ) {
         void softReconnect();
         return;
       }
@@ -584,7 +603,10 @@ function stop() {
 
   if (ws) {
     try {
-      if (voiceBackend === "local" && ws.readyState === WebSocket.OPEN) {
+      if (
+        (voiceBackend === "local" || voiceBackend === "personaplex") &&
+        ws.readyState === WebSocket.OPEN
+      ) {
         ws.send(JSON.stringify({ type: "end" }));
       }
     } catch {
@@ -621,7 +643,7 @@ async function sendText(text) {
 
   allowSpeech = true;
   suppressTurn = false;
-  if (voiceBackend === "local") {
+  if (voiceBackend === "local" || voiceBackend === "personaplex") {
     ws.send(JSON.stringify({ type: "text", text: line }));
   } else {
     ws.send(JSON.stringify({ type: "user_message", text: line }));
@@ -634,7 +656,7 @@ async function sendText(text) {
 function sendContext(text) {
   const line = String(text || "").trim();
   if (!line || !ws || ws.readyState !== WebSocket.OPEN) return false;
-  if (voiceBackend === "local") {
+  if (voiceBackend === "local" || voiceBackend === "personaplex") {
     ws.send(JSON.stringify({ type: "context", text: line }));
   } else {
     ws.send(JSON.stringify({ type: "contextual_update", text: line }));

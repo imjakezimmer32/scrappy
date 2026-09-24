@@ -11,6 +11,7 @@ const agentStatus = require("./cursor-agent-status");
 const cursorChats = require("./cursor-chats");
 const wakeListener = require("./wake-listener");
 const localVoice = require("./local-voice-launcher");
+const personaplexVoice = require("./personaplex-launcher");
 const processJournal = require("./process-journal");
 const conversationStore = require("./conversation-store");
 const settings = require("./settings");
@@ -279,6 +280,11 @@ function applySettingsLive() {
     localVoice.stop("settings changed", "setup");
     localVoice.start(localVoiceEnv(), { by: "setup", reason: "apply settings live" });
   }
+  if (pref === "personaplex" && maintenance.personaplexBridgeInstalled(__dirname)) {
+    personaplexVoice.stop("settings changed", "setup");
+    ensurePersonaplexWorkSidecar("settings applied");
+    personaplexVoice.start(personaplexEnv(), { by: "setup", reason: "apply settings live" });
+  }
   rebuildTray();
   maybeStartWake("main", "settings applied");
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -348,6 +354,39 @@ function localVoiceEnv() {
     // Local Python voice talks back to Electron for Recall tools/memory.
     SCRAPPY_URL: `http://${HOST}:${PORT}`,
     SCRAPPY_TOKEN: localToken || "",
+  };
+}
+
+function personaplexWorkEnv() {
+  return {
+    ...localVoiceEnv(),
+    SCRAPPY_VOICE_WORK_ONLY: "1",
+  };
+}
+
+function ensurePersonaplexWorkSidecar(reason = "personaplex work brain") {
+  if (!maintenance.localVoiceInstalled(__dirname)) return { ok: false, skipped: true };
+  return localVoice.start(personaplexWorkEnv(), { by: "main", reason });
+}
+
+function personaplexEnv() {
+  ensureToken();
+  const g = settings.get;
+  const personaText = persona.renderToFile(settings.userName(), app.getPath("userData"));
+  let prompt = String(g("PERSONAPLEX_TEXT_PROMPT", "") || "").trim();
+  if (!prompt) {
+    prompt = `You enjoy having a good conversation. Stay in character as Scrappy on the user's desk.\n${personaText.slice(0, 2400)}`;
+  }
+  const voicePort = Number(process.env.SCRAPPY_VOICE_PORT || 8790);
+  return {
+    HF_TOKEN: g("HF_TOKEN", ""),
+    PERSONAPLEX_VOICE_PROMPT: g("PERSONAPLEX_VOICE_PROMPT", "NATM1.pt"),
+    PERSONAPLEX_TEXT_PROMPT: prompt,
+    PERSONAPLEX_SERVER_URL: g("PERSONAPLEX_SERVER_URL", ""),
+    SCRAPPY_USER_NAME: settings.userName(),
+    SCRAPPY_URL: `http://${HOST}:${PORT}`,
+    SCRAPPY_TOKEN: localToken || "",
+    SCRAPPY_LOCAL_WORK_WS: `ws://127.0.0.1:${voicePort}/v1/voice`,
   };
 }
 
@@ -468,6 +507,19 @@ async function resolveVoiceSession() {
   const localInstalled = require("fs").existsSync(
     path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe")
   );
+
+  if (pref === "personaplex") {
+    ensurePersonaplexWorkSidecar("voice session");
+    const started = personaplexVoice.start(personaplexEnv());
+    if (!started.ok) {
+      return { ok: false, error: started.error || "personaplex_not_installed" };
+    }
+    const ready = await personaplexVoice.waitReady(180000);
+    if (ready.ok) {
+      return { ok: true, url: personaplexVoice.wsUrl(), backend: "personaplex" };
+    }
+    return { ok: false, error: ready.error || "personaplex_timeout" };
+  }
 
   const wantLocal =
     pref === "local" || (pref === "auto" && localInstalled);
@@ -1717,6 +1769,24 @@ ipcMain.handle("setup:local-voice-installed", () => ({
   installed: maintenance.localVoiceInstalled(__dirname),
 }));
 
+ipcMain.handle("setup:install-personaplex", async () => {
+  if (process.platform !== "win32") {
+    return { ok: false, error: "windows_only" };
+  }
+  const result = await maintenance.runPersonaplexInstaller(__dirname);
+  if (result.ok) {
+    personaplexVoice.stop("personaplex installed", "setup");
+    personaplexVoice.start(personaplexEnv(), { by: "setup", reason: "after personaplex install" });
+    rebuildTray();
+  }
+  return result;
+});
+
+ipcMain.handle("setup:personaplex-installed", () => ({
+  ok: true,
+  installed: maintenance.personaplexBridgeInstalled(__dirname),
+}));
+
 // Build the ElevenLabs agent from inside the app.
 //
 // scripts/setup-voice.js is plain node, so it cannot decrypt the settings store
@@ -2652,6 +2722,11 @@ if (!gotTheLock) {
     const pref = voiceBackendPref();
     if (pref === "local" || pref === "auto") {
       localVoice.start(localVoiceEnv(), { by: "main", reason: "startup local voice" });
+    } else if (pref === "personaplex") {
+      ensurePersonaplexWorkSidecar("startup");
+      if (maintenance.personaplexBridgeInstalled(__dirname) && personaplexVoice.cloudUrlConfigured(personaplexEnv())) {
+        personaplexVoice.start(personaplexEnv(), { by: "main", reason: "startup personaplex bridge" });
+      }
     }
 
     wakeListener.init({
@@ -2701,6 +2776,7 @@ if (!gotTheLock) {
     if (topKeeper) clearInterval(topKeeper);
     wakeListener.stop("main", "app quitting");
     localVoice.stop("app quitting", "main");
+    personaplexVoice.stop("app quitting", "main");
     cursorAgents.stopStatusPolling();
     recall.stop();
     if (server) {

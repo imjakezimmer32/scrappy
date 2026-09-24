@@ -84,6 +84,13 @@ WHISPER_PROMPT = listening_dict.vocabulary_prompt(
     os.environ.get("SCRAPPY_WHISPER_PROMPT") or ""
 )
 
+# PersonaPlex mode: ears + work brain only (Whisper, tools, Recall). No Kokoro / talk LLM.
+WORK_ONLY = os.environ.get("SCRAPPY_VOICE_WORK_ONLY", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 THINK_TRIGGERS = re.compile(
     r"\b("
     r"think(?:\s+hard(?:er)?)?|reason(?:ing)?|plan(?:\s+out)?|figure\s+out|"
@@ -397,7 +404,8 @@ def get_kokoro():
 def ensure_voice_models() -> None:
     """Load Whisper + Kokoro so the first spoken turn is not silent."""
     get_whisper()
-    get_kokoro()
+    if not WORK_ONLY:
+        get_kokoro()
 
 
 def _model_in_tags(want: str, models: list[dict[str, Any]]) -> bool:
@@ -444,12 +452,16 @@ async def voice_stack_status() -> dict[str, Any]:
         except Exception as err:  # noqa: BLE001
             load_error = str(err)
     llm_ok, llm_reason = await llm_ready()
-    voice_ready = whisper_ready and kokoro_ready and llm_ok
+    if WORK_ONLY:
+        voice_ready = whisper_ready and llm_ok
+    else:
+        voice_ready = whisper_ready and kokoro_ready and llm_ok
     return {
         "whisperReady": whisper_ready,
-        "kokoroReady": kokoro_ready,
+        "kokoroReady": kokoro_ready if not WORK_ONLY else True,
         "llmReady": llm_ok,
         "voiceReady": voice_ready,
+        "workOnly": WORK_ONLY,
         "loadError": load_error,
         "llmError": llm_reason,
     }
@@ -1734,7 +1746,7 @@ class Session:
         duration_ms = 1000.0 * samples.size / SAMPLE_RATE_IN
 
         # While Scrappy is thinking/speaking, listen for barge-in.
-        if self.busy:
+        if self.busy and not WORK_ONLY:
             if energy >= BARGE_ENERGY:
                 self.barge_ms += duration_ms
                 self.barge_buf = np.concatenate([self.barge_buf, samples])
@@ -1768,6 +1780,66 @@ class Session:
         if self.barge_buf.size > max_samples:
             self.barge_buf = self.barge_buf[-max_samples:]
 
+    async def run_work_only(self, last_user: str) -> None:
+        """Work lane without Kokoro/LLM talk — used beside PersonaPlex speech."""
+        if self.cancelled():
+            return
+        await self.ensure_memory_brief()
+        await self.refresh_agents()
+        if self.cancelled():
+            return
+        text = (last_user or "").strip()
+        if not text:
+            return
+        intent = intent_gate.classify_intent(text, pending=self.pending_clarify)
+        route_label = f"{intent.lane}/{intent.mode}"
+        await self.send(
+            {
+                "type": "status",
+                "state": "thinking",
+                "route": route_label,
+                "lane": intent.lane,
+                "mode": intent.mode,
+                "workOnly": True,
+            }
+        )
+        if intent.mode == "clarify":
+            self.pending_clarify = {
+                "work_kind": intent.work_kind,
+                "original": text,
+                "hint": intent.clarify_hint,
+            }
+            return
+        if intent.reason == "clarify_followup" or intent.mode in ("chat", "act", "dig"):
+            self.pending_clarify = None
+        if intent.mode == "dig":
+            query = intent.dig_query or background_search_query(text)
+            await self._start_named_job(
+                label=f"notes: {query}",
+                tool="recall_search",
+                args={"query": query, "project": "Scrappy", "limit": 8},
+            )
+        elif intent.mode == "act" and intent.work_kind in (
+            "memory",
+            "agents",
+            "agents_start",
+        ):
+            goal = intent.goal or text
+            try:
+                report = await executive.run(
+                    goal,
+                    run_tool_loop=run_tool_loop,
+                    model=scrappy_llm.active_model(False),
+                    force_kind=intent.work_kind,
+                    should_cancel=self.cancelled,
+                    execute_tool=self.execute_tool,
+                )
+                self.executive_reports.append(report["text"])
+                self.executive_reports = self.executive_reports[-8:]
+                await self.send({"type": "executive", "report": report["text"]})
+            except Exception as err:  # noqa: BLE001
+                log(f"executive failed: {err}")
+
     async def _finish_user_turn(self) -> None:
         clip = self.audio_buf.copy()
         self.audio_buf = np.zeros(0, dtype=np.float32)
@@ -1783,6 +1855,15 @@ class Session:
             return
         await self.send({"type": "user_transcript", "text": text})
         append_transcript(self.session_id, "jake", text)
+        if WORK_ONLY:
+            if WAKE_ONLY.match(text):
+                await self.send({"type": "status", "state": "listening"})
+                return
+            self.history.append({"role": "user", "content": text})
+            await self.run_work_only(text)
+            if not self.cancelled():
+                await self.send({"type": "status", "state": "listening"})
+            return
         # Wake-only phrases should not dump memory/context — just greet.
         if WAKE_ONLY.match(text):
             greet = "Yeah? I'm here."
@@ -1810,6 +1891,15 @@ class Session:
         await self.send({"type": "status", "state": "thinking"})
         await self.send({"type": "user_transcript", "text": line})
         append_transcript(self.session_id, "jake", line)
+        if WORK_ONLY:
+            if WAKE_ONLY.match(line):
+                await self.send({"type": "status", "state": "listening"})
+                return
+            self.history.append({"role": "user", "content": line})
+            await self.run_work_only(line)
+            if not self.cancelled():
+                await self.send({"type": "status", "state": "listening"})
+            return
         if WAKE_ONLY.match(line):
             greet = "Yeah? I'm here."
             self.history.append({"role": "user", "content": line})
@@ -2160,12 +2250,13 @@ async def voice_socket(ws: WebSocket):
     await session.send(
         {
             "type": "ready",
-            "backend": "local-amd",
+            "backend": "local-work" if WORK_ONLY else "local-amd",
             "llm": scrappy_llm.backend(),
             "model": scrappy_llm.active_model(False),
             "session_id": session.session_id,
             "memory": True,
             "voiceReady": True,
+            "workOnly": WORK_ONLY,
         }
     )
     await session.send({"type": "status", "state": "listening"})

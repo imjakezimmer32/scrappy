@@ -23,4 +23,10 @@ contextBridge.exposeInMainWorld("setup", {
   installLocalVoice() {
     return ipcRenderer.invoke("setup:install-local-voice");
   },
+  personaplexInstalled() {
+    return ipcRenderer.invoke("setup:personaplex-installed");
+  },
+  installPersonaplex() {
+    return ipcRenderer.invoke("setup:install-personaplex");
+  },
 });

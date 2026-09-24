@@ -11,6 +11,9 @@ const TEXT_FIELDS = [
   "OLLAMA_MODEL",
   "OLLAMA_THINK_MODEL",
   "RECALL_EXE",
+  "PERSONAPLEX_VOICE_PROMPT",
+  "PERSONAPLEX_TEXT_PROMPT",
+  "PERSONAPLEX_SERVER_URL",
 ];
 
 const SECRET_FIELDS = [
@@ -18,6 +21,7 @@ const SECRET_FIELDS = [
   "GROQ_API_KEY",
   "ELEVENLABS_API_KEY",
   "CURSOR_API_KEY",
+  "HF_TOKEN",
 ];
 
 const statusEl = document.getElementById("status");
@@ -206,10 +210,52 @@ document.getElementById("install-local-voice").addEventListener("click", async (
   out.textContent = (result.output || result.error || "Unknown error.") + "\n";
 });
 
+async function refreshPersonaplexUi() {
+  const hint = document.querySelector('[data-when-voice="personaplex"] .hint');
+  const button = document.getElementById("install-personaplex");
+  if (!button || !window.setup.personaplexInstalled) return;
+  const status = await window.setup.personaplexInstalled();
+  const installed = status && status.installed;
+  if (button) {
+    button.textContent = installed ? "Reinstall PersonaPlex bridge" : "Install PersonaPlex bridge";
+  }
+  if (hint && installed) {
+    const extra = document.createElement("span");
+    extra.textContent = " Bridge installed.";
+    if (!hint.dataset.bridgeOk) {
+      hint.appendChild(extra);
+      hint.dataset.bridgeOk = "1";
+    }
+  }
+}
+
+document.getElementById("install-personaplex").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  const out = document.getElementById("personaplex-output");
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "Installing…";
+  out.hidden = false;
+  out.textContent = "Installing bridge Python environment…\n";
+
+  const result = await window.setup.installPersonaplex();
+
+  button.disabled = false;
+  button.textContent = label;
+  if (result.ok) {
+    out.textContent = (result.output || "Done.") + "\n";
+    say("PersonaPlex bridge installed.", "ok");
+    await refreshPersonaplexUi();
+    return;
+  }
+  say("Install didn't finish.", "bad");
+  out.textContent = (result.output || result.error || "Unknown error.") + "\n";
+});
+
 window.setup
   .read()
   .then((state) => {
     applyState(state);
-    return refreshLocalVoiceUi();
+    return Promise.all([refreshLocalVoiceUi(), refreshPersonaplexUi()]);
   })
   .catch(() => say("Couldn't read your settings.", "bad"));
