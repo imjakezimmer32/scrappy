@@ -73,7 +73,29 @@ let mainWindow = null;
 let tray = null;
 let server = null;
 let alerting = false;
+let chatOpen = false;
+let voiceActive = false;
+let cursorHeld = false;
+let lastActivityAt = Date.now();
 let localToken = null;
+
+function noteActivity() {
+  lastActivityAt = Date.now();
+}
+
+const UPDATE_QUIET_MS = 90 * 1000;
+
+function momentIsQuietForUpdate() {
+  return maintenance.goodTimeToApplyUpdate({
+    hasPending: Boolean(maintenance.summarizePendingForTray(prefs, app.getVersion())),
+    alerting,
+    chatOpen,
+    voiceActive,
+    cursorHeld,
+    quietForMs: Date.now() - lastActivityAt,
+    minQuietMs: UPDATE_QUIET_MS,
+  });
+}
 
 function ensureToken() {
   try {
@@ -744,7 +766,7 @@ function rebuildTray() {
     {
       label: "Check for updates",
       click: () => {
-        checkForUpdates({ install: true, speak: true }).catch((err) => {
+        checkForUpdates({ install: false, speak: true, background: true }).catch((err) => {
           console.warn("[update] check failed:", err.message);
         });
       },
@@ -1015,6 +1037,7 @@ function triggerGrow(payload = {}) {
     return;
   }
   alerting = true;
+  noteActivity();
   raiseOverlay();
   if (mainWindow) {
     mainWindow.webContents.send("scrappy:grow", {
@@ -1028,6 +1051,7 @@ function triggerGrow(payload = {}) {
 
 function triggerAck() {
   alerting = false;
+  noteActivity();
   calmOverlay();
   if (mainWindow) {
     mainWindow.webContents.send("scrappy:ack", { at: Date.now() });
@@ -1107,8 +1131,9 @@ async function checkForUpdates({ install = false, speak = true, background = fal
         if (speak && prefs.lastUpdateTold !== info.latest) {
           prefs.lastUpdateTold = info.latest;
           savePrefs();
-          tellHim(`Update ${info.latest} is ready. Tray → Install update.`);
+          tellHim(`Update ${info.latest} is downloaded. I'll switch over when you're not using me.`);
         }
+        armUpdateApply();
         return { ...info, downloaded: true, dest };
       } catch (err) {
         console.warn("[update] background download failed:", err.message || err);
@@ -1143,14 +1168,32 @@ async function checkForUpdates({ install = false, speak = true, background = fal
   }
 }
 
+let updateApplyTimer = null;
+
+function armUpdateApply() {
+  if (updateApplyTimer) return;
+  updateApplyTimer = setInterval(() => {
+    if (!momentIsQuietForUpdate()) return;
+    clearInterval(updateApplyTimer);
+    updateApplyTimer = null;
+    installPendingUpdateIfAny({ speak: true }).catch((err) => {
+      console.warn("[update] deferred install failed:", err.message || err);
+    });
+  }, 30 * 1000);
+}
+
 function scheduleQuietUpdateCheck() {
-  const quietEvery = 20 * 60 * 60 * 1000;
+  const quietEvery = 6 * 60 * 60 * 1000;
   setTimeout(() => {
-    if (Date.now() - (prefs.lastUpdateCheck || 0) < quietEvery) return;
+    if (Date.now() - (prefs.lastUpdateCheck || 0) < quietEvery) {
+      if (maintenance.summarizePendingForTray(prefs, app.getVersion())) armUpdateApply();
+      return;
+    }
     checkForUpdates({ install: false, speak: true, background: true }).catch((err) => {
       console.warn("[update] quiet check failed:", err.message);
     });
   }, 45000);
+  if (maintenance.pendingUpdateValid(prefs)) armUpdateApply();
 }
 
 function readJsonBody(req) {
@@ -1565,7 +1608,7 @@ ipcMain.on("scrappy:pref-visible", (event) => {
 });
 
 ipcMain.handle("scrappy:check-updates", async () => {
-  return checkForUpdates({ install: true, speak: true });
+  return checkForUpdates({ install: false, speak: true, background: true });
 });
 
 ipcMain.on("scrappy:quit", () => {
@@ -2158,6 +2201,8 @@ ipcMain.handle("scrappy:process-event", (_event, event) => {
 ipcMain.handle("scrappy:conversation-start", (_event, info = {}) => {
   const id = info.sessionId || conversationStore.newSessionId();
   activeConversationId = id;
+  voiceActive = true;
+  noteActivity();
   conversationStore.recordEvent(id, {
     type: "session_start",
     backend: info.backend || null,
@@ -2194,6 +2239,8 @@ ipcMain.handle("scrappy:conversation-end", (_event, sessionId, extra = {}) => {
     meta: extra,
   });
   if (activeConversationId === id) activeConversationId = null;
+  voiceActive = false;
+  noteActivity();
   return ended;
 });
 
@@ -2205,6 +2252,8 @@ ipcMain.handle("scrappy:process-recent", (_event, limit) => {
 // off your editor — but a text box needs keystrokes, so focus is granted for
 // exactly as long as the chat is open.
 ipcMain.on("scrappy:chat-focus", (_event, on) => {
+  chatOpen = Boolean(on);
+  noteActivity();
   if (!mainWindow) return;
   mainWindow.setFocusable(Boolean(on));
   if (on) mainWindow.focus();
@@ -2220,6 +2269,8 @@ ipcMain.on("scrappy:set-interactive", (_event, interactive) => {
 // even though the overlay stays click-through.
 let cursorTimer = null;
 function setCursorTrack(on) {
+  cursorHeld = Boolean(on);
+  noteActivity();
   if (cursorTimer) {
     clearInterval(cursorTimer);
     cursorTimer = null;
