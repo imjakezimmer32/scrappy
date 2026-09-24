@@ -149,7 +149,7 @@ document.getElementById("build-voice").addEventListener("click", async (e) => {
   button.textContent = "Build his voice agent";
   if (result.ok) {
     if (result.state) applyState(result.state);
-    say("Voice agent built. Restart Scrappy.", "ok");
+    say("Voice agent built. Try Talk to Scrappy.", "ok");
     return;
   }
   if (result.error === "no_key") {
@@ -168,10 +168,48 @@ document.getElementById("save").addEventListener("click", async () => {
     return;
   }
   applyState(result.state);
-  say("Saved. Restart Scrappy for voice changes to take.", "ok");
+  say("Saved.", "ok");
+});
+
+async function refreshLocalVoiceUi() {
+  const hint = document.getElementById("local-voice-hint");
+  const button = document.getElementById("install-local-voice");
+  if (!hint || !button || !window.setup.localVoiceInstalled) return;
+  const status = await window.setup.localVoiceInstalled();
+  const installed = status && status.installed;
+  hint.textContent = installed
+    ? "Local voice is installed. He'll warm up in the background after you save."
+    : "One-time download: speech models + Python environment (several minutes).";
+  button.textContent = installed ? "Reinstall local voice stack" : "Install local voice stack";
+}
+
+document.getElementById("install-local-voice").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  const out = document.getElementById("local-voice-output");
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = "Installing…";
+  out.hidden = false;
+  out.textContent = "This can take a while. You can leave this window open.\n";
+
+  const result = await window.setup.installLocalVoice();
+
+  button.disabled = false;
+  button.textContent = label;
+  if (result.ok) {
+    out.textContent = (result.output || "Done.") + "\n";
+    say("Local voice installed.", "ok");
+    await refreshLocalVoiceUi();
+    return;
+  }
+  say("Install didn't finish.", "bad");
+  out.textContent = (result.output || result.error || "Unknown error.") + "\n";
 });
 
 window.setup
   .read()
-  .then(applyState)
+  .then((state) => {
+    applyState(state);
+    return refreshLocalVoiceUi();
+  })
   .catch(() => say("Couldn't read your settings.", "bad"));

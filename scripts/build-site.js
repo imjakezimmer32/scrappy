@@ -10,8 +10,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const appUpdate = require("../app-update");
 
 const root = path.join(__dirname, "..");
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const windowsDownloadUrl = appUpdate.windowsDownloadUrl(pkg.version);
 const src = path.join(root, "site", "src");
 const dist = path.join(root, "site", "dist");
 
@@ -58,6 +61,10 @@ function main() {
   }
 
   let html = fs.readFileSync(path.join(src, "index.html"), "utf8");
+  if (!html.includes("{{WINDOWS_DOWNLOAD_URL}}")) {
+    throw new Error("index.html has no {{WINDOWS_DOWNLOAD_URL}}");
+  }
+  html = html.replaceAll("{{WINDOWS_DOWNLOAD_URL}}", windowsDownloadUrl);
   for (const [token, file] of Object.entries(PROMPTS)) {
     const body = fs.readFileSync(path.join(src, file), "utf8").trimEnd();
     const placeholder = `{{${token}}}`;
@@ -65,6 +72,12 @@ function main() {
     html = html.replace(placeholder, escapeHtml(body));
   }
   fs.writeFileSync(path.join(dist, "index.html"), html);
+
+  // Short URL on imscrappy.dev → direct .exe (not the GitHub releases HTML page).
+  fs.writeFileSync(
+    path.join(dist, "_redirects"),
+    `/download/windows\t${windowsDownloadUrl}\t302\n/download\t${windowsDownloadUrl}\t302\n`
+  );
 
   const files = fs.readdirSync(dist).length;
   console.log(`built site/dist — ${files} files`);

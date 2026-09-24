@@ -51,10 +51,13 @@
             <span>Thinking model</span>
             <input id="OLLAMA_THINK_MODEL" type="text" autocomplete="off" spellcheck="false" placeholder="deepseek-r1:14b" />
           </label>
-          <p class="hint">
-            Needs Ollama installed and the local voice stack set up
-            (<code>npm run setup-local-voice</code>).
-          </p>
+          <p class="hint">Needs Ollama installed on your PC.</p>
+        </div>
+
+        <div class="group" data-when-voice="local auto">
+          <p class="hint" id="local-voice-hint">Local voice uses Whisper + Kokoro on your machine.</p>
+          <button id="install-local-voice" type="button" class="secondary">Install local voice stack</button>
+          <pre id="local-voice-output" class="output" hidden></pre>
         </div>
       </section>
 

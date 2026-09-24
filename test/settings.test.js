@@ -96,10 +96,12 @@ test("isConfigured tracks whether he can actually hold a conversation", () => {
   assert.equal(settings.isConfigured(), false);
 
   settings.set("ELEVENLABS_API_KEY", "sk-present");
+  settings.set("ELEVENLABS_AGENT_ID", "agent-test");
   assert.equal(settings.isConfigured(), true);
 
-  // The local stack brings its own brain, so it counts as configured.
   settings.set("ELEVENLABS_API_KEY", "");
-  settings.set("VOICE_BACKEND", "local");
+  settings.set("ELEVENLABS_AGENT_ID", "");
+  settings.set("OPENAI_API_KEY", "sk-cloud");
+  settings.set("VOICE_BACKEND", "auto");
   assert.equal(settings.isConfigured(), true);
 });

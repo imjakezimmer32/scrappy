@@ -477,6 +477,13 @@ function handleLocalMessage(msg) {
       if (/quota|unauthorized|not_installed|mic_/i.test(err)) {
         emit("error", err);
         stop();
+      } else if (err.startsWith("tts_failed:")) {
+        emit("turnError", "tts_failed");
+      } else if (
+        /ollama_|cloud_not_configured|voice_not_ready|Kokoro models missing/i.test(err)
+      ) {
+        emit("error", err.startsWith("ollama_model_missing:") ? "ollama_model_missing" : err);
+        stop();
       } else {
         emit("turnError", err);
       }

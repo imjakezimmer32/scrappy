@@ -29,9 +29,23 @@ function isNewer(latest, current) {
   return cmpVersion(latest, current) > 0;
 }
 
+function installerFileName(version) {
+  const v = String(version || "").trim().replace(/^v/i, "");
+  if (!v) return "Scrappy-Setup.exe";
+  return `Scrappy-Setup-${v}.exe`;
+}
+
+function windowsDownloadUrl(version) {
+  const file = installerFileName(version);
+  return `https://github.com/${REPO}/releases/latest/download/${file}`;
+}
+
 function pickInstaller(assets) {
   const list = Array.isArray(assets) ? assets : [];
-  const named = list.find((a) => /^Scrappy-Setup-.*\.exe$/i.test(a.name || "") && !/\.blockmap$/i.test(a.name || ""));
+  const named = list.find(
+    (a) =>
+      /^Scrappy-Setup(?:-.*)?\.exe$/i.test(a.name || "") && !/\.blockmap$/i.test(a.name || "")
+  );
   if (named) return named;
   return list.find((a) => /\.exe$/i.test(a.name || "") && !/\.blockmap$/i.test(a.name || "")) || null;
 }
@@ -62,6 +76,8 @@ module.exports = {
   parseVersion,
   cmpVersion,
   isNewer,
+  installerFileName,
+  windowsDownloadUrl,
   pickInstaller,
   summarizeRelease,
 };

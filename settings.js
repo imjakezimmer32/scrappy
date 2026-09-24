@@ -267,12 +267,14 @@ function forPanel() {
 // nudge someone through setup on first run.
 function isConfigured() {
   const voice = getLower("VOICE_BACKEND");
-  const hasEleven = isSet("ELEVENLABS_API_KEY");
+  const hasEleven = isSet("ELEVENLABS_API_KEY") && isSet("ELEVENLABS_AGENT_ID");
   const hasCloudBrain =
     isSet("OPENAI_API_KEY") || isSet("GROQ_API_KEY") || isSet("SCRAPPY_LLM_API_KEY");
+  const localVenv = path.join(__dirname, "local-voice", ".venv", "Scripts", "python.exe");
+  const hasLocalVoice = fs.existsSync(localVenv);
   if (voice === "elevenlabs") return hasEleven;
-  if (voice === "local") return true; // the local stack has its own installer
-  return hasEleven || hasCloudBrain;
+  if (voice === "local") return hasLocalVoice;
+  return hasEleven || hasCloudBrain || hasLocalVoice;
 }
 
 function reload() {

@@ -9,9 +9,14 @@ Prefer the installer. Only fall back to git + npm if there is no Release yet.
 
 ## 1. Download and run the installer
 
-Open https://github.com/imjakezimmer32/scrappy/releases/latest
+Download the installer (starts the file download — not the GitHub releases page):
 
-Download **Scrappy-Setup.exe**. Double-click it. Let it finish.
+https://imscrappy.dev/download/windows
+
+Or: https://github.com/imjakezimmer32/scrappy/releases/latest/download/Scrappy-Setup-1.1.0.exe
+(replace the version in the filename if the release tag is newer — see [releases](https://github.com/imjakezimmer32/scrappy/releases/latest).)
+
+Double-click **Scrappy-Setup.exe**. Let it finish.
 
 A robot should appear standing above the taskbar. He starts with Windows after this.
 Cursor hooks are installed on first launch — you do not run `npm run install-hooks`.
